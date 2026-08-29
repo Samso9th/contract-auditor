@@ -181,17 +181,21 @@ def to_markdown(findings, meta, title="Contract audit", brief_text="", artifact_
                   "proved it."]
         if artifact_name:
             run_url = meta.get("run_url") if isinstance(meta, dict) else ""
-            where = (f"the Artifacts section of [this run]({run_url})" if run_url
-                     else f"`{artifact_name}/`")
+            # The Artifacts panel sits at the foot of the run summary page, which
+            # is not where a link to a failed run lands you: say so, rather than
+            # leaving people to hunt through the job log for it.
+            where = (f"the Artifacts panel at the foot of [this run's summary page]"
+                     f"({run_url}), which downloads as a zip"
+                     if run_url else f"`{artifact_name}/`")
             has_tests = any(f.get("test_source") for f in findings)
-            tests_note = ("the `.zip` has the brief and a `tests/` directory of runnable "
-                          "tests, and the `.md` is the brief on its own."
+            tests_note = ("The `.md` is the brief, and `tests/` holds the same tests as "
+                          "runnable files."
                           if has_tests else
-                          "the `.md` is the brief. No tests are included: this run had no "
+                          "The `.md` is the brief. No tests are included: this run had no "
                           "API key, so findings came from parsing alone and nothing was "
                           "executed to prove them.")
             lines += ["", f"To download it instead, take **{artifact_name}** from "
-                          f"{where}: {tests_note}"]
+                          f"{where}. {tests_note}"]
         lines += ["", "<details>", "<summary>Fix brief (click to expand, then copy)</summary>",
                   "", "```markdown", brief_text.strip(), "```", "", "</details>", ""]
 

@@ -30,6 +30,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  actions: read
   pull-requests: write
 
 env:
@@ -99,20 +100,30 @@ jobs:
           sarif_file: ${{ steps.audit.outputs.sarif }}
           category: contract-audit
 
-      - name: Comment the summary on the pull request
-        uses: marocchino/sticky-pull-request-comment@v3
-        if: always() && github.event_name == 'pull_request' && steps.audit.outputs.summary != ''
-        with:
-          header: contract-audit
-          path: ${{ steps.audit.outputs.summary }}
-
       - name: Upload the fix brief
+        id: brief
         uses: actions/upload-artifact@v7
         if: always() && steps.audit.outputs.brief-dir != ''
         with:
           name: contract-audit-brief-${{ env.CASE }}
           path: ${{ steps.audit.outputs.brief-dir }}
           if-no-files-found: ignore
+
+      # The artifact id does not exist until the upload above has finished, so
+      # the direct download link cannot come from the audit step. Appending it
+      # here is what turns "hunt through the run page" into one click.
+      - name: Add the brief download link to the summary
+        if: always() && steps.brief.outputs.artifact-url != '' && steps.audit.outputs.summary != ''
+        run: |
+          printf '\n**[Download the fix brief](%s)**\n' \
+            "${{ steps.brief.outputs.artifact-url }}" >> "${{ steps.audit.outputs.summary }}"
+
+      - name: Comment the summary on the pull request
+        uses: marocchino/sticky-pull-request-comment@v3
+        if: always() && github.event_name == 'pull_request' && steps.audit.outputs.summary != ''
+        with:
+          header: contract-audit
+          path: ${{ steps.audit.outputs.summary }}
 
       # The whole point of auditing a case whose answer is written down. A
       # decoy must come back silent and a fault must be caught; either one

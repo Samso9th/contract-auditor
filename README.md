@@ -70,7 +70,7 @@ name: Contract audit
 on: [pull_request]
 permissions:
   contents: read
-  security-events: write
+  pull-requests: write
 
 jobs:
   audit:
@@ -92,11 +92,50 @@ jobs:
           strip-prefix: /v1
           # Warn only, to start. Tighten once the first backlog is cleared.
           fail-on: none
+      - id: brief
+        uses: actions/upload-artifact@v4
+        if: always() && steps.audit.outputs.brief-dir != ''
+        with:
+          name: contract-audit-brief
+          path: ${{ steps.audit.outputs.brief-dir }}
+          if-no-files-found: ignore
+      # The artifact id is minted by the upload, so the download link cannot
+      # come from the audit step. This is what makes the comment one click.
+      - if: always() && steps.brief.outputs.artifact-url != ''
+        run: |
+          printf '\n**[Download the fix brief](%s)**\n' \
+            "${{ steps.brief.outputs.artifact-url }}" >> "${{ steps.audit.outputs.summary }}"
+      - uses: marocchino/sticky-pull-request-comment@v2
+        if: always() && github.event_name == 'pull_request'
+        with:
+          header: contract-audit
+          path: ${{ steps.audit.outputs.summary }}
+```
+
+The comment is edited in place on every push, so a pull request carries one
+audit that is always current rather than a column of stale ones.
+
+Findings are also written to SARIF, if you would rather read them as annotations
+in the Security tab. Add the upload step and the permissions it needs:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write   # upload the SARIF
+  actions: read            # required as well on a private repository
+
+    # ... after the audit step:
       - uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: always() && steps.audit.outputs.sarif != ''
         with:
           sarif_file: ${{ steps.audit.outputs.sarif }}
 ```
+
+Code scanning has to be enabled on the repository for that step to land, which
+on a private repository means GitHub Advanced Security. Without it the upload
+fails with `Resource not accessible by integration`, so leave the step out
+unless you want the annotations.
 
 Those three inputs are the ones that differ from project to project, and a first
 run that goes wrong almost always goes wrong on one of them. What to put depends
