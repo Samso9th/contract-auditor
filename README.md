@@ -45,7 +45,7 @@ Findings then appear as annotations on the exact lines of the pull request diff.
 Add `api-key` to enable the judgment pass, and `webhook-url` to POST the full
 report to Slack, Telegram or a Postgres sink.
 
-**Full setup, every input, and troubleshooting: [docs/github-actions.md](docs/github-actions.md).**
+**Full setup, every input, and troubleshooting: [docs/site/github-actions.mdx](docs/site/github-actions.mdx)** — published at the docs site.
 
 
 ## The user and the bottleneck
@@ -276,8 +276,8 @@ Removed experiments belong in this table too, with what they taught.
 |---|---|
 | [auditor/](auditor/) | The agent: tools, prompts, orchestration |
 | [auditor/notify.py](auditor/notify.py) | Slack/Telegram alerting, gated on verification |
-| [docs/](docs/) | Plain-language overview, self-improvement design note |
-| [docs/site/](docs/site/) | Mintlify public documentation |
+| [ddocs/](ddocs/) | Plain-language overview, self-improvement note, GHCR publishing guide |
+| [docs/site/](docs/site/) | Public documentation site — quickstart, CI setup, how it works |
 | [baseline/](baseline/) | The single-prompt baseline |
 | [eval/fixture/](eval/fixture/) | Synthetic Go payments API + its published spec |
 | [eval/mutations/](eval/mutations/) | The 16 mutations and their ground truth |
@@ -291,8 +291,6 @@ Removed experiments belong in this table too, with what they taught.
 | [eval/score.py](eval/score.py) | Scores any run; identical for baseline and agent |
 | [eval/oracle.py](eval/oracle.py) | Emits a perfect run, to verify the scorer itself |
 | [reports/](reports/) | Run outputs and scored results |
-| [docs/github-actions.md](docs/github-actions.md) | Running it in your own CI — inputs, SARIF, webhooks, troubleshooting |
-| [GHCR_SETUP.md](GHCR_SETUP.md) | Publishing the image to GHCR (maintainer, one-time) |
 | [action.yml](action.yml) · [Dockerfile](Dockerfile) | The GitHub Action and its image |
 | [REPRODUCTION.md](REPRODUCTION.md) | Clean-environment setup and exact commands |
 
