@@ -47,14 +47,14 @@ type Field struct {
 
 // HandlerFacts is what a handler body demonstrably does.
 type HandlerFacts struct {
-	Name        string `json:"name"`
-	Statuses    []int  `json:"statuses"`
-	SuccessCode int    `json:"success_code"`
+	Name        string   `json:"name"`
+	Statuses    []int    `json:"statuses"`
+	SuccessCode int      `json:"success_code"`
 	QueryParams []string `json:"query_params"`
 	HeadersRead []string `json:"headers_read"`
 	HeadersSet  []string `json:"headers_set"`
-	File        string `json:"file"`
-	Line        int    `json:"line"`
+	File        string   `json:"file"`
+	Line        int      `json:"line"`
 	// EndLine closes the function body, so a caller can slice the exact source
 	// of one handler out of its file instead of sending the whole package to a
 	// model and hoping it reads the right function.
@@ -157,7 +157,7 @@ func collectStructs(fset *token.FileSet, files map[string]*ast.File, root string
 							Name: name.Name, JSONName: resolved, GoType: goType,
 							JSONType: goToJSONType(goType), Omitempty: omitempty,
 							Skipped: skipped || !name.IsExported(),
-							Line: fset.Position(name.Pos()).Line,
+							Line:    fset.Position(name.Pos()).Line,
 						})
 					}
 				}

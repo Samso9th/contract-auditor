@@ -10,6 +10,44 @@ Nothing reaches the report unverified. That constraint is the whole design.
 
 ---
 
+## Use it in your CI
+
+Packaged as a GitHub Action. The minimum setup needs no API key and no secret —
+the deterministic layer costs nothing and catches most drift on its own.
+
+```yaml
+name: Contract audit
+on: [pull_request]
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: audit
+        uses: samso9th/contract-auditor@v1
+        continue-on-error: true
+        with:
+          spec: openapi.json
+          source-dir: internal
+          strip-prefix: /api/v1
+          fail-on: none
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ${{ steps.audit.outputs.sarif }}
+```
+
+Findings then appear as annotations on the exact lines of the pull request diff.
+Add `api-key` to enable the judgment pass, and `webhook-url` to POST the full
+report to Slack, Telegram or a Postgres sink.
+
+**Full setup, every input, and troubleshooting: [docs/github-actions.md](docs/github-actions.md).**
+
+
 ## The user and the bottleneck
 
 **Who has this problem.** Backend teams that publish an HTTP API to external
@@ -253,6 +291,9 @@ Removed experiments belong in this table too, with what they taught.
 | [eval/score.py](eval/score.py) | Scores any run; identical for baseline and agent |
 | [eval/oracle.py](eval/oracle.py) | Emits a perfect run, to verify the scorer itself |
 | [reports/](reports/) | Run outputs and scored results |
+| [docs/github-actions.md](docs/github-actions.md) | Running it in your own CI — inputs, SARIF, webhooks, troubleshooting |
+| [GHCR_SETUP.md](GHCR_SETUP.md) | Publishing the image to GHCR (maintainer, one-time) |
+| [action.yml](action.yml) · [Dockerfile](Dockerfile) | The GitHub Action and its image |
 | [REPRODUCTION.md](REPRODUCTION.md) | Clean-environment setup and exact commands |
 
 ## Prior work

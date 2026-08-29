@@ -21,6 +21,10 @@ export OPENROUTER_API_KEY="${INPUT_API_KEY:-${OPENROUTER_API_KEY:-}}"
 export OPENROUTER_BASE_URL="${INPUT_BASE_URL:-${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}}"
 export AUDITOR_WEBHOOK_URL="${INPUT_WEBHOOK_URL:-}"
 export AUDITOR_WEBHOOK_SECRET="${INPUT_WEBHOOK_SECRET:-}"
+export SLACK_WEBHOOK_URL="${INPUT_SLACK_WEBHOOK_URL:-${SLACK_WEBHOOK_URL:-}}"
+export TELEGRAM_BOT_TOKEN="${INPUT_TELEGRAM_BOT_TOKEN:-${TELEGRAM_BOT_TOKEN:-}}"
+export TELEGRAM_CHAT_ID="${INPUT_TELEGRAM_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}"
+NOTIFY_MIN="${INPUT_NOTIFY_MIN_SEVERITY:-high}"
 
 log() { printf '%s\n' "$*"; }
 fail() { printf '::error::%s\n' "$*" >&2; exit 1; }
@@ -66,6 +70,18 @@ python3 "$AUDITOR/auditor/report.py" "$REPORT" \
     --fail-on "$FAIL_ON" --title "Contract audit"
 STATUS=$?
 set -e
+
+# Human channels are a separate concern from CI artifacts: notify.py sends only
+# verified findings and stays silent on a clean run, because an alert that fires
+# on every build stops being read within a week.
+if [ -n "${SLACK_WEBHOOK_URL:-}" ] || [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+  RUN_URL="${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}"
+  python3 "$AUDITOR/auditor/notify.py" --run "$REPORT" \
+      --title "Contract audit — ${GITHUB_REPOSITORY:-repository}" \
+      --min-severity "$NOTIFY_MIN" \
+      ${GITHUB_RUN_ID:+--report-url "$RUN_URL"} || \
+    log "::warning::notification delivery failed; the audit itself succeeded"
+fi
 
 TOTAL=$(jq '.findings | length' "$REPORT" 2>/dev/null || echo 0)
 CRITICAL=$(jq '[.findings[] | select(.severity=="critical")] | length' "$REPORT" 2>/dev/null || echo 0)

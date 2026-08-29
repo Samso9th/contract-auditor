@@ -49,9 +49,30 @@ inputs:
     required: false
     default: high
   webhook-url:
-    description: POST the full report here (Postgres sink, Slack relay, Telegram bot).
+    description: >-
+      POST the full JSON report here. Intended for a data sink such as Postgres;
+      for Slack or Telegram use the dedicated inputs below, which send a formatted
+      message rather than raw JSON.
     required: false
     default: ""
+  slack-webhook-url:
+    description: >-
+      Slack incoming webhook. Sends a formatted message containing verified
+      findings only, and stays silent on a clean run.
+    required: false
+    default: ""
+  telegram-bot-token:
+    description: Telegram bot token. Requires telegram-chat-id.
+    required: false
+    default: ""
+  telegram-chat-id:
+    description: Telegram chat to post into.
+    required: false
+    default: ""
+  notify-min-severity:
+    description: Lowest severity worth interrupting a human for.
+    required: false
+    default: high
   webhook-secret:
     description: Sent as X-Auditor-Token so your receiver can authenticate the POST.
     required: false

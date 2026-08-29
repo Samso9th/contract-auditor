@@ -7,8 +7,14 @@
 # of them — this tool exists to not be quietly wrong.
 FROM golang:1.24-bookworm
 
+# `image.source` is what links the published package to the repository, and the
+# link is what makes the package inherit the repository's visibility. The release
+# workflow also supplies it via docker/metadata-action; setting it here too means
+# a hand-built image links correctly as well, instead of landing unlinked and
+# private for reasons that are tedious to work out after the fact.
 LABEL org.opencontainers.image.title="contract-auditor" \
       org.opencontainers.image.description="Finds drift between API code, its OpenAPI spec, and its published docs — and proves each finding with a test." \
+      org.opencontainers.image.source="https://github.com/samso9th/contract-auditor" \
       org.opencontainers.image.licenses="MIT"
 
 # python3 runs the harness, node runs the TypeScript extractor, curl is the

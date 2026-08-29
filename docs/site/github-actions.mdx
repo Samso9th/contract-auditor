@@ -1,0 +1,252 @@
+---
+title: "GitHub Actions"
+description: "Run the auditor on every pull request. The minimum setup needs no API key."
+---
+
+The auditor ships as a GitHub Action backed by a container on GHCR. It audits
+the repository on each pull request, writes findings onto the diff as inline
+annotations, and optionally pushes verified drift to Slack or Telegram.
+
+## Minimum setup
+
+No API key, no secret. The deterministic layer alone scores F1 0.889 against the
+project's own evaluation, so this is worth running before you decide anything
+about model spend.
+
+```yaml .github/workflows/contract-audit.yml
+name: Contract audit
+on: [pull_request]
+
+permissions:
+  contents: read
+  security-events: write   # required for the SARIF upload
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: audit
+        uses: samso9th/contract-auditor@v1
+        continue-on-error: true          # report first, block later
+        with:
+          spec: openapi.json
+          source-dir: internal
+          strip-prefix: /api/v1
+          fail-on: none
+
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ${{ steps.audit.outputs.sarif }}
+```
+
+Findings now appear as annotations on the exact lines of the pull request diff.
+
+<Note>
+A Markdown summary is written to the run's job summary automatically, so there
+is something readable even before the SARIF upload is configured.
+</Note>
+
+## Getting the three paths right
+
+Most first runs fail on one of these.
+
+| Input | What it means | Finding yours |
+|---|---|---|
+| `spec` | The OpenAPI document your integrators build against | Commonly `openapi.json`, `docs/openapi.json`, `api/openapi.yaml`, or wherever your generator writes it |
+| `source-dir` | Where route registrations and handlers live | Go: `internal` or `cmd`. Express: `src` |
+| `strip-prefix` | The prefix present in code but absent from spec paths | If code registers `/api/v1/payouts` and the spec documents `/payouts`, this is `/api/v1` |
+
+<Warning>
+If a first run reports that **every** route is missing from the spec,
+`strip-prefix` is wrong. Your spec's `servers[].url` usually names it.
+</Warning>
+
+## Adding the judgment pass
+
+The deterministic rules settle what is mechanical. Three kinds of drift need
+reading comprehension: a handler requiring a field the spec calls optional, a
+default that quietly changed, a validation bound loosened below what is
+documented.
+
+```yaml
+      - id: audit
+        uses: samso9th/contract-auditor@v1
+        with:
+          spec: docs/openapi.json
+          source-dir: src
+          language: typescript
+          strip-prefix: /api/v1
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          workers: "16"
+          fail-on: critical
+```
+
+Add `OPENROUTER_API_KEY` under **Settings → Secrets and variables → Actions**.
+Any OpenAI-compatible endpoint works — set `base-url` to point elsewhere.
+
+<Note>
+Every claim, from the rules and the model alike, is executed against your handler
+before it reaches the report. In the project's own evaluation the model's raw
+precision was **0.23**; the gate refuted every false claim and the report came out
+at precision **1.0**. You read verified findings, not a model's opinion. See
+[the verification gate](/verification-gate).
+</Note>
+
+Cost across the full 16-case evaluation was **$0.044 for 159 model calls**. One
+repository audit is a fraction of that.
+
+## Inputs
+
+| Input | Default | Notes |
+|---|---|---|
+| `spec` | — | **Required.** Path to your OpenAPI document. |
+| `source-dir` | `.` | Directory containing the API source. |
+| `language` | `auto` | `go`, `typescript`, or detect. |
+| `strip-prefix` | — | Prefix to strip so routes match spec paths. |
+| `api-key` | — | Omit for deterministic-only: no cost, no secret. |
+| `base-url` | OpenRouter | Any OpenAI-compatible endpoint. |
+| `model` | `z-ai/glm-5.3-flash` | Model id for the judgment pass. |
+| `workers` | `8` | Concurrent model calls. Raise to shorten wall clock. |
+| `fail-on` | `high` | `critical`, `high`, `medium`, `low`, `none`. |
+| `webhook-url` | — | Full JSON report POSTed to a data sink. |
+| `webhook-secret` | — | Sent as `X-Auditor-Token`. |
+| `slack-webhook-url` | — | Formatted Slack message, verified findings only. |
+| `telegram-bot-token` | — | With `telegram-chat-id`. |
+| `notify-min-severity` | `high` | Lowest severity worth interrupting a human for. |
+
+**Outputs:** `findings`, `critical`, `high`, `sarif`, `summary`.
+
+## Alerting a human
+
+Two different jobs, deliberately separate.
+
+<Tabs>
+  <Tab title="Slack or Telegram">
+    Formatted, verified-only, and **silent on a clean run**.
+
+    ```yaml
+        with:
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          notify-min-severity: critical
+    ```
+
+    See [notifications](/notifications) for the formatting and filtering rules.
+  </Tab>
+  <Tab title="Data sink">
+    Raw JSON, every finding, for Postgres or a warehouse.
+
+    ```yaml
+        with:
+          webhook-url: ${{ secrets.AUDITOR_WEBHOOK_URL }}
+          webhook-secret: ${{ secrets.AUDITOR_WEBHOOK_SECRET }}
+    ```
+
+    `file` and `line` are structured fields, so a sink never parses prose to
+    place a finding.
+
+    ```json
+    {
+      "tool": "contract-auditor",
+      "repository": "owner/repo",
+      "sha": "abc123",
+      "run_url": "https://github.com/owner/repo/actions/runs/123",
+      "summary": { "total": 3, "by_severity": { "critical": 1, "high": 2 } },
+      "findings": [
+        {
+          "path": "/payouts", "method": "post",
+          "kind": "response_type_mismatch", "detail": "amount",
+          "severity": "critical",
+          "file": "handlers/types.go", "line": 27,
+          "evidence": "PayoutResponse.Amount is float64 (JSON number); spec declares string",
+          "verdict": "confirmed"
+        }
+      ]
+    }
+    ```
+  </Tab>
+  <Tab title="PR comment">
+    ```yaml
+        - uses: marocchino/sticky-pull-request-comment@v2
+          if: github.event_name == 'pull_request'
+          with:
+            path: ${{ steps.audit.outputs.summary }}
+    ```
+
+    Needs `pull-requests: write` in the job's `permissions`.
+  </Tab>
+</Tabs>
+
+## An adoption order that survives contact with a team
+
+<Steps>
+  <Step title="Report only">
+    `fail-on: none` with `continue-on-error: true`. Nothing blocks.
+  </Step>
+  <Step title="Put findings on the diff">
+    Add the SARIF upload, so they appear where people already look.
+  </Step>
+  <Step title="Clear the backlog">
+    Fix what is real. Record intentional divergence in
+    `auditor/memory/allowlist.json` — each entry needs a reason and a date, so the
+    allowlist does not become a place findings go to be forgotten.
+  </Step>
+  <Step title="Tighten">
+    `fail-on: critical`, then `high` once the signal is trusted.
+  </Step>
+</Steps>
+
+<Warning>
+Blocking merges on day one is how a tool gets uninstalled in week two.
+</Warning>
+
+## Scheduled audits
+
+Pull request runs catch drift as it is introduced. A weekly run catches drift
+that predates adoption, and drift in the spec itself.
+
+```yaml
+on:
+  schedule:
+    - cron: "0 9 * * 1"    # Mondays, 09:00 UTC
+  pull_request:
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Every route reported as missing from the spec">
+    `strip-prefix` is wrong. If code registers `/api/v1/payouts` and the spec
+    documents `/payouts`, set `strip-prefix: /api/v1`.
+  </Accordion>
+  <Accordion title="manifest unknown when pulling the image">
+    The package is private, or was never linked to its repository. Check with
+    `gh api /user/packages/container/contract-auditor --jq '.visibility'`.
+    Publishing from a public repository normally yields a public package
+    automatically; if it reports `private`, set Package settings → visibility →
+    Public.
+  </Accordion>
+  <Accordion title="denied: permission_denied when publishing">
+    Settings → Actions → General → Workflow permissions → **Read and write**.
+    The workflow requesting `packages: write` is not enough on its own; the
+    repository default caps what the token can be granted.
+  </Accordion>
+  <Accordion title="Findings show verdict: error">
+    The gate could not compile or run its generated test, usually a Go toolchain
+    mismatch — the image pins Go 1.24. These findings are **kept and flagged,
+    never silently dropped**, because an infrastructure failure must never look
+    like a clean bill of health. Deterministic findings are unaffected; they
+    execute nothing.
+  </Accordion>
+  <Accordion title="The run reported unread_endpoints">
+    The model returned something unparseable for those endpoints even after a
+    retry, so the judgment pass did not read them. This is surfaced rather than
+    hidden: an endpoint nobody read is not an endpoint with no drift.
+  </Accordion>
+  <Accordion title="TypeScript findings show unsupported">
+    Route extraction works for TypeScript; the verification gate does not yet.
+    Rather than let unverified claims through, they are reported as unsupported.
+  </Accordion>
+</AccordionGroup>
