@@ -205,8 +205,8 @@ becoming a list people learn to scroll past.
 The payments company's real codebase is private and its working files contain
 live passwords, so it cannot be handed to judges. Instead this repository
 contains a small working payments service written for the purpose: eight
-endpoints, no outside dependencies, runs offline, with a published document that
-matches it exactly.
+kinds of request, nothing to install, runs without internet, and a published
+document that matches it exactly.
 
 Faults are then deliberately introduced, one per test case. Because we broke it
 on purpose, we know precisely what a correct answer looks like, which is what
