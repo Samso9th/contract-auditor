@@ -1,0 +1,61 @@
+{
+  "case": "D08",
+  "findings": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "X-Api-Key: the handler rejects any request without an X-Api-Key header (401 'api key required'), but GET /banks is the o",
+      "severity": "high",
+      "evidence": "handlers/misc.go:45-47 (ListBanks checks r.Header.Get(\"X-Api-Key\") and returns 401); OpenAPI spec paths./banks.get has no 'security' key and no top-level security is declared",
+      "source": "baseline"
+    },
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "undocumented_status",
+      "detail": "401: the code returns 401 Unauthorized when X-Api-Key is missing, but the spec documents only a 200 response for GET /ba",
+      "severity": "medium",
+      "evidence": "handlers/misc.go:46 (writeError(w, http.StatusUnauthorized, \"unauthorized\", ...)); spec paths./banks.get.responses defines only '200'",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "X-Signature: the handler sets an X-Signature response header on the 202 response, but the spec's 202 response declares n",
+      "severity": "low",
+      "evidence": "handlers/misc.go:64 (w.Header().Set(\"X-Signature\", \"sha256=deadbeef\")); spec paths./webhooks/test.post.responses.202 contains no 'headers' object",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "PayoutRequest.accountNumber/bankCode/amount/currency: the spec marks these fields required, but the handler only enforce",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:31-34 (only req.Reference is validated in CreatePayout); spec components.schemas.PayoutRequest.required = [accountNumber, bankCode, amount, currency, reference]",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "RefundRequest.payoutId/amount: the spec marks both fields required, but the handler performs no field validation after d",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:85-90 (CreateRefund decodes RefundRequest with no validation before responding 201); spec components.schemas.RefundRequest.required = [payoutId, amount]",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 253.7,
+    "cost_usd": 0.012515,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7453,
+    "output_tokens": 22935,
+    "parsed": true,
+    "truncated": false
+  }
+}

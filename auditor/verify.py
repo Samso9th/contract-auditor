@@ -419,9 +419,28 @@ def _resolve_detail(claim, operation, spec, key):
     if detail in names:
         return detail
 
-    # Longest match first, so "perPage" wins over "page" in a phrase with both.
+    # A quoted or backticked name is the strongest signal: the model is naming
+    # the field rather than describing it.
+    quoted = re.findall(r"[\"'`]([A-Za-z_][A-Za-z0-9_]*)[\"'`]", detail)
+    for candidate in quoted:
+        if candidate in names:
+            return candidate
+
+    # Then whole tokens. Substring matching is wrong here and was actively
+    # harmful: a model writing "carries feeAmount but the spec documents fee"
+    # resolved to `amount`, because "amount" is a substring of "feeAmount". The
+    # probe then asserted a field that was present, and the gate refuted a
+    # finding that was true. Split into identifier tokens and match whole ones.
+    tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", detail)
+    token_set = set(tokens)
     for name in sorted(names, key=len, reverse=True):
-        if name and name.lower() in detail.lower():
+        if name in token_set:
+            return name
+
+    # Last resort: a word-boundary match, so a name embedded in prose is still
+    # found, but a name embedded inside a longer identifier is not.
+    for name in sorted(names, key=len, reverse=True):
+        if name and re.search(rf"\b{re.escape(name)}\b", detail):
             return name
     return detail
 

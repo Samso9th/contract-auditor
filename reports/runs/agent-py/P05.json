@@ -1,13 +1,13 @@
 {
   "findings": [],
   "meta": {
-    "wall_clock_seconds": 132.8,
-    "cost_usd": 0.004942,
+    "wall_clock_seconds": 348.8,
+    "cost_usd": 0.018446,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
-    "model_calls": 9,
-    "input_tokens": 13344,
-    "output_tokens": 14303,
+    "model_calls": 12,
+    "input_tokens": 20846,
+    "output_tokens": 56678,
     "deterministic_claims": 0,
     "agent_claims": 0,
     "suppressed_by_allowlist": 0,
@@ -21,5 +21,5 @@
     "agent_errors": [],
     "unread_endpoints": []
   },
-  "case": "T02"
+  "case": "P05"
 }

@@ -120,6 +120,23 @@ def main():
     check("prose detail still refuted on clean code", prose_clean["verdict"] == "refuted",
           f"{prose_clean['verdict']}: {prose_clean['detail']}")
 
+    # Substring matching on `detail` resolved "feeAmount" to `amount`, because
+    # one contains the other. The probe then asserted a field that was present
+    # and the gate refuted a finding that was true - it silently deleted two
+    # correct TypeScript findings before this was caught.
+    confusable = ('response body carries the field `feeAmount`, which the specification '
+                  'does not document, and omits `fee`')
+    outcome = verify_claim(CASES / "D01", claim("/payouts", "post",
+                                                "response_field_mismatch", confusable))
+    check("prose naming a longer field resolves to the right one",
+          outcome["verdict"] == "confirmed", f"{outcome['verdict']}: {outcome['detail']}")
+
+    # And the same prose must still be refuted where the field is honoured.
+    outcome = verify_claim(FIXTURE, claim("/payouts", "post",
+                                          "response_field_mismatch", confusable))
+    check("confusable prose still refuted on clean code",
+          outcome["verdict"] == "refuted", f"{outcome['verdict']}: {outcome['detail']}")
+
     # Route existence genuinely cannot be settled by calling a handler, so it
     # must still be declared unsupported rather than quietly assumed true.
     outcome = verify_claim(CASES / "D03",
