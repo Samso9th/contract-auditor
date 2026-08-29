@@ -1,0 +1,41 @@
+{
+  "findings": [
+    {
+      "path": "/kyc/bvn",
+      "method": "post",
+      "kind": "validation_mismatch",
+      "detail": "bvn length: handler accepts only 10-character values, spec requires exactly 11 (minLength 11, maxLength 11)",
+      "severity": "medium",
+      "evidence": "Handler line: `if len(str(body.get(\"bvn\", \"\"))) != 10:` \u2014 rejects any bvn whose length is not 10 (the error text 'bvn must be 11 digits' contradicts the check itself). Spec: bvn has minLength 11 and maxLength 11, so an 11-digit bvn is valid but the handler rejects it, and a 10-digit bvn is invalid but the handler accepts it. (verified: ASSERTION: value for bvn satisfies the documented constraint, but the handler returned 400: {'error': 'bvn must be 11 digits'})",
+      "file": "app/routes.py",
+      "line": 41,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: value for bvn satisfies the documented constraint, but the handler returned 400: {'error': 'bvn must be 11 digits'}"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 42.0,
+    "cost_usd": 0.004511,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 8,
+    "input_tokens": 10166,
+    "output_tokens": 9166,
+    "deterministic_claims": 0,
+    "agent_claims": 1,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 0,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "P07"
+}

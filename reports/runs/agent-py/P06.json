@@ -1,0 +1,49 @@
+{
+  "findings": [
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "request body field 'reason'",
+      "severity": "high",
+      "evidence": "if not body.get(\"reason\"): raise HttpError(400, \"missing_reason\", \"reason is required\") \u2014 the handler rejects any request omitting 'reason', but the specification marks reason as required: false, so such requests are valid per the contract (verified: ASSERTION: spec does not require reason, but omitting it returned 400: {'error': 'reason is required'})",
+      "file": "app/routes.py",
+      "line": 21,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: spec does not require reason, but omitting it returned 400: {'error': 'reason is required'}"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 89.9,
+    "cost_usd": 0.009875,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 8,
+    "input_tokens": 10358,
+    "output_tokens": 20888,
+    "deterministic_claims": 0,
+    "agent_claims": 2,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 1,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "email format: the spec declares the required email field with format \"email\", but the handler only performs a presence/t",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "P06"
+}

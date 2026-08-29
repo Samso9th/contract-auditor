@@ -12,32 +12,46 @@ Nothing reaches the report unverified. That constraint is the whole design.
 
 ## Language support
 
-Three languages, at different levels of maturity. A language counts as supported
-only once it has its own fixture, its own injected mutations, and a scored
-evaluation, so these numbers are measured rather than claimed. `make languages`
-prints the same table from the code.
+Four languages. A language counts as supported only once it has its own fixture,
+its own injected mutations, and a scored evaluation, so these are measured rather
+than claimed. `make languages` prints the same table from the code.
 
-| Language | Extraction | Verification gate | Rules settle | Scored F1 |
-|---|---|---|---|---|
-| **Go** | `go/ast` | `httptest` | 9 kinds | **1.000** |
-| **Python** (FastAPI, Flask) | `ast`, no install needed | direct call, framework stubbed | 3 kinds | _pending_ |
-| **TypeScript** (Express) | TypeScript compiler API | mock request/response | 2 kinds | **0.571** |
+Everything below is the **deterministic layer alone** - no model, no API key, no
+cost, tenths of a second:
 
-Precision is 1.000 on every language measured so far, and every decoy stays
-clean: the verification gate behaves identically whatever produced the claim.
-Recall is what differs, and the reason is worth stating plainly.
+| Language | Extraction | Verification gate | Rules settle | Precision | Recall | F1 |
+|---|---|---|---|---|---|---|
+| **Go** | `go/ast` | `httptest` | 9 kinds | 1.000 | 0.800 | **0.889** |
+| **TypeScript** (Express) | TypeScript compiler API | mock request/response | 8 kinds | 1.000 | 0.800 | **0.889** |
+| **Python** (FastAPI, Flask) | `ast`, nothing to install | direct call, framework stubbed | 8 kinds | 1.000 | 0.700 | **0.824** |
+| **PHP** (Laravel) | `token_get_all` | direct controller call | 6 kinds | 1.000 | 0.700 | **0.824** |
 
-**Go reaches 1.000 because a parser reads struct tags exactly.** Its extractor
-emits response shapes and handler-body facts, so nine kinds of drift are settled
-mechanically. TypeScript's extractor emits routes only, so the same kinds fall to
-the agent, which reads source *approximately* — it caught 4 of 10 injected
-drifts, missing exactly the response-shape and header cases a parser would have
-found. The gate confirmed those same drifts when handed them directly, so the gap
-is recall, not verification.
+Precision is 1.000 everywhere and every decoy stays clean. Every remaining miss,
+in every language, is one of the three kinds that need judgment rather than
+lookup - an undocumented required field, a validation bound loosened, a default
+that changed. Those are the agent's job, and Go delegates them too. It is parity
+in kind, not a shortfall.
 
-The path to parity is not a better prompt. It is extending the TypeScript and
-Python extractors to emit response shapes the way `facts.go` does, moving those
-kinds from the agent back to the rules.
+**No adapter imports or boots the target's framework.** A Go project without its
+modules downloaded, a FastAPI app without FastAPI installed, a Laravel app with
+no `vendor/` - each is still auditable, because the extractors read source and
+the gates call handlers directly. A gate that needs the target's runtime can only
+verify projects that already have it.
+
+### How a language gets more reliable
+
+Not by prompting better. TypeScript first scored **0.571** and Laravel **0.333**,
+because their extractors emitted routes and nothing else, so response shapes,
+statuses and headers fell to a model reading source approximately. Teaching each
+extractor to emit those facts - response shapes resolved across files and through
+delegation, statuses read from the response call's own receiver, headers set,
+query parameters read - moved six kinds from "a model might notice" to "a parser
+always notices", and took both to the numbers above.
+
+Each adapter declares what its rules settle in `DETERMINISTIC_KINDS`. That list is
+the handover point: a kind on it is the rules' job and the agent is never asked
+about it. Extending an extractor and adding the kind to that list is the whole
+mechanism.
 
 ## Use it in your CI
 
