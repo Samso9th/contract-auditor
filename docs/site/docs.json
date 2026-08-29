@@ -1,0 +1,37 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Contract Auditor",
+  "description": "Finds where a Go API's code, its OpenAPI spec and its published docs disagree - and proves each finding with a failing test.",
+  "colors": {
+    "primary": "#0E7490",
+    "light": "#22D3EE",
+    "dark": "#0E7490"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting started",
+        "pages": ["introduction", "quickstart"]
+      },
+      {
+        "group": "How it works",
+        "pages": ["how-it-works", "verification-gate", "drift-catalogue"]
+      },
+      {
+        "group": "Operating it",
+        "pages": ["notifications", "cli"]
+      },
+      {
+        "group": "Design notes",
+        "pages": ["self-improvement", "field-notes", "status"]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Samso9th"
+    }
+  }
+}

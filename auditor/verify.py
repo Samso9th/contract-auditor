@@ -46,6 +46,14 @@ EXECUTABLE = {
     "status_code_mismatch",
     "response_header_mismatch",
     "auth_mismatch",
+    # The three judgment kinds. They need a model to notice, but not to confirm:
+    # each one predicts a concrete request the handler will mishandle, so each
+    # can be executed like any other claim. Leaving them unverified would have
+    # meant the only findings reaching the report on trust were the ones no
+    # parser could check - exactly the wrong place to relax the rule.
+    "request_required_mismatch",
+    "default_value_mismatch",
+    "validation_mismatch",
 }
 
 
@@ -85,8 +93,52 @@ def sample_value(name, schema_type, spec_property=None):
     return f"test-{lowered or 'value'}"
 
 
-def build_request(operation, path, method, include_auth=True, auth_header=None):
-    """Synthesise a request that should reach the handler's success path."""
+def constrained_value(name, definition):
+    """A value that satisfies the documented constraints exactly.
+
+    Used to probe a validation claim: if the spec says a field is 11 characters,
+    send exactly 11. A handler honouring the contract accepts it; one enforcing a
+    different bound rejects it, and that rejection is the evidence.
+    """
+    if not definition:
+        return sample_value(name, "string")
+
+    if definition.get("enum"):
+        return definition["enum"][0]
+
+    schema_type = definition.get("type", "string")
+    if schema_type in ("integer", "number"):
+        if definition.get("minimum") is not None:
+            return definition["minimum"]
+        if definition.get("maximum") is not None:
+            return definition["maximum"]
+        return sample_value(name, schema_type)
+
+    if schema_type == "string":
+        minimum = definition.get("minLength")
+        maximum = definition.get("maxLength")
+        target = minimum if minimum is not None else maximum
+        if target:
+            base = sample_value(name, "string")
+            digits = "0123456789"
+            # Digit-shaped fields (BVN, account numbers) are usually validated
+            # for content as well as length, so pad with digits when the sample
+            # value is already numeric.
+            filler = digits if str(base).isdigit() else "x"
+            return (str(base) * (target // len(str(base)) + 1))[:target] if len(str(base)) >= target \
+                else (str(base) + filler * target)[:target]
+    return sample_value(name, schema_type)
+
+
+def build_request(operation, path, method, include_auth=True, auth_header=None,
+                  omit_field=None, constrain_field=None, omit_param=None):
+    """Synthesise a request that should reach the handler's success path.
+
+    `omit_field` leaves one body field out - used to probe a claim that the
+    handler requires something the spec calls optional. `constrain_field` sets
+    one field to a value satisfying its documented constraint. `omit_param`
+    leaves a query parameter off so the handler's default is observable.
+    """
     url = path
     headers = {}
     body = None
@@ -95,7 +147,7 @@ def build_request(operation, path, method, include_auth=True, auth_header=None):
         value = sample_value(param["name"], param["type"])
         if param["in"] == "path":
             url = url.replace("{" + param["name"] + "}", str(value))
-        elif param["in"] == "header" and param["required"]:
+        elif param["in"] == "header" and param["required"] and param["name"] != omit_field:
             headers[param["name"]] = str(value)
 
     # Any path placeholder the spec failed to declare still has to be filled or
@@ -106,7 +158,13 @@ def build_request(operation, path, method, include_auth=True, auth_header=None):
     if props:
         payload = {}
         for name, definition in props.items():
-            if definition["required"] or len(props) <= 8:
+            if name == omit_field:
+                continue
+            if not (definition["required"] or len(props) <= 8):
+                continue
+            if name == constrain_field:
+                payload[name] = constrained_value(name, definition)
+            else:
                 payload[name] = sample_value(name, definition["type"])
         body = json.dumps(payload)
 
@@ -197,6 +255,43 @@ def render_test(claim, operation, handler, url, headers, body, success_code, spe
 			{go_literal(documented)}, headerNames(rec.Header()))
 	}}'''
 
+    elif kind == "request_required_mismatch":
+        # The spec says this field is optional. Send a request that omits it but
+        # carries everything the spec does require. A 4xx proves the handler
+        # demands more than the contract promises.
+        assertion = f'''	if rec.Code >= 400 && rec.Code < 500 {{
+		t.Fatalf("spec does not require %q, but omitting it returned %d: %s",
+			{go_literal(detail)}, rec.Code, strings.TrimSpace(rec.Body.String()))
+	}}'''
+
+    elif kind == "default_value_mismatch":
+        documented = _documented_default(spec, claim, detail)
+        assertion = f'''	var payload any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {{
+		t.Fatalf("response is not JSON: %v", err)
+	}}
+	obj := firstObject(payload)
+	if obj == nil {{
+		t.Fatalf("response is not a JSON object: %s", rec.Body.String())
+	}}
+	value, ok := obj[{go_literal(detail)}]
+	if !ok {{
+		t.Skipf("response does not echo %q; default not observable here", {go_literal(detail)})
+	}}
+	if got := toNumber(value); got != {documented} {{
+		t.Fatalf("spec documents a default of %v for %q; handler applied %v",
+			{documented}, {go_literal(detail)}, value)
+	}}'''
+
+    elif kind == "validation_mismatch":
+        # Send a value that satisfies the documented constraint exactly. A
+        # handler honouring the spec accepts it; one enforcing a different bound
+        # rejects it.
+        assertion = f'''	if rec.Code >= 400 && rec.Code < 500 {{
+		t.Fatalf("value for %q satisfies the documented constraint, but the handler returned %d: %s",
+			{go_literal(detail)}, rec.Code, strings.TrimSpace(rec.Body.String()))
+	}}'''
+
     elif kind == "auth_mismatch":
         # The spec calls this endpoint public, so a request with no credentials
         # must not be rejected. Auth headers are deliberately omitted here.
@@ -227,6 +322,8 @@ var (
 	_ = strings.NewReader
 	_ = json.Unmarshal
 	_ = sort.Strings
+	_ = strings.TrimSpace
+	_ = toNumber
 )
 
 func keys(m map[string]any) []string {{
@@ -263,6 +360,13 @@ func firstObject(v any) map[string]any {{
 	return nil
 }}
 
+func toNumber(v any) float64 {{
+	if f, ok := v.(float64); ok {{
+		return f
+	}}
+	return -1
+}}
+
 func jsonType(v any) string {{
 	switch v.(type) {{
 	case string:
@@ -290,6 +394,41 @@ def _documented_type(spec, claim, success_code, detail):
     op = spec[(claim["path"], claim["method"])]
     response = op["responses"].get(str(success_code), {})
     return response.get("properties", {}).get(detail, {}).get("type", "string")
+
+
+def _resolve_detail(claim, operation, spec, key):
+    """Map a claim's `detail` onto a name the specification declares.
+
+    Returns the original string when nothing matches, so an unresolvable detail
+    still fails the documented-field check rather than silently binding to the
+    wrong field.
+    """
+    detail = (claim.get("detail") or "").strip()
+    if not detail:
+        return detail
+
+    names = {p["name"] for p in operation["params"]}
+    names |= set(operation["request_properties"])
+    for response in operation["responses"].values():
+        names |= set(response.get("properties", {}))
+
+    if detail in names:
+        return detail
+
+    # Longest match first, so "perPage" wins over "page" in a phrase with both.
+    for name in sorted(names, key=len, reverse=True):
+        if name and name.lower() in detail.lower():
+            return name
+    return detail
+
+
+def _documented_default(spec, claim, detail):
+    """The default the spec documents for a parameter, as a Go literal."""
+    op = spec[(claim["path"], claim["method"])]
+    for param in op["params"]:
+        if param["name"] == detail and param.get("default") is not None:
+            return json.dumps(param["default"])
+    return "0"
 
 
 def _documented_header(spec, claim, detail):
@@ -330,6 +469,13 @@ def verify_claim(case_dir, claim, spec=None, keep_test=False):
 
     operation = spec[key]
 
+    # Resolve a prose `detail` down to the identifier it refers to. A
+    # deterministic rule emits a bare name; a model writes a phrase around it
+    # ("perPage query parameter default value"). Matching that phrase against the
+    # names the spec declares keeps both usable without requiring the model to be
+    # perfectly terse - and an unresolved detail was silently losing true claims.
+    claim = dict(claim, detail=_resolve_detail(claim, operation, spec, key))
+
     # A claim about a field must name a field the spec actually documents.
     # Without this, a hallucinated field name generates a test asserting that
     # an invented key is present, the assertion fails because the key was never
@@ -359,10 +505,18 @@ def verify_claim(case_dir, claim, spec=None, keep_test=False):
     success_codes = spec.success_codes(key)
     success_code = success_codes[0] if success_codes else "200"
 
-    include_auth = claim["kind"] != "auth_mismatch"
-    url, headers, body = build_request(operation, claim["path"], claim["method"],
-                                       include_auth=include_auth,
-                                       auth_header=auth_header_name(spec))
+    kind = claim["kind"]
+    detail = claim.get("detail") or ""
+    url, headers, body = build_request(
+        operation, claim["path"], claim["method"],
+        include_auth=(kind != "auth_mismatch"),
+        auth_header=auth_header_name(spec),
+        # Each judgment kind predicts a specific request the handler mishandles;
+        # the probe has to be that request, not a generic valid one.
+        omit_field=detail if kind == "request_required_mismatch" else None,
+        constrain_field=detail if kind == "validation_mismatch" else None,
+        omit_param=detail if kind == "default_value_mismatch" else None,
+    )
 
     source = render_test(claim, operation, route["handler"], url, headers, body,
                          success_code, spec)
@@ -383,6 +537,13 @@ def verify_claim(case_dir, claim, spec=None, keep_test=False):
         if "build failed" in output or "cannot use" in output or "undefined:" in output:
             result["verdict"] = "error"
             result["detail"] = "generated test did not compile"
+        elif "--- SKIP" in output or "SKIP:" in output:
+            # `go test` exits 0 on a skip, which an exit-code check reads as a
+            # passing test and therefore as a refuted claim. A skip means the
+            # probe could not be built - unknown, not false. Conflating the two
+            # silently discards true findings, which is how D09 was lost.
+            result["verdict"] = "unsupported"
+            result["detail"] = _skip_reason(output) or "probe could not be constructed"
         elif completed.returncode != 0:
             result["verdict"] = "confirmed"
             result["detail"] = _failure_message(output)
@@ -397,6 +558,14 @@ def verify_claim(case_dir, claim, spec=None, keep_test=False):
             test_path.unlink()
 
     return result
+
+
+def _skip_reason(output):
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("contract_verify_test.go:") and "not observable" in stripped:
+            return stripped.split(":", 2)[-1].strip()
+    return ""
 
 
 def _failure_message(output):

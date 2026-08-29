@@ -20,6 +20,27 @@ import sys
 
 METHODS = ("get", "post", "put", "patch", "delete", "head", "options")
 
+# Validation keywords carried through the index verbatim.
+#
+# These were dropped in the first version, and it cost precision immediately: the
+# auditor showed a reviewer `bvn: {"type": "string"}` for a field the spec
+# constrains to exactly 11 characters, and a correct reading of that incomplete
+# picture produced a finding that was not true. Starving a reader of context does
+# not make it cautious - it makes it confidently wrong.
+CONSTRAINT_KEYS = (
+    "minLength", "maxLength", "pattern", "enum",
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+    "multipleOf", "minItems", "maxItems", "uniqueItems", "default", "nullable",
+)
+
+
+def constraints(schema):
+    """Every validation keyword the schema declares, omitting the ones it does
+    not - so an absent constraint is visibly absent rather than implied."""
+    if not isinstance(schema, dict):
+        return {}
+    return {k: schema[k] for k in CONSTRAINT_KEYS if k in schema}
+
 
 class SpecError(RuntimeError):
     """Raised when the spec cannot be read. As with route extraction, a partial
@@ -89,11 +110,13 @@ class Spec:
         out = {}
         for name, definition in merged.items():
             definition = self.resolve(definition)
-            out[name] = {
+            entry = {
                 "type": definition.get("type", ""),
                 "format": definition.get("format", ""),
                 "required": name in required,
             }
+            entry.update(constraints(definition))
+            out[name] = entry
         return out, composed
 
     # -- indexing --------------------------------------------------------
@@ -118,13 +141,15 @@ class Spec:
         for raw in list(shared) + list(operation.get("parameters", [])):
             raw = self.resolve(raw) if "$ref" in raw else raw
             schema = raw.get("schema", {})
-            params.append({
+            param = {
                 "name": raw.get("name", ""),
                 "in": raw.get("in", ""),
                 "required": bool(raw.get("required", False)),
                 "type": schema.get("type", ""),
                 "default": schema.get("default", None),
-            })
+            }
+            param.update(constraints(schema))
+            params.append(param)
 
         request = operation.get("requestBody", {})
         request_schema = (request.get("content", {})

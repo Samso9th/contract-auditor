@@ -38,6 +38,12 @@ TRUE_CLAIMS = [
     ("D05", claim("/balance", "get", "response_type_mismatch", "ledger")),
     ("D08", claim("/banks", "get", "auth_mismatch", "ApiKeyAuth")),
     ("D10", claim("/webhooks/test", "post", "response_header_mismatch", "X-Signature")),
+    # The three judgment kinds. A model has to notice these, but the gate still
+    # has to be able to execute them, or the only unverified findings in the
+    # report would be the ones no parser could check.
+    ("D06", claim("/refunds", "post", "request_required_mismatch", "reason")),
+    ("D09", claim("/transactions", "get", "default_value_mismatch", "perPage")),
+    ("D11", claim("/kyc/bvn", "post", "validation_mismatch", "bvn")),
 ]
 
 # The same claims against the clean fixture, where none of them are true. This
@@ -49,6 +55,9 @@ FALSE_CLAIMS = [
     claim("/balance", "get", "response_type_mismatch", "available"),
     claim("/banks", "get", "auth_mismatch", "ApiKeyAuth"),
     claim("/webhooks/test", "post", "response_header_mismatch", "X-Signature"),
+    claim("/refunds", "post", "request_required_mismatch", "reason"),
+    claim("/transactions", "get", "default_value_mismatch", "perPage"),
+    claim("/kyc/bvn", "post", "validation_mismatch", "bvn"),
 ]
 
 # Claims naming things that do not exist. These must never be confirmed.
@@ -94,9 +103,27 @@ def main():
               outcome["verdict"] == "refuted",
               f"{outcome['verdict']}: {outcome['detail']}")
 
-    # Kinds the gate cannot execute must be declared unsupported, never assumed.
-    outcome = verify_claim(CASES / "D09",
-                           claim("/transactions", "get", "default_value_mismatch", "perPage"))
+    # A model writes prose in `detail`. The gate must resolve it to the name the
+    # spec declares - not doing so refuted a true D09 claim on the first full run
+    # and cost a real finding.
+    prose = verify_claim(CASES / "D09", claim("/transactions", "get",
+                                              "default_value_mismatch",
+                                              "perPage query parameter default value"))
+    check("prose detail resolves to a spec name", prose["verdict"] == "confirmed",
+          f"{prose['verdict']}: {prose['detail']}")
+
+    # The same phrase against clean code must still be refuted - resolution must
+    # not turn a tolerant lookup into a permissive one.
+    prose_clean = verify_claim(FIXTURE, claim("/transactions", "get",
+                                              "default_value_mismatch",
+                                              "perPage query parameter default value"))
+    check("prose detail still refuted on clean code", prose_clean["verdict"] == "refuted",
+          f"{prose_clean['verdict']}: {prose_clean['detail']}")
+
+    # Route existence genuinely cannot be settled by calling a handler, so it
+    # must still be declared unsupported rather than quietly assumed true.
+    outcome = verify_claim(CASES / "D03",
+                           claim("/payouts", "post", "route_missing_from_spec", ""))
     check("declares unexecutable kinds unsupported", outcome["verdict"] == "unsupported",
           outcome["verdict"])
 

@@ -1,0 +1,101 @@
+---
+title: "Introduction"
+description: "Find where your API's code, spec and documentation disagree - with proof."
+---
+
+<Note>
+  Built for the micro1 Agentic Workflows Hackathon. The deterministic layer and
+  the verification gate are working and tested; the full orchestration is still
+  being assembled. See [Project status](/status) before quoting any numbers.
+</Note>
+
+## The problem
+
+A published HTTP API has at least three descriptions of itself, and nothing keeps
+them in sync:
+
+<CardGroup cols={3}>
+  <Card title="The code" icon="code">
+    What actually runs when someone calls the endpoint.
+  </Card>
+  <Card title="The generated spec" icon="file-code">
+    Built from annotations above each handler. Only as accurate as those notes.
+  </Card>
+  <Card title="The published docs" icon="book-open">
+    The prose your integrators actually read before writing a line.
+  </Card>
+</CardGroup>
+
+Different people edit these at different times. Code review asks *"is this code
+correct?"* — never *"does this still match what we promised?"* So drift
+accumulates silently and surfaces at integration time, in someone else's
+codebase, with no error message pointing at the real cause.
+
+## Why it costs money
+
+Drift is cheap to fix at the commit that introduced it and expensive once a
+partner has built against the wrong contract. Contract Auditor moves the cost
+back to where it belongs by catching it in CI.
+
+## What makes this different
+
+Anything can generate a list of suspected mismatches. The failure mode of a model
+reading handler code is a **confident, plausible, wrong** finding, and a report
+full of those costs more attention than it saves.
+
+<Card title="Nothing reaches the report unverified" icon="shield-check" horizontal>
+  Every claim must ship a Go test that fails against the current code. If the
+  test passes, the claim was wrong and the finding is discarded — however
+  confident its author was. That single constraint is the whole design.
+</Card>
+
+## Measured on a real API
+
+From the motivating repository, a Nigerian payments API:
+
+| Signal | Value |
+|---|---|
+| Endpoints registered in code | 841 |
+| Endpoints in the published spec | 170 |
+| Endpoints with no documentation annotation | 500 (59%) |
+| Documented responses typed only as "an object" | 153 of 194 (79%) |
+
+<Warning>
+  The 841-vs-170 gap is **not** 671 missing documents. Most endpoints in a real
+  API are never meant to be public — admin screens, internal service calls,
+  health checks. Those belong out of developer documentation. The honest reading
+  is that nobody knows which of the remaining 671 *should* have been published,
+  and sorting them is part of the job rather than a step to skip.
+</Warning>
+
+The last row stands regardless of that caveat: for 79% of what *is* published,
+the documentation says an object comes back and nothing about what is inside it.
+That is a documented endpoint you still cannot build against.
+
+## Who it is for
+
+<CardGroup cols={2}>
+  <Card title="Teams publishing an API" icon="server">
+    Run it in CI. Drift is caught at the commit that caused it.
+  </Card>
+  <Card title="Fintech and payments" icon="credit-card">
+    Carries domain knowledge about money precision, auth scope, idempotency and
+    webhook signing.
+  </Card>
+  <Card title="Teams integrating with someone else" icon="plug">
+    Point it at the docs you were handed and find out what is wrong before you
+    build on it.
+  </Card>
+  <Card title="Platform and DevEx" icon="gauge">
+    A number for documentation drift instead of a hunch.
+  </Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+  <Card title="Run it in five minutes" icon="rocket" href="/quickstart">
+    Clone, build the cases, score the oracle. No API key needed.
+  </Card>
+  <Card title="See the architecture" icon="sitemap" href="/how-it-works">
+    Where determinism ends and judgement begins.
+  </Card>
+</CardGroup>

@@ -1,0 +1,4 @@
+{
+  "_comment": "Drift that is known and intentional. An entry here suppresses a finding on every subsequent run, so the report stays signal rather than a list a reviewer learns to scroll past. Match is on path + method + kind, with detail optional; a null or absent detail matches any. Every entry needs a reason and the date it was accepted, because an allowlist without justification becomes a place findings go to be forgotten.",
+  "accepted": []
+}

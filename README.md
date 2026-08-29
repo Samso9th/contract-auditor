@@ -217,6 +217,9 @@ Removed experiments belong in this table too, with what they taught.
 | Path | Contents |
 |---|---|
 | [auditor/](auditor/) | The agent: tools, prompts, orchestration |
+| [auditor/notify.py](auditor/notify.py) | Slack/Telegram alerting, gated on verification |
+| [docs/](docs/) | Plain-language overview, self-improvement design note |
+| [docs/site/](docs/site/) | Mintlify public documentation |
 | [baseline/](baseline/) | The single-prompt baseline |
 | [eval/fixture/](eval/fixture/) | Synthetic Go payments API + its published spec |
 | [eval/mutations/](eval/mutations/) | The 16 mutations and their ground truth |

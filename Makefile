@@ -1,4 +1,4 @@
-.PHONY: help cases baseline agent score clean check
+.PHONY: help cases baseline agent notify score clean check
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "};{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -8,9 +8,13 @@ cases: ## Build the 16 evaluation cases (verifies each compiles)
 
 baseline: cases ## Run the single-prompt baseline over every case
 	@python3 baseline/run.py --cases eval/cases --out reports/runs/baseline
+	@echo
+	@cd eval && python3 score.py --run ../reports/runs/baseline --markdown
 
 agent: cases ## Run the contract auditor over every case
 	@python3 auditor/run.py --cases eval/cases --out reports/runs/agent
+	@echo
+	@cd eval && python3 score.py --run ../reports/runs/agent --markdown
 
 routes: ## Print the route table for the clean fixture
 	@python3 auditor/tools/routes.py eval/fixture --strip-prefix /v1
@@ -23,6 +27,8 @@ test-tools: cases ## Verify the auditor's deterministic tools
 	@python3 auditor/test_verify.py
 	@echo
 	@python3 auditor/test_llm.py --offline
+	@echo
+	@python3 auditor/test_notify.py
 
 deterministic: cases ## Run the no-model layer over every case and score it
 	@python3 auditor/run_deterministic.py
@@ -37,6 +43,9 @@ test-llm: ## Verify the model client against the live endpoint (costs <$0.001)
 
 verify: deterministic ## Put every deterministic finding through the verification gate
 	@for c in eval/cases/D*; do python3 auditor/verify.py $$c; echo; done
+
+notify: ## Preview the alert for the latest agent run (sends nothing)
+	@python3 auditor/notify.py --run reports/runs/agent --min-severity high --dry-run
 
 score: ## Score both runs side by side
 	@cd eval && python3 score.py --run ../reports/runs/baseline --markdown

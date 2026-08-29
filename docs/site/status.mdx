@@ -1,0 +1,67 @@
+---
+title: "Project status"
+description: "What is built, what is not, and what the scoreboard says."
+---
+
+<Warning>
+  Read this before quoting any performance number. The measuring apparatus is
+  finished and trustworthy; the thing being measured is not fully assembled.
+</Warning>
+
+## Built and verified
+
+Every component below is covered by offline tests that run with no API key
+(`make test-tools`):
+
+<CardGroup cols={2}>
+  <Card title="Route extraction" icon="route">
+    `go/ast` walker. Finds 841 routes on the target repository where a grep finds
+    805.
+  </Card>
+  <Card title="Spec index and differ" icon="code-compare">
+    Computes code △ spec as a set difference rather than inferring it.
+  </Card>
+  <Card title="Verification gate" icon="shield-check">
+    Generates and runs the Go test that decides every finding.
+  </Card>
+  <Card title="Model client" icon="plug">
+    Provider-neutral, curl transport, JSON extraction that tolerates real model
+    output.
+  </Card>
+  <Card title="Per-endpoint auditor" icon="magnifying-glass">
+    The fan-out unit.
+  </Card>
+  <Card title="Notification layer" icon="bell">
+    Slack and Telegram, gated on verification.
+  </Card>
+</CardGroup>
+
+There is also a scored **no-model run** (`make deterministic`) that establishes
+how much of the problem needs no AI at all — the bar the agent layer has to clear
+to justify its cost.
+
+## Not yet built
+
+- `auditor/run.py` — the full orchestration
+- `baseline/run.py` — the single-prompt baseline it has to beat
+
+## The scoreboard
+
+| Metric | Baseline | Agent |
+|---|---|---|
+| Recall (of 12 drifts) | pending | pending |
+| Precision | pending | pending |
+| **F1 (primary)** | pending | pending |
+| Decoys left clean (of 4) | pending | pending |
+| Critical drifts caught (of 3) | pending | pending |
+| Cost per repo | pending | pending |
+
+Targets were committed in writing **before** the first run — recall ≥ 0.80,
+precision ≥ 0.85, all 3 critical drifts caught, all 4 decoys clean — so they
+cannot be quietly lowered afterwards to flatter the outcome.
+
+<Note>
+  That is a defensible order to work in: the evaluation was built before the
+  thing it evaluates. But the scoreboard is still empty, and any presentation of
+  this work should say so.
+</Note>

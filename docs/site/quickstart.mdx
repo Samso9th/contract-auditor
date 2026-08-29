@@ -1,0 +1,100 @@
+---
+title: "Quickstart"
+description: "From clone to a scored run. The first three steps cost nothing."
+---
+
+## Requirements
+
+| Tool | Version | Needed for |
+|---|---|---|
+| Go | 1.22+ | Building the fixture and running verification tests |
+| Python | 3.9+, standard library only | Case injection, scoring, the auditor itself |
+| An OpenRouter key | — | Only the model-backed steps. Everything below runs without one. |
+
+<Note>
+  No `pip install`, no Docker, no database. The harness shells out to `curl`
+  rather than importing an HTTP library — see [Field notes](/field-notes) for the
+  measurement that forced that.
+</Note>
+
+## Run it
+
+<Steps>
+  <Step title="Build the evaluation cases">
+    ```bash
+    make cases
+    ```
+    Injects 16 mutations into a synthetic Go payments API — 12 real drifts and 4
+    decoys. Every mutated fixture is compiled before it becomes a case, so a
+    green run means all 16 are valid targets.
+
+    Takes under 30 seconds. Costs nothing.
+  </Step>
+
+  <Step title="Verify the deterministic tools">
+    ```bash
+    make test-tools
+    ```
+    Checks the route extractor, the spec differ, the verification gate, the model
+    client and the notifier against answers known by construction. No API key, no
+    cost.
+  </Step>
+
+  <Step title="Confirm the scorer is sound">
+    ```bash
+    make check
+    ```
+    Feeds the ground truth to the scorer as if it were a perfect run. Expect
+    precision 1.0, recall 1.0, decoys clean 4/4. Anything else means the scorer
+    is broken, not the agent.
+  </Step>
+
+  <Step title="Run the deterministic layer and score it">
+    ```bash
+    make deterministic
+    ```
+    Still no model. This is the number worth having before any agent exists: how
+    much of the problem does not need one, and the bar the agent layer has to
+    clear to justify its cost.
+  </Step>
+
+  <Step title="Add a key and run the full auditor">
+    ```bash
+    echo 'OPENROUTER_API_KEY=sk-or-...' >> .env
+    make agent
+    make score
+    ```
+    Any OpenAI-compatible endpoint works — set `OPENROUTER_BASE_URL` to point
+    somewhere else.
+  </Step>
+</Steps>
+
+## Audit a real repository
+
+```bash
+python3 auditor/run.py \
+  --repo /path/to/go/api \
+  --spec /path/to/openapi.json \
+  --docs /path/to/docs \
+  --out reports/runs/my-api
+```
+
+There is no ground truth for a real repository, so this produces a ranked report
+rather than a score. Each finding carries the test that proves it.
+
+Then push the result to your team:
+
+```bash
+python3 auditor/notify.py --run reports/runs/my-api --min-severity high
+```
+
+See [Notifications](/notifications) for wiring Slack or Telegram.
+
+## Reset
+
+```bash
+make clean
+```
+
+`eval/fixture/` is the pristine source and is never mutated in place — every
+mutation is applied to a copy under `eval/cases/`.

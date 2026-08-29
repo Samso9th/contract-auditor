@@ -55,7 +55,11 @@ type HandlerFacts struct {
 	HeadersSet  []string `json:"headers_set"`
 	File        string `json:"file"`
 	Line        int    `json:"line"`
-	Ambiguous   bool   `json:"ambiguous"`
+	// EndLine closes the function body, so a caller can slice the exact source
+	// of one handler out of its file instead of sending the whole package to a
+	// model and hoping it reads the right function.
+	EndLine   int  `json:"end_line"`
+	Ambiguous bool `json:"ambiguous"`
 }
 
 // statusNames maps the net/http status constants to their codes. Only the
@@ -206,9 +210,10 @@ func collectHandlerFacts(fset *token.FileSet, files map[string]*ast.File, root s
 				continue
 			}
 			f := HandlerFacts{
-				Name: fn.Name.Name,
-				File: rel(root, path),
-				Line: fset.Position(fn.Pos()).Line,
+				Name:    fn.Name.Name,
+				File:    rel(root, path),
+				Line:    fset.Position(fn.Pos()).Line,
+				EndLine: fset.Position(fn.End()).Line,
 			}
 			statuses := map[int]bool{}
 			queries := map[string]bool{}
