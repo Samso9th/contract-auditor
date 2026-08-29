@@ -33,6 +33,7 @@ learned to distrust. It ships with the first suppression, never after it.
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import sys
 import zlib
@@ -41,6 +42,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import ledger as ledger_mod  # noqa: E402
 import rules as rules_mod  # noqa: E402
+import store as store_mod  # noqa: E402
 
 # Fraction of endpoints audited with memory disabled. Small enough that the
 # precision gain from retrieval survives it, large enough that a wrong rule is
@@ -86,10 +88,26 @@ class Memory:
         self._calibration = None
 
     @classmethod
-    def load(cls, ledger_path=None, rules_path=None, epsilon=EPSILON):
-        rows = ledger_mod.read(ledger_path or ledger_mod.LEDGER)
-        return cls(rows, rules_mod.load(rules_path or rules_mod.RULES),
-                   epsilon=epsilon, seed=ledger_mod.run_count(rows))
+    def load(cls, store=None, epsilon=EPSILON):
+        """Everything the configured store holds.
+
+        Rules are derived here rather than stored. They are a grouping of the
+        ledger and nothing else, so recomputing them costs a pass over a few
+        hundred rows and removes a second object that could fall out of step
+        with the evidence it claims to summarise.
+        """
+        store = store if store is not None else store_mod.open_store()
+        rows = []
+        for line in store.load():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        rules = rules_mod.review(rules_mod.promote(rows, rules_mod.accepted_entries()), rows)
+        return cls(rows, rules, epsilon=epsilon, seed=ledger_mod.run_count(rows))
 
     # -- mechanism 4: calibration ------------------------------------------
 
@@ -240,12 +258,15 @@ class Memory:
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--ledger", default=str(ledger_mod.LEDGER))
+    parser.add_argument("--memory-url", default="",
+                        help="overrides AUDITOR_MEMORY_URL; file:///path for local")
     parser.add_argument("--endpoint", help='e.g. "post /payouts": show what would be recalled')
     args = parser.parse_args()
 
-    memory = Memory.load(args.ledger)
+    store = store_mod.open_store(args.memory_url)
+    memory = Memory.load(store)
     stats = memory.stats()
+    print(f"store:  {store.describe()}")
     print(f"ledger: {stats['claims']} claim(s) over {stats['runs']} run(s), "
           f"{stats['refuted_available']} refuted and available as negatives, "
           f"{stats['rules']} active rule(s)\n")
