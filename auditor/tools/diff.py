@@ -113,6 +113,24 @@ def auth_header_names(spec):
     return names
 
 
+def type_conflicts(observed, documented):
+    """Whether an observed JSON type genuinely contradicts the documented one.
+
+    JSON has no integer type: `1` is a number on the wire, and a language that
+    does not distinguish them cannot be said to disagree with a spec that
+    declares `integer`. Go can be held to the stricter reading because its
+    extractor reports `int` and `float64` separately; a JavaScript or Python
+    literal cannot. Reporting that as drift would be flagging the format's own
+    limitation as a defect.
+    """
+    if not observed or not documented or observed == documented:
+        return False
+    numeric = {"number", "integer"}
+    if observed in numeric and documented in numeric:
+        return False
+    return True
+
+
 def comparable_struct(struct):
     """A struct is comparable only when every field's wire name is known and the
     struct name resolves to a single declaration.
@@ -187,7 +205,11 @@ def audit(source_dir, spec_path, strip_prefix="", language=None):
         path, method = key
         route = routes[key]
         operation = spec[key]
-        facts = handlers.get(route["handler"])
+        # Prefer the definition in the file that registered the route. Keying
+        # only by name collides wherever a route function and the service it
+        # calls share one, and the ambiguity guard then declines both.
+        facts = (table.get("handlers_by_location") or {}).get(
+            f"{route['file']}::{route['handler']}") or handlers.get(route["handler"])
         findings.extend(_operation_rules(path, method, route, operation, spec,
                                          facts, structs, auth_headers))
 
@@ -199,6 +221,8 @@ def audit(source_dir, spec_path, strip_prefix="", language=None):
 def _operation_rules(path, method, route, operation, spec, facts, structs, auth_headers):
     out = []
     success_codes = spec.success_codes((path, method))
+    if facts and facts.get("ambiguous"):
+        facts = None
 
     # R3/R4 - the success response body, field names then field types.
     if success_codes:
@@ -206,8 +230,17 @@ def _operation_rules(path, method, route, operation, spec, facts, structs, auth_
         struct = structs.get(response["schema_name"]) if response["schema_name"] else None
         documented = response["properties"]
 
-        if struct and documented and not response["composed"] and comparable_struct(struct):
+        # Statically typed languages name their response shape and it is looked
+        # up by that name. Dynamically typed ones build it inline, so the
+        # extractor attaches the observed shape to the handler instead. Both
+        # arrive here as the same field map.
+        actual = None
+        if struct and comparable_struct(struct):
             actual = wire_fields(struct)
+        elif facts and facts.get("response_complete") and facts.get("response_fields"):
+            actual = facts["response_fields"]
+
+        if actual and documented and not response["composed"]:
 
             missing = sorted(set(documented) - set(actual))
             extra = sorted(set(actual) - set(documented))
@@ -217,23 +250,29 @@ def _operation_rules(path, method, route, operation, spec, facts, structs, auth_
                     parts.append(f"spec documents {', '.join(missing)} with no matching field")
                 if extra:
                     parts.append(f"code returns {', '.join(extra)} undocumented")
+                where = (f"{struct['file']}:{struct['line']} struct {struct['name']}"
+                         if struct else f"{facts['file']}:{facts['line']} {facts['name']} response")
                 out.append(finding(
                     path, method, "response_field_mismatch",
-                    (missing or extra)[0],
-                    f"{struct['file']}:{struct['line']} struct {struct['name']}: " + "; ".join(parts),
-                    "R3"))
+                    (missing or extra)[0], f"{where}: " + "; ".join(parts), "R3",
+                    file=(struct or facts)["file"], line=(struct or facts)["line"]))
 
             for name in sorted(set(documented) & set(actual)):
                 expected = documented[name]["type"]
                 got = actual[name]["json_type"]
-                if not expected or not got or expected == got:
+                if not type_conflicts(got, expected):
                     continue
                 severity = "critical" if any(h in name.lower() for h in MONEY_HINTS) else "high"
+                source = struct or facts
+                described = (f"{struct['name']}.{actual[name]['name']} is "
+                             f"{actual[name]['go_type']} (JSON {got})" if struct
+                             else f"{facts['name']} returns {name} as {got}")
                 out.append(finding(
                     path, method, "response_type_mismatch", name,
-                    f"{struct['file']}:{actual[name]['line']} {struct['name']}.{actual[name]['name']}"
-                    f" is {actual[name]['go_type']} (JSON {got}); spec declares {expected}",
-                    "R4", severity=severity))
+                    f"{source['file']}:{actual[name].get('line', source['line'])} "
+                    f"{described}; spec declares {expected}",
+                    "R4", severity=severity,
+                    file=source["file"], line=actual[name].get("line", source["line"])))
 
     # Same reasoning as comparable_struct: a handler name declared in more than
     # one package cannot be attributed to this route, so every body-derived rule
@@ -253,7 +292,10 @@ def _operation_rules(path, method, route, operation, spec, facts, structs, auth_
 
     # R5/R6 - status codes the handler can actually emit.
     documented_codes = set(spec.status_codes((path, method)))
-    handler_success = facts["success_code"]
+    # A framework that declares the success status on the route decorator rather
+    # than in the body (FastAPI's status_code=) reports it there, not in the
+    # handler facts. Either source is the code's own statement of intent.
+    handler_success = facts["success_code"] or route.get("status_code") or 0
     spec_success = {int(c) for c in success_codes}
 
     if handler_success and spec_success and handler_success not in spec_success:

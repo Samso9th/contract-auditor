@@ -70,6 +70,53 @@ const ts = loadTypeScript();
 
 const HTTP_METHODS = new Set(["get", "post", "put", "patch", "delete", "head", "options", "all"]);
 
+// Handler-body facts, the TypeScript counterpart of what facts.go reads from Go.
+// Without these the rules can only settle route existence, and every response
+// shape, status and header falls to a model reading source approximately - which
+// measured 0.571 F1 against Go's 1.000 on the same injected drifts.
+
+function jsonTypeOfNode(node) {
+  if (!node) return "";
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isTemplateExpression(node)) return "string";
+  if (ts.isNumericLiteral(node)) return "number";
+  if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) return "boolean";
+  if (ts.isArrayLiteralExpression(node)) return "array";
+  if (ts.isObjectLiteralExpression(node)) return "object";
+  if (ts.isPrefixUnaryExpression(node) && ts.isNumericLiteral(node.operand)) return "number";
+  // `String(x)`, `Number(x)` and friends state the type at the call site.
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+    const fn = node.expression.text;
+    if (fn === "String") return "string";
+    if (fn === "Number" || fn === "parseInt" || fn === "parseFloat") return "number";
+    if (fn === "Boolean") return "boolean";
+  }
+  return "";
+}
+
+// Fields of an object literal, with the JSON type of each value where the AST
+// settles it. A spread or computed key makes the shape incomplete, and an
+// incomplete shape must not be compared - a missing field would read as drift.
+function fieldsOfObject(node, sf) {
+  const fields = {};
+  let complete = true;
+  for (const prop of node.properties) {
+    if (ts.isSpreadAssignment(prop)) { complete = false; continue; }
+    const name = prop.name;
+    let key = null;
+    if (name && (ts.isIdentifier(name) || ts.isStringLiteral(name))) key = name.text;
+    if (key === null) { complete = false; continue; }
+    const value = ts.isPropertyAssignment(prop) ? prop.initializer
+                : ts.isShorthandPropertyAssignment(prop) ? prop.name : null;
+    fields[key] = {
+      json_name: key,
+      json_type: jsonTypeOfNode(value),
+      line: sf.getLineAndCharacterOfPosition(prop.getStart(sf)).line + 1,
+    };
+  }
+  return { fields, complete };
+}
+
 function sourceFiles(dir) {
   const out = [];
   const skip = new Set(["node_modules", "dist", "build", ".git", "coverage", "logs"]);
@@ -120,12 +167,19 @@ function handlerName(args) {
 // mount points declared with router.use(prefix, subRouter), and every route.
 const files = sourceFiles(ROOT);
 const perFile = new Map();
+const perFileFacts = [];
+// Every function declaration in the project, so a handler that builds its
+// response in an imported module can still be followed. First declaration wins,
+// in sorted file order, which keeps the result stable across runs.
+const GLOBAL_FUNCTIONS = new Map();
 
 for (const file of files) {
   let text;
   try { text = fs.readFileSync(file, "utf8"); } catch { continue; }
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const rel = path.relative(ROOT, file);
+  const functions = new Map(); // name -> declaration node, for resolving helpers
+  const facts = new Map();     // handler name -> body facts
   const imports = new Map();   // local name -> resolved file
   const mounts = [];           // { prefix, local }
   const routes = [];           // { method, path, handler, line }
@@ -148,6 +202,139 @@ for (const file of files) {
     }
     return null;
   };
+
+  // Pass A: index every function declaration in the file, so a handler that
+  // delegates its response shape to a helper can be followed one level.
+  const indexFunctions = (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name) functions.set(node.name.text, node);
+    if (ts.isVariableStatement(node)) {
+      for (const decl of node.declarationList.declarations) {
+        if (ts.isIdentifier(decl.name) && decl.initializer &&
+            (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))) {
+          functions.set(decl.name.text, decl.initializer);
+        }
+      }
+    }
+    ts.forEachChild(node, indexFunctions);
+  };
+  indexFunctions(sf);
+  for (const [name, node] of functions) {
+    if (!GLOBAL_FUNCTIONS.has(name)) GLOBAL_FUNCTIONS.set(name, { node, sf, rel });
+  }
+
+  // The object literal a function returns, following one level of local helper.
+  const returnedShape = (fn, depth = 0, ownerSf = sf) => {
+    if (!fn || depth > 2) return null;
+    let found = null;
+    const walk = (node) => {
+      if (found) return;
+      if (ts.isReturnStatement(node) && node.expression) {
+        const expr = node.expression;
+        if (ts.isObjectLiteralExpression(expr)) { found = fieldsOfObject(expr, ownerSf); return; }
+        if (ts.isArrayLiteralExpression(expr) && expr.elements.length &&
+            ts.isObjectLiteralExpression(expr.elements[0])) {
+          found = fieldsOfObject(expr.elements[0], ownerSf); return;
+        }
+        if (ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)) {
+          const helper = functions.get(expr.expression.text)
+                      ?? GLOBAL_FUNCTIONS.get(expr.expression.text)?.node;
+          const helperSf = functions.has(expr.expression.text)
+            ? sf : GLOBAL_FUNCTIONS.get(expr.expression.text)?.sf;
+          if (helper) { found = returnedShape(helper, depth + 1, helperSf ?? sf); return; }
+        }
+      }
+      ts.forEachChild(node, walk);
+    };
+    walk(fn);
+    return found;
+  };
+
+  // The status a response call is chained off: `res.status(201).json(...)`.
+  const chainedStatus = (expr) => {
+    if (!expr || !ts.isCallExpression(expr)) return null;
+    if (!ts.isPropertyAccessExpression(expr.expression)) return null;
+    if (expr.expression.name.text !== "status") return null;
+    const arg = expr.arguments[0];
+    return arg && ts.isNumericLiteral(arg) ? Number(arg.text) : null;
+  };
+
+  // Pass B: read what each handler body demonstrably does.
+  const readFacts = (fn, name) => {
+    const statuses = new Set(), headersSet = new Set(), queryParams = new Set();
+    let shape = null, shapeComplete = true;
+
+    const walk = (node) => {
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+        const method = node.expression.name.text;
+        const arg = node.arguments[0];
+
+        if (method === "status" && arg && ts.isNumericLiteral(arg)) {
+          statuses.add(Number(arg.text));
+        }
+        if ((method === "set" || method === "header") && arg && ts.isStringLiteral(arg)) {
+          headersSet.add(arg.text);
+        }
+        if ((method === "json" || method === "send") && arg) {
+          let candidate = null;
+          if (ts.isObjectLiteralExpression(arg)) candidate = fieldsOfObject(arg, sf);
+          else if (ts.isArrayLiteralExpression(arg) && arg.elements.length &&
+                   ts.isObjectLiteralExpression(arg.elements[0])) {
+            candidate = fieldsOfObject(arg.elements[0], sf);
+          } else if (ts.isCallExpression(arg) && ts.isIdentifier(arg.expression)) {
+            const local = functions.get(arg.expression.text);
+            const global = GLOBAL_FUNCTIONS.get(arg.expression.text);
+            if (local) candidate = returnedShape(local);
+            else if (global) candidate = returnedShape(global.node, 0, global.sf);
+          }
+          // Only the success response describes the contract; an error body is
+          // a different shape and comparing it would manufacture drift.
+          //
+          // The status must come from this call's own receiver. Walking the tree
+          // reaches `res.status(201).json(...)` at the `.json` node first and
+          // descends into `.status(201)` afterwards, so a set accumulated during
+          // the walk still holds only the earlier error statuses here - which
+          // made every handler with a guard clause report its error shape.
+          const chained = chainedStatus(node.expression.expression);
+          const isSuccess = chained !== null && chained >= 200 && chained < 300;
+          if (candidate && (isSuccess || (shape === null && chained === null))) {
+            shape = candidate.fields;
+            shapeComplete = candidate.complete;
+          }
+        }
+      }
+      // req.query.page and req.query["page"]
+      if (ts.isPropertyAccessExpression(node) &&
+          ts.isPropertyAccessExpression(node.expression) &&
+          node.expression.name.text === "query") {
+        queryParams.add(node.name.text);
+      }
+      if (ts.isElementAccessExpression(node) &&
+          ts.isPropertyAccessExpression(node.expression) &&
+          node.expression.name.text === "query" &&
+          node.argumentExpression && ts.isStringLiteral(node.argumentExpression)) {
+        queryParams.add(node.argumentExpression.text);
+      }
+      ts.forEachChild(node, walk);
+    };
+    walk(fn);
+
+    const ordered = [...statuses].sort((a, b) => a - b);
+    facts.set(name, {
+      name,
+      statuses: ordered,
+      success_code: ordered.find((s) => s >= 200 && s < 300) || 0,
+      query_params: [...queryParams].sort(),
+      headers_read: [],
+      headers_set: [...headersSet].sort(),
+      response_fields: shape || {},
+      response_complete: shape ? shapeComplete : false,
+      file: rel,
+      line: sf.getLineAndCharacterOfPosition(fn.getStart(sf)).line + 1,
+      end_line: sf.getLineAndCharacterOfPosition(fn.getEnd()).line + 1,
+      ambiguous: false,
+    });
+  };
+  perFileFacts.push({ readFacts, functions, resolveHelperGlobally: null });
 
   const visit = (node) => {
     if (ts.isImportDeclaration(node) && node.importClause) {
@@ -192,7 +379,7 @@ for (const file of files) {
     ts.forEachChild(node, visit);
   };
   visit(sf);
-  perFile.set(file, { rel, imports, mounts, routes, reexports });
+  perFile.set(file, { rel, imports, mounts, routes, reexports, facts, sf, functions });
 }
 
 // Pass 2: walk the mount graph from the entry router outward, so each route
@@ -260,6 +447,26 @@ for (const r of collected.sort((a, b) => a.path.localeCompare(b.path) || a.metho
   deduped.push(r);
 }
 
+// Facts are computed only now, once every file has contributed to the global
+// function index.
+for (const entry of perFileFacts) {
+  for (const [name, fn] of entry.functions) entry.readFacts(fn, name);
+}
+
+// Merge handler facts across files. A name declared in more than one file
+// cannot be attributed to one route, so it is marked ambiguous and the rules
+// decline it rather than cite a possibly-wrong location.
+const handlers = {};
+for (const file of [...perFile.keys()].sort()) {
+  for (const [name, fact] of perFile.get(file).facts) {
+    if (handlers[name]) {
+      if (handlers[name].file !== fact.file) handlers[name].ambiguous = true;
+      continue;
+    }
+    handlers[name] = fact;
+  }
+}
+
 process.stdout.write(JSON.stringify({
   dir: ROOT,
   strip_prefix: STRIP,
@@ -267,7 +474,7 @@ process.stdout.write(JSON.stringify({
   routes: deduped,
   annotations_unrouted: [],
   structs: {},
-  handlers: {},
+  handlers,
   route_count: deduped.length,
   routes_without_annotation: deduped.length,
 }, null, 2));

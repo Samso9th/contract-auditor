@@ -1,0 +1,11 @@
+{
+  "case": "N01",
+  "findings": [],
+  "meta": {
+    "error": "z-ai/glm-5.3-flash: curl: (28) Operation timed out after 300005 milliseconds with 7821 bytes received",
+    "cost_usd": 0.0,
+    "wall_clock_seconds": 903.1,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash"
+  }
+}

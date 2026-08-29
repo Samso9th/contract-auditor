@@ -84,6 +84,101 @@ def receiver(node):
     return ""
 
 
+# Handler-body facts, the Python counterpart of facts.go and the TypeScript
+# extractor. Without them the rules settle only route existence and status codes,
+# and every response shape falls to a model reading source approximately.
+
+JSON_TYPE_BY_NODE = {
+    ast.Str: "string", ast.Num: "number",
+}
+
+
+def json_type_of(node):
+    """The JSON type of an expression where the AST settles it."""
+    if isinstance(node, ast.Constant):
+        value = node.value
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, (int, float)):
+            return "number"
+        if value is None:
+            return "null"
+    if isinstance(node, (ast.List, ast.Tuple, ast.ListComp)):
+        return "array"
+    if isinstance(node, (ast.Dict, ast.DictComp)):
+        return "object"
+    if isinstance(node, ast.JoinedStr):
+        return "string"
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        return {"str": "string", "int": "number", "float": "number",
+                "bool": "boolean", "list": "array", "dict": "object"}.get(node.func.id, "")
+    return ""
+
+
+def fields_of_dict(node):
+    """Keys of a dict literal with the JSON type of each value.
+
+    A `**spread` or a computed key makes the shape incomplete, and an incomplete
+    shape must not be compared: a field the extractor could not see would read as
+    a field the handler failed to return.
+    """
+    fields, complete = {}, True
+    for key, value in zip(node.keys, node.values):
+        if key is None:
+            complete = False
+            continue
+        if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+            complete = False
+            continue
+        fields[key.value] = {
+            "json_name": key.value,
+            "json_type": json_type_of(value),
+            "line": getattr(key, "lineno", 0),
+        }
+    return fields, complete
+
+
+def index_functions(tree):
+    out = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out.setdefault(node.name, node)
+    return out
+
+
+def returned_shape(fn, functions, depth=0):
+    """The dict a function returns, following one level of local helper."""
+    if fn is None or depth > 2:
+        return None
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Return) or node.value is None:
+            continue
+        value = node.value
+        # `return 201, {...}` - the explicit status form.
+        if isinstance(value, ast.Tuple) and len(value.elts) == 2:
+            value = value.elts[1]
+        if isinstance(value, ast.Dict):
+            return fields_of_dict(value)
+        if isinstance(value, (ast.List, ast.Tuple)) and value.elts and isinstance(value.elts[0], ast.Dict):
+            return fields_of_dict(value.elts[0])
+        # `return helper(...)` and `return handlers.helper(...)`. The second is
+        # the common FastAPI shape - a thin route function delegating to a
+        # service - and not following it leaves the response shape invisible.
+        if isinstance(value, ast.Call):
+            target = None
+            if isinstance(value.func, ast.Name):
+                target = value.func.id
+            elif isinstance(value.func, ast.Attribute):
+                target = value.func.attr
+            if target:
+                helper = functions.get(target)
+                if helper is not None and helper is not fn:
+                    return returned_shape(helper, functions, depth + 1)
+    return None
+
+
 def collect(root):
     """Per file: routes declared, and routers mounted under a prefix."""
     files = source_files(root)
@@ -151,7 +246,8 @@ def collect(root):
                             "args": arg_names,
                         })
 
-        per_file[rel] = {"routes": routes, "mounts": mounts, "imports": imports}
+        per_file[rel] = {"routes": routes, "mounts": mounts, "imports": imports,
+                         "tree": tree, "path": path}
     return per_file
 
 
@@ -168,6 +264,85 @@ def main():
         sys.exit(1)
 
     per_file = collect(root)
+
+    # Every function in the project, so a handler that builds its response in an
+    # imported module can be followed. First declaration in sorted file order
+    # wins, which keeps the result stable across runs.
+    global_functions, defined_in = {}, {}
+    for rel in sorted(per_file):
+        for name, node in index_functions(per_file[rel]["tree"]).items():
+            if name not in global_functions:
+                global_functions[name] = node
+                defined_in[name] = rel
+
+    # Keyed by name for compatibility, and by "file::name" as well. A route
+    # function and the service it delegates to routinely share a name in
+    # different modules; keyed only by name they collide, and the ambiguity guard
+    # then declines both - safe, but it costs every response-shape rule.
+    handlers, by_location = {}, {}
+    for rel in sorted(per_file):
+        for name, node in index_functions(per_file[rel]["tree"]).items():
+            duplicate = name in handlers and handlers[name]["file"] != rel
+
+            statuses, queries, headers_set = set(), set(), set()
+            for inner in ast.walk(node):
+                # Only where an integer is unambiguously a status: raised as the
+                # first argument of an exception, returned as the first element
+                # of a (status, body) tuple, or named status_code. Treating any
+                # integer first-argument as a status would turn `range(200)` or
+                # a page size into a documented response.
+                if isinstance(inner, ast.Raise) and isinstance(inner.exc, ast.Call):
+                    for arg in inner.exc.args[:1]:
+                        if isinstance(arg, ast.Constant) and isinstance(arg.value, int) \
+                                and 100 <= arg.value < 600:
+                            statuses.add(arg.value)
+                    for kw in inner.exc.keywords:
+                        if kw.arg in ("status", "status_code") \
+                                and isinstance(kw.value, ast.Constant) \
+                                and isinstance(kw.value.value, int):
+                            statuses.add(kw.value.value)
+                if isinstance(inner, ast.Return) and isinstance(inner.value, ast.Tuple) \
+                        and inner.value.elts and isinstance(inner.value.elts[0], ast.Constant) \
+                        and isinstance(inner.value.elts[0].value, int) \
+                        and 100 <= inner.value.elts[0].value < 600:
+                    statuses.add(inner.value.elts[0].value)
+                # `request.args.get("page")` (Flask) and `request.query_params.get(...)`
+                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute) \
+                        and inner.func.attr == "get" and inner.args \
+                        and isinstance(inner.args[0], ast.Constant) \
+                        and isinstance(inner.func.value, ast.Attribute) \
+                        and inner.func.value.attr in ("args", "query_params"):
+                    queries.add(inner.args[0].value)
+                if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Attribute) \
+                        and inner.func.attr in ("set", "add") and len(inner.args) >= 1 \
+                        and isinstance(inner.args[0], ast.Constant) \
+                        and isinstance(inner.args[0].value, str) \
+                        and isinstance(inner.func.value, ast.Attribute) \
+                        and inner.func.value.attr == "headers":
+                    headers_set.add(inner.args[0].value)
+
+            shape = returned_shape(node, global_functions)
+            ordered = sorted(statuses)
+            fact = {
+                "name": name,
+                "statuses": ordered,
+                "success_code": next((s for s in ordered if 200 <= s < 300), 0),
+                "query_params": sorted(queries),
+                "headers_read": [],
+                "headers_set": sorted(headers_set),
+                "response_fields": shape[0] if shape else {},
+                "response_complete": bool(shape and shape[1]),
+                "file": rel,
+                "line": node.lineno,
+                "end_line": getattr(node, "end_lineno", node.lineno),
+                "ambiguous": False,
+            }
+            by_location[f"{rel}::{name}"] = fact
+            if name in handlers:
+                if duplicate:
+                    handlers[name]["ambiguous"] = True
+                continue
+            handlers[name] = fact
 
     # A router's prefix is declared where it is mounted, not where its routes
     # are. Prefixes are collected by the variable the routes hang off, which
@@ -199,7 +374,8 @@ def main():
     routes.sort(key=lambda r: (r["path"], r["method"]))
     print(json.dumps({
         "dir": str(root), "strip_prefix": args.strip_prefix, "language": "python",
-        "routes": routes, "annotations_unrouted": [], "structs": {}, "handlers": {},
+        "routes": routes, "annotations_unrouted": [], "structs": {},
+        "handlers": handlers, "handlers_by_location": by_location,
         "route_count": len(routes), "routes_without_annotation": len(routes),
     }, indent=2))
 

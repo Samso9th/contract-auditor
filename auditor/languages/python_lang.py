@@ -23,11 +23,15 @@ TEST_FILENAME = "contract_verify_check.py"
 VERIFICATION_SUPPORTED = True
 EXTRACTOR = pathlib.Path(__file__).resolve().parents[1] / "tools" / "pyroutes" / "extract.py"
 
-# The extractor emits routes and the decorator's status_code, but no response
-# shapes, so the rules can settle route existence and status codes. Everything
-# else falls to the agent, and the gate verifies it either way.
-DETERMINISTIC_KINDS = {"route_missing_from_spec", "route_missing_from_code",
-                       "status_code_mismatch"}
+# The extractor now emits handler-body facts as well as routes: response shapes
+# resolved across modules, statuses where an integer is unambiguously a status,
+# query parameters and headers. The same kinds Go settles by parsing are settled
+# here, and the agent is not asked about them.
+DETERMINISTIC_KINDS = {
+    "route_missing_from_spec", "route_missing_from_code",
+    "response_field_mismatch", "response_type_mismatch", "response_header_mismatch",
+    "request_param_mismatch", "status_code_mismatch", "undocumented_status",
+}
 
 
 class ExtractionError(RuntimeError):

@@ -1,18 +1,47 @@
 {
-  "findings": [],
+  "findings": [
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "response_field_mismatch",
+      "detail": "fee",
+      "severity": "high",
+      "evidence": "app/routes.py:11 create_payout response: spec documents fee with no matching field; code returns feeAmount undocumented (verified: ASSERTION: spec documents field fee; response carries ['amount', 'createdAt', 'currency', 'feeAmount', 'id', 'reference', 'status'])",
+      "file": "app/routes.py",
+      "line": 11,
+      "rule": "R3",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: spec documents field fee; response carries ['amount', 'createdAt', 'currency', 'feeAmount', 'id', 'reference', 'status']"
+    },
+    {
+      "path": "/payouts/{id}",
+      "method": "get",
+      "kind": "response_field_mismatch",
+      "detail": "fee",
+      "severity": "high",
+      "evidence": "app/routes.py:16 get_payout response: spec documents fee with no matching field; code returns feeAmount undocumented (verified: ASSERTION: spec documents field fee; response carries ['amount', 'createdAt', 'currency', 'feeAmount', 'id', 'reference', 'status'])",
+      "file": "app/routes.py",
+      "line": 16,
+      "rule": "R3",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: spec documents field fee; response carries ['amount', 'createdAt', 'currency', 'feeAmount', 'id', 'reference', 'status']"
+    }
+  ],
   "meta": {
-    "wall_clock_seconds": 483.1,
-    "cost_usd": 0.022312,
+    "wall_clock_seconds": 0.3,
+    "cost_usd": 0.0,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
-    "model_calls": 11,
-    "input_tokens": 18855,
-    "output_tokens": 48996,
-    "deterministic_claims": 0,
+    "model_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "deterministic_claims": 2,
     "agent_claims": 0,
     "suppressed_by_allowlist": 0,
     "verification": {
-      "confirmed": 0,
+      "confirmed": 2,
       "refuted": 0,
       "unsupported": 0,
       "error": 0

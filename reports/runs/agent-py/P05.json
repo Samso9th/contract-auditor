@@ -1,18 +1,47 @@
 {
-  "findings": [],
+  "findings": [
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "available",
+      "severity": "critical",
+      "evidence": "app/routes.py:22 get_balance returns available as number; spec declares string (verified: ASSERTION: spec declares available as string; response carries number (2450000))",
+      "file": "app/routes.py",
+      "line": 22,
+      "rule": "R4",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: spec declares available as string; response carries number (2450000)"
+    },
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "ledger",
+      "severity": "critical",
+      "evidence": "app/routes.py:22 get_balance returns ledger as number; spec declares string (verified: ASSERTION: spec declares ledger as string; response carries number (2500000))",
+      "file": "app/routes.py",
+      "line": 22,
+      "rule": "R4",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: spec declares ledger as string; response carries number (2500000)"
+    }
+  ],
   "meta": {
-    "wall_clock_seconds": 348.8,
-    "cost_usd": 0.018446,
+    "wall_clock_seconds": 0.3,
+    "cost_usd": 0.0,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
-    "model_calls": 12,
-    "input_tokens": 20846,
-    "output_tokens": 56678,
-    "deterministic_claims": 0,
+    "model_calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "deterministic_claims": 2,
     "agent_claims": 0,
     "suppressed_by_allowlist": 0,
     "verification": {
-      "confirmed": 0,
+      "confirmed": 2,
       "refuted": 0,
       "unsupported": 0,
       "error": 0

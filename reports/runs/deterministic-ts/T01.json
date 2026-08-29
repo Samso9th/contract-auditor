@@ -1,8 +1,33 @@
 {
   "case": "T01",
-  "findings": [],
+  "findings": [
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "response_field_mismatch",
+      "detail": "fee",
+      "severity": "high",
+      "evidence": "src/handlers.js:3 createPayout response: spec documents fee with no matching field; code returns feeAmount undocumented",
+      "file": "src/handlers.js",
+      "line": 3,
+      "rule": "R3",
+      "source": "deterministic"
+    },
+    {
+      "path": "/payouts/{id}",
+      "method": "get",
+      "kind": "response_field_mismatch",
+      "detail": "fee",
+      "severity": "high",
+      "evidence": "src/handlers.js:13 getPayout response: spec documents fee with no matching field; code returns feeAmount undocumented",
+      "file": "src/handlers.js",
+      "line": 13,
+      "rule": "R3",
+      "source": "deterministic"
+    }
+  ],
   "meta": {
-    "wall_clock_seconds": 0.25,
+    "wall_clock_seconds": 0.26,
     "cost_usd": 0.0,
     "human_minutes": 0,
     "layer": "deterministic"

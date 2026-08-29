@@ -1,8 +1,21 @@
 {
   "case": "T02",
-  "findings": [],
+  "findings": [
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "201",
+      "severity": "medium",
+      "evidence": "src/handlers.js:40 createCustomer returns 200 on success; spec documents 201",
+      "file": "src/handlers.js",
+      "line": 40,
+      "rule": "R6",
+      "source": "deterministic"
+    }
+  ],
   "meta": {
-    "wall_clock_seconds": 0.23,
+    "wall_clock_seconds": 0.25,
     "cost_usd": 0.0,
     "human_minutes": 0,
     "layer": "deterministic"

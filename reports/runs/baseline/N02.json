@@ -1,0 +1,43 @@
+{
+  "case": "N02",
+  "findings": [
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "Response header 'X-Signature': the handler sets X-Signature on the HTTP response (w.Header().Set(\"X-Signature\", \"sha256=",
+      "severity": "low",
+      "evidence": "handlers/misc.go:60",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "Request body fields 'accountNumber', 'bankCode', 'amount' and 'currency' are listed as required in the spec's PayoutRequ",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:31-34",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "Request body fields 'payoutId' and 'amount' are listed as required in the spec's RefundRequest schema, but CreateRefund ",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:86-91",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 281.3,
+    "cost_usd": 0.013902,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7430,
+    "output_tokens": 27359,
+    "parsed": true,
+    "truncated": false
+  }
+}

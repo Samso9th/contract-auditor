@@ -1,8 +1,21 @@
 {
   "case": "T08",
-  "findings": [],
+  "findings": [
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "X-Fixture-Signature",
+      "severity": "critical",
+      "evidence": "src/handlers.js:61 testWebhook sets X-Fixture-Signature, which appears nowhere in the documentation for this operation",
+      "file": "src/handlers.js",
+      "line": 61,
+      "rule": "R9",
+      "source": "deterministic"
+    }
+  ],
   "meta": {
-    "wall_clock_seconds": 0.24,
+    "wall_clock_seconds": 0.23,
     "cost_usd": 0.0,
     "human_minutes": 0,
     "layer": "deterministic"

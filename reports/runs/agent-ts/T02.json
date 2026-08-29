@@ -6,23 +6,23 @@
       "kind": "status_code_mismatch",
       "detail": "201",
       "severity": "medium",
-      "evidence": "app/routes.py:36 create_customer returns 200 on success; spec documents 201 (verified: ASSERTION: spec documents 201 on success; handler returned 200)",
-      "file": "app/routes.py",
-      "line": 36,
+      "evidence": "src/handlers.js:40 createCustomer returns 200 on success; spec documents 201 (verified: spec documents 201 on success; handler returned 200)",
+      "file": "src/handlers.js",
+      "line": 40,
       "rule": "R6",
       "source": "deterministic",
       "verdict": "confirmed",
-      "verification": "ASSERTION: spec documents 201 on success; handler returned 200"
+      "verification": "spec documents 201 on success; handler returned 200"
     }
   ],
   "meta": {
-    "wall_clock_seconds": 0.2,
-    "cost_usd": 0.0,
+    "wall_clock_seconds": 27.2,
+    "cost_usd": 0.002065,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
-    "model_calls": 0,
-    "input_tokens": 0,
-    "output_tokens": 0,
+    "model_calls": 9,
+    "input_tokens": 6714,
+    "output_tokens": 3739,
     "deterministic_claims": 1,
     "agent_claims": 0,
     "suppressed_by_allowlist": 0,
@@ -36,5 +36,5 @@
     "agent_errors": [],
     "unread_endpoints": []
   },
-  "case": "P02"
+  "case": "T02"
 }

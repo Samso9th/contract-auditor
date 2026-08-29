@@ -24,11 +24,19 @@ import subprocess
 NAME = "typescript"
 DEFAULT_PREFIX = "/api/v1"
 
-# The TypeScript extractor emits routes but not struct shapes or handler-body
-# facts, so only route existence is settled without a model. Everything else
-# falls to the agent - and every agent claim still goes through the gate, so the
-# wider vocabulary buys recall without costing precision.
-DETERMINISTIC_KINDS = {"route_missing_from_spec", "route_missing_from_code"}
+# The extractor now emits handler-body facts - response shapes resolved across
+# files, statuses read from the response call's own receiver, headers set, query
+# parameters read - so the same kinds Go settles by parsing are settled here too.
+#
+# This list is the handover point: a kind here is the rules' job and the agent is
+# not asked about it. Moving a kind onto this list is how a language gets more
+# reliable, because a parser reads the source exactly where a model reads it
+# approximately.
+DETERMINISTIC_KINDS = {
+    "route_missing_from_spec", "route_missing_from_code",
+    "response_field_mismatch", "response_type_mismatch", "response_header_mismatch",
+    "request_param_mismatch", "status_code_mismatch", "undocumented_status",
+}
 EXTRACTOR = pathlib.Path(__file__).resolve().parents[1] / "tools" / "tsroutes" / "extract.mjs"
 
 VERIFICATION_SUPPORTED = True

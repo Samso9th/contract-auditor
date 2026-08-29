@@ -1,6 +1,31 @@
 {
   "case": "P05",
-  "findings": [],
+  "findings": [
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "available",
+      "severity": "critical",
+      "evidence": "app/routes.py:22 get_balance returns available as number; spec declares string",
+      "file": "app/routes.py",
+      "line": 22,
+      "rule": "R4",
+      "source": "deterministic"
+    },
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "ledger",
+      "severity": "critical",
+      "evidence": "app/routes.py:22 get_balance returns ledger as number; spec declares string",
+      "file": "app/routes.py",
+      "line": 22,
+      "rule": "R4",
+      "source": "deterministic"
+    }
+  ],
   "meta": {
     "wall_clock_seconds": 0.05,
     "cost_usd": 0.0,

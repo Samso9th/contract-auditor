@@ -2,7 +2,7 @@
   "case": "TN02",
   "findings": [],
   "meta": {
-    "wall_clock_seconds": 0.23,
+    "wall_clock_seconds": 0.24,
     "cost_usd": 0.0,
     "human_minutes": 0,
     "layer": "deterministic"

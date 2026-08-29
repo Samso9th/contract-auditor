@@ -6,9 +6,9 @@
       "kind": "route_missing_from_spec",
       "detail": "",
       "severity": "high",
-      "evidence": "app/routes.py:26 registers POST /payouts/{id}/cancel (handler cancel_payout), which the spec does not document",
-      "file": "app/routes.py",
-      "line": 26,
+      "evidence": "src/routes.js:10 registers POST /payouts/{id}/cancel (handler cancelPayout), which the spec does not document",
+      "file": "src/routes.js",
+      "line": 10,
       "rule": "R1",
       "source": "deterministic",
       "verdict": "unsupported",
@@ -16,13 +16,13 @@
     }
   ],
   "meta": {
-    "wall_clock_seconds": 0.1,
-    "cost_usd": 0.0,
+    "wall_clock_seconds": 24.4,
+    "cost_usd": 0.003821,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
-    "model_calls": 0,
-    "input_tokens": 0,
-    "output_tokens": 0,
+    "model_calls": 9,
+    "input_tokens": 10131,
+    "output_tokens": 5669,
     "deterministic_claims": 1,
     "agent_claims": 0,
     "suppressed_by_allowlist": 0,
@@ -36,5 +36,5 @@
     "agent_errors": [],
     "unread_endpoints": []
   },
-  "case": "P03"
+  "case": "T03"
 }

@@ -6,7 +6,7 @@
       "kind": "route_missing_from_code",
       "detail": "",
       "severity": "high",
-      "evidence": "spec documents GET /banks but no route registers it (/Users/samsonite/Documents/Sam/micro1/eval/cases-py/P04/spec/openapi.json)",
+      "evidence": "spec documents GET /banks but no route registers it (/Users/samsonite/Documents/Sam/micro1/eval/cases-ts/T04/spec/openapi.json)",
       "file": "",
       "line": 0,
       "rule": "R2",
@@ -16,13 +16,13 @@
     }
   ],
   "meta": {
-    "wall_clock_seconds": 0.1,
-    "cost_usd": 0.0,
+    "wall_clock_seconds": 26.4,
+    "cost_usd": 0.003216,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
-    "model_calls": 0,
-    "input_tokens": 0,
-    "output_tokens": 0,
+    "model_calls": 8,
+    "input_tokens": 9391,
+    "output_tokens": 6146,
     "deterministic_claims": 1,
     "agent_claims": 0,
     "suppressed_by_allowlist": 0,
@@ -36,5 +36,5 @@
     "agent_errors": [],
     "unread_endpoints": []
   },
-  "case": "P04"
+  "case": "T04"
 }

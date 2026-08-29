@@ -1,0 +1,70 @@
+{
+  "case": "N04",
+  "findings": [
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "Handler sets an X-Signature response header ('sha256=deadbeef') on the 202 response, but the spec declares no response h",
+      "severity": "medium",
+      "evidence": "handlers/misc.go:60 (w.Header().Set(\"X-Signature\", \"sha256=deadbeef\")) vs spec /webhooks/test post 202 response (no headers defined)",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "Spec marks accountNumber, bankCode, amount and currency as required in PayoutRequest (alongside reference), but the hand",
+      "severity": "high",
+      "evidence": "handlers/payouts.go:31-34 (only req.Reference is validated) vs spec components.PayoutRequest.required",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "Spec marks payoutId and amount as required in RefundRequest, but the handler performs no field validation at all; reques",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:85-90 (CreateRefund decodes the body without validating payoutId/amount) vs spec components.RefundRequest.required",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "Spec documents a 409 'Duplicate reference' response, but the handler implements no duplicate-reference detection and can",
+      "severity": "low",
+      "evidence": "handlers/payouts.go:21-44 (only StatusCreated and StatusBadRequest are written) vs spec /payouts post responses.409",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "Spec documents a 422 'Refund not permitted' response, but the handler contains no refund-eligibility check and can only ",
+      "severity": "low",
+      "evidence": "handlers/payouts.go:85-97 (only StatusCreated and StatusBadRequest are written) vs spec /refunds post responses.422",
+      "source": "baseline"
+    },
+    {
+      "path": "/customers/{id}",
+      "method": "get",
+      "kind": "status_code_mismatch",
+      "detail": "Spec documents a 404 'Not found' response, but the handler unconditionally returns 200 and contains no not-found code pa",
+      "severity": "low",
+      "evidence": "handlers/accounts.go:97-107 (single writeJSON with StatusOK) vs spec /customers/{id} get responses.404",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 194.1,
+    "cost_usd": 0.012376,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7417,
+    "output_tokens": 22530,
+    "parsed": true,
+    "truncated": false
+  }
+}

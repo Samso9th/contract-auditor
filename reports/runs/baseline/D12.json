@@ -5,47 +5,155 @@
       "path": "/payouts",
       "method": "post",
       "kind": "undocumented_status",
-      "detail": "Handler returns 429 (code \"rate_limited\") when the X-Debug-Ratelimit request header is \"1\", but the spec only documents ",
-      "severity": "medium",
-      "evidence": "handlers/payouts.go:31-33",
+      "detail": "429 status returned by code (rate_limited) is not documented in the spec",
+      "severity": "high",
+      "evidence": "handlers/payouts.go: CreatePayout returns http.StatusTooManyRequests when X-Debug-Ratelimit=1; spec /payouts post responses only list 201/400/409",
       "source": "baseline"
     },
     {
       "path": "/payouts",
       "method": "post",
-      "kind": "request_required_mismatch",
-      "detail": "Spec marks PayoutRequest fields accountNumber, bankCode, amount and currency as required, but the handler only validates",
+      "kind": "status_code_mismatch",
+      "detail": "409 'Duplicate reference' is documented but the handler never returns 409",
+      "severity": "medium",
+      "evidence": "spec /payouts post responses include 409; handlers/payouts.go CreatePayout has no 409 path",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "validation_mismatch",
+      "detail": "Spec marks accountNumber, bankCode, amount, currency as required in PayoutRequest, but the handler only validates refere",
       "severity": "high",
-      "evidence": "handlers/payouts.go:35-38",
+      "evidence": "spec components.schemas.PayoutRequest.required; handlers/payouts.go CreatePayout only checks req.Reference",
       "source": "baseline"
     },
     {
       "path": "/refunds",
       "method": "post",
-      "kind": "request_required_mismatch",
-      "detail": "Spec marks RefundRequest fields payoutId and amount as required, but the handler performs no field validation and return",
+      "kind": "status_code_mismatch",
+      "detail": "422 'Refund not permitted' is documented but the handler never returns 422",
       "severity": "medium",
-      "evidence": "handlers/payouts.go:89-94",
+      "evidence": "spec /refunds post responses include 422; handlers/payouts.go CreateRefund has no 422 path",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "validation_mismatch",
+      "detail": "Spec marks payoutId and amount as required in RefundRequest, but the handler performs no validation",
+      "severity": "high",
+      "evidence": "spec components.schemas.RefundRequest.required; handlers/payouts.go CreateRefund only decodes the body",
+      "source": "baseline"
+    },
+    {
+      "path": "/customers/{id}",
+      "method": "get",
+      "kind": "status_code_mismatch",
+      "detail": "404 is documented but the handler never returns 404",
+      "severity": "low",
+      "evidence": "spec /customers/{id} get responses include 404; handlers/accounts.go GetCustomer always returns 200",
       "source": "baseline"
     },
     {
       "path": "/webhooks/test",
       "method": "post",
       "kind": "response_header_mismatch",
-      "detail": "Handler sets an X-Signature response header on the 202 response, which is not declared in the spec's 202 response header",
-      "severity": "low",
-      "evidence": "handlers/misc.go:60",
+      "detail": "Response header X-Signature is set by the handler but not documented in the spec's 202 response",
+      "severity": "medium",
+      "evidence": "handlers/misc.go TestWebhook: w.Header().Set(\"X-Signature\", ...); spec /webhooks/test 202 response has no headers",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires X-Api-Key (ApiKeyAuth) but no authentication is enforced in code",
+      "severity": "critical",
+      "evidence": "spec /payouts post security: ApiKeyAuth; handlers/routes.go registers CreatePayout with no auth middleware",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts/{id}",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires X-Api-Key but no authentication is enforced in code",
+      "severity": "critical",
+      "evidence": "spec /payouts/{id} get security: ApiKeyAuth; handlers/routes.go registers GetPayout with no auth middleware",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires X-Api-Key but no authentication is enforced in code",
+      "severity": "critical",
+      "evidence": "spec /refunds post security: ApiKeyAuth; handlers/routes.go registers CreateRefund with no auth middleware",
+      "source": "baseline"
+    },
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires X-Api-Key but no authentication is enforced in code",
+      "severity": "critical",
+      "evidence": "spec /balance get security: ApiKeyAuth; handlers/routes.go registers GetBalance with no auth middleware",
+      "source": "baseline"
+    },
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires X-Api-Key but no authentication is enforced in code",
+      "severity": "critical",
+      "evidence": "spec /transactions get security: ApiKeyAuth; handlers/routes.go registers ListTransactions with no auth middleware",
+      "source": "baseline"
+    },
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires X-Api-Key but no authentication is enforced in code",
+      "severity": "critical",
+      "evidence": "spec /customers post security: ApiKeyAuth; handlers/routes.go registers CreateCustomer with no auth middleware",
+      "source": "baseline"
+    },
+    {
+      "path": "/customers/{id}",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires X-Api-Key but no authentication is enforced in code",
+      "severity": "critical",
+      "evidence": "spec /customers/{id} get security: ApiKeyAuth; handlers/routes.go registers GetCustomer with no auth middleware",
+      "source": "baseline"
+    },
+    {
+      "path": "/kyc/bvn",
+      "method": "post",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires X-Api-Key but no authentication is enforced in code",
+      "severity": "critical",
+      "evidence": "spec /kyc/bvn post security: ApiKeyAuth; handlers/routes.go registers VerifyBVN with no auth middleware",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires X-Api-Key but no authentication is enforced in code",
+      "severity": "critical",
+      "evidence": "spec /webhooks/test post security: ApiKeyAuth; handlers/routes.go registers TestWebhook with no auth middleware",
       "source": "baseline"
     }
   ],
   "meta": {
-    "wall_clock_seconds": 254.0,
-    "cost_usd": 0.004004,
+    "wall_clock_seconds": 46.7,
+    "cost_usd": 0.000973,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
     "model_calls": 1,
-    "input_tokens": 7514,
-    "output_tokens": 13762,
+    "input_tokens": 7461,
+    "output_tokens": 1654,
     "parsed": true,
     "truncated": false
   }

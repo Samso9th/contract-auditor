@@ -7,7 +7,7 @@
       "kind": "status_code_mismatch",
       "detail": "201",
       "severity": "medium",
-      "evidence": "app/routes.py:36 declares status_code=200 on success; spec documents 201",
+      "evidence": "app/routes.py:36 create_customer returns 200 on success; spec documents 201",
       "file": "app/routes.py",
       "line": 36,
       "rule": "R6",
