@@ -1,0 +1,54 @@
+{
+  "findings": [
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "response_field_mismatch",
+      "detail": "fee",
+      "severity": "high",
+      "evidence": "handlers/types.go:15 struct PayoutResponse: spec documents fee with no matching field; code returns feeAmount undocumented \u2014 verified: spec documents field \"fee\"; response carries keys [amount createdAt currency feeAmount id reference status]",
+      "file": "handlers/types.go",
+      "line": 15,
+      "rule": "R3",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "spec documents field \"fee\"; response carries keys [amount createdAt currency feeAmount id reference status]"
+    },
+    {
+      "path": "/payouts/{id}",
+      "method": "get",
+      "kind": "response_field_mismatch",
+      "detail": "fee",
+      "severity": "high",
+      "evidence": "handlers/types.go:15 struct PayoutResponse: spec documents fee with no matching field; code returns feeAmount undocumented \u2014 verified: spec documents field \"fee\"; response carries keys [amount createdAt currency feeAmount id reference status]",
+      "file": "handlers/types.go",
+      "line": 15,
+      "rule": "R3",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "spec documents field \"fee\"; response carries keys [amount createdAt currency feeAmount id reference status]"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 75.6,
+    "cost_usd": 0.0067,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 7695,
+    "output_tokens": 11395,
+    "deterministic_claims": 2,
+    "agent_claims": 0,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 2,
+      "refuted": 0,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "D01"
+}

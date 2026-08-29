@@ -1,0 +1,55 @@
+{
+  "findings": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "route_missing_from_code",
+      "detail": "",
+      "severity": "high",
+      "evidence": "spec documents GET /banks but no route registers it (/Users/samsonite/Documents/Sam/micro1/eval/cases-ts/T04/spec/openapi.json)",
+      "file": "",
+      "line": 0,
+      "rule": "R2",
+      "source": "deterministic",
+      "verdict": "unsupported",
+      "verification": "route_missing_from_code cannot be settled by executing the handler; it needs review rather than a test"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 166.4,
+    "cost_usd": 0.004894,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 8,
+    "input_tokens": 12122,
+    "output_tokens": 15883,
+    "deterministic_claims": 1,
+    "agent_claims": 2,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 2,
+      "unsupported": 1,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/transactions",
+        "method": "get",
+        "kind": "validation_mismatch",
+        "detail": "query parameter 'page': the spec documents it as type integer, but the handler enforces only 'finite number >= 1' and ac",
+        "source": "agent"
+      },
+      {
+        "path": "/transactions",
+        "method": "get",
+        "kind": "validation_mismatch",
+        "detail": "query parameter 'perPage': the spec documents it as type integer, but the handler enforces only 'finite number >= 1' (pl",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "T04"
+}

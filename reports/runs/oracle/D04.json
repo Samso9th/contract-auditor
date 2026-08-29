@@ -1,0 +1,12 @@
+{
+  "case": "D04",
+  "findings": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "route_missing_from_code",
+      "detail": ""
+    }
+  ],
+  "meta": {}
+}

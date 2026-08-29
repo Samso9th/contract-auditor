@@ -1,0 +1,12 @@
+{
+  "case": "D11",
+  "findings": [
+    {
+      "path": "/kyc/bvn",
+      "method": "post",
+      "kind": "validation_mismatch",
+      "detail": "bvn"
+    }
+  ],
+  "meta": {}
+}

@@ -1,0 +1,12 @@
+{
+  "case": "D02",
+  "findings": [
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "201"
+    }
+  ],
+  "meta": {}
+}

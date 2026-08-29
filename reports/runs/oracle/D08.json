@@ -1,0 +1,18 @@
+{
+  "case": "D08",
+  "findings": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "ApiKeyAuth"
+    },
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "undocumented_status",
+      "detail": "401"
+    }
+  ],
+  "meta": {}
+}

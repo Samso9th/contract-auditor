@@ -1,0 +1,23 @@
+{
+  "case": "D02",
+  "findings": [
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "201",
+      "severity": "medium",
+      "evidence": "handlers/accounts.go:66 CreateCustomer returns 200 on success; spec documents 201",
+      "file": "handlers/accounts.go",
+      "line": 66,
+      "rule": "R6",
+      "source": "deterministic"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 0.01,
+    "cost_usd": 0.0,
+    "human_minutes": 0,
+    "layer": "deterministic"
+  }
+}

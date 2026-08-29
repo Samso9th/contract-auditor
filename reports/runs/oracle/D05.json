@@ -1,0 +1,18 @@
+{
+  "case": "D05",
+  "findings": [
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "available"
+    },
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "ledger"
+    }
+  ],
+  "meta": {}
+}

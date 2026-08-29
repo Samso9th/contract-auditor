@@ -1,0 +1,12 @@
+{
+  "case": "D07",
+  "findings": [
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "request_param_mismatch",
+      "detail": "perPage"
+    }
+  ],
+  "meta": {}
+}

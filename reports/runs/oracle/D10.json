@@ -1,0 +1,12 @@
+{
+  "case": "D10",
+  "findings": [
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "X-Signature"
+    }
+  ],
+  "meta": {}
+}

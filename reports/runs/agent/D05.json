@@ -1,0 +1,54 @@
+{
+  "findings": [
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "available",
+      "severity": "critical",
+      "evidence": "handlers/types.go:27 BalanceResponse.Available is float64 (JSON number); spec declares string \u2014 verified: spec declares \"available\" as string; response carries number (2.45e+06)",
+      "file": "handlers/types.go",
+      "line": 27,
+      "rule": "R4",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "spec declares \"available\" as string; response carries number (2.45e+06)"
+    },
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "ledger",
+      "severity": "critical",
+      "evidence": "handlers/types.go:28 BalanceResponse.Ledger is float64 (JSON number); spec declares string \u2014 verified: spec declares \"ledger\" as string; response carries number (2.5e+06)",
+      "file": "handlers/types.go",
+      "line": 28,
+      "rule": "R4",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "spec declares \"ledger\" as string; response carries number (2.5e+06)"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 208.5,
+    "cost_usd": 0.004208,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 7755,
+    "output_tokens": 8532,
+    "deterministic_claims": 2,
+    "agent_claims": 0,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 2,
+      "refuted": 0,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "D05"
+}

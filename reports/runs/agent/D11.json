@@ -1,0 +1,41 @@
+{
+  "findings": [
+    {
+      "path": "/kyc/bvn",
+      "method": "post",
+      "kind": "validation_mismatch",
+      "detail": "bvn length: handler enforces exactly 10 characters, spec requires minLength 11 / maxLength 11",
+      "severity": "medium",
+      "evidence": "handlers/misc.go:25 `if len(req.BVN) != 10 {` rejects any BVN that is not exactly 10 characters, so an 11-character BVN \u2014 valid under the spec's minLength 11/maxLength 11 \u2014 is rejected with 400 invalid_bvn. (The accompanying message \"bvn must be 11 digits\" contradicts the check itself, confirming the bound enforced is 10, not 11.) \u2014 verified: value for \"bvn\" satisfies the documented constraint, but the handler returned 400: {\"success\":false,\"code\":\"invalid_bvn\",\"message\":\"bvn must be 11 digits\"}",
+      "file": "handlers/misc.go",
+      "line": 19,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "confirmed",
+      "verification": "value for \"bvn\" satisfies the documented constraint, but the handler returned 400: {\"success\":false,\"code\":\"invalid_bvn\",\"message\":\"bvn must be 11 digits\"}"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 80.8,
+    "cost_usd": 0.004862,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 7641,
+    "output_tokens": 8992,
+    "deterministic_claims": 0,
+    "agent_claims": 1,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 0,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "D11"
+}

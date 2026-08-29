@@ -1,0 +1,12 @@
+{
+  "case": "D09",
+  "findings": [
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "default_value_mismatch",
+      "detail": "perPage"
+    }
+  ],
+  "meta": {}
+}

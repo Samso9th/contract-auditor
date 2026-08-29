@@ -1,0 +1,41 @@
+{
+  "findings": [
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "reason",
+      "severity": "high",
+      "evidence": "if req.Reason == \"\" { writeError(w, http.StatusBadRequest, \"missing_reason\", \"reason is required\") } \u2014 handler rejects requests without reason, but the spec marks reason as required: false \u2014 verified: spec does not require \"reason\", but omitting it returned 400: {\"success\":false,\"code\":\"missing_reason\",\"message\":\"reason is required\"}",
+      "file": "handlers/payouts.go",
+      "line": 85,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "confirmed",
+      "verification": "spec does not require \"reason\", but omitting it returned 400: {\"success\":false,\"code\":\"missing_reason\",\"message\":\"reason is required\"}"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 42.9,
+    "cost_usd": 0.002943,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 7853,
+    "output_tokens": 6048,
+    "deterministic_claims": 0,
+    "agent_claims": 1,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 0,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "D06"
+}

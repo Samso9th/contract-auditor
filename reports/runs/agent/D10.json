@@ -1,0 +1,40 @@
+{
+  "findings": [
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "X-Fixture-Signature",
+      "severity": "critical",
+      "evidence": "handlers/misc.go:59 TestWebhook sets X-Fixture-Signature, which appears nowhere in the documentation for this operation \u2014 verified: documentation names header \"X-Signature\"; response sent [Content-Type X-Fixture-Signature]",
+      "file": "handlers/misc.go",
+      "line": 59,
+      "rule": "R9",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "documentation names header \"X-Signature\"; response sent [Content-Type X-Fixture-Signature]"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 49.5,
+    "cost_usd": 0.004581,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 7860,
+    "output_tokens": 10336,
+    "deterministic_claims": 1,
+    "agent_claims": 0,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 0,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "D10"
+}

@@ -1,0 +1,48 @@
+{
+  "findings": [
+    {
+      "path": "/payouts/{id}/cancel",
+      "method": "post",
+      "kind": "route_missing_from_spec",
+      "detail": "",
+      "severity": "high",
+      "evidence": "src/routes.js:10 registers POST /payouts/{id}/cancel (handler cancelPayout), which the spec does not document",
+      "file": "src/routes.js",
+      "line": 10,
+      "rule": "R1",
+      "source": "deterministic",
+      "verdict": "unsupported",
+      "verification": "route_missing_from_spec cannot be settled by executing the handler; it needs review rather than a test"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 331.3,
+    "cost_usd": 0.010818,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 14648,
+    "output_tokens": 25034,
+    "deterministic_claims": 1,
+    "agent_claims": 1,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 1,
+      "unsupported": 1,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "request body property 'email': spec documents format \"email\", handler enforces only presence",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "T03"
+}

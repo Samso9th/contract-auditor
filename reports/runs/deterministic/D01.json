@@ -1,0 +1,35 @@
+{
+  "case": "D01",
+  "findings": [
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "response_field_mismatch",
+      "detail": "fee",
+      "severity": "high",
+      "evidence": "handlers/types.go:15 struct PayoutResponse: spec documents fee with no matching field; code returns feeAmount undocumented",
+      "file": "handlers/types.go",
+      "line": 15,
+      "rule": "R3",
+      "source": "deterministic"
+    },
+    {
+      "path": "/payouts/{id}",
+      "method": "get",
+      "kind": "response_field_mismatch",
+      "detail": "fee",
+      "severity": "high",
+      "evidence": "handlers/types.go:15 struct PayoutResponse: spec documents fee with no matching field; code returns feeAmount undocumented",
+      "file": "handlers/types.go",
+      "line": 15,
+      "rule": "R3",
+      "source": "deterministic"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 0.01,
+    "cost_usd": 0.0,
+    "human_minutes": 0,
+    "layer": "deterministic"
+  }
+}

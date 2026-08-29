@@ -1,0 +1,18 @@
+{
+  "case": "D01",
+  "findings": [
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "response_field_mismatch",
+      "detail": "fee"
+    },
+    {
+      "path": "/payouts/{id}",
+      "method": "get",
+      "kind": "response_field_mismatch",
+      "detail": "fee"
+    }
+  ],
+  "meta": {}
+}

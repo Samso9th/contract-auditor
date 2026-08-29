@@ -1,0 +1,12 @@
+{
+  "case": "D03",
+  "findings": [
+    {
+      "path": "/payouts/{id}/cancel",
+      "method": "post",
+      "kind": "route_missing_from_spec",
+      "detail": ""
+    }
+  ],
+  "meta": {}
+}

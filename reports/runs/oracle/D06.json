@@ -1,0 +1,12 @@
+{
+  "case": "D06",
+  "findings": [
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "reason"
+    }
+  ],
+  "meta": {}
+}

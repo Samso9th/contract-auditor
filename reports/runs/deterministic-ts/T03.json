@@ -1,0 +1,23 @@
+{
+  "case": "T03",
+  "findings": [
+    {
+      "path": "/payouts/{id}/cancel",
+      "method": "post",
+      "kind": "route_missing_from_spec",
+      "detail": "",
+      "severity": "high",
+      "evidence": "src/routes.js:10 registers POST /payouts/{id}/cancel (handler cancelPayout), which the spec does not document",
+      "file": "src/routes.js",
+      "line": 10,
+      "rule": "R1",
+      "source": "deterministic"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 0.23,
+    "cost_usd": 0.0,
+    "human_minutes": 0,
+    "layer": "deterministic"
+  }
+}

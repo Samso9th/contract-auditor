@@ -1,0 +1,40 @@
+{
+  "findings": [],
+  "meta": {
+    "wall_clock_seconds": 141.4,
+    "cost_usd": 0.012908,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 11,
+    "input_tokens": 16308,
+    "output_tokens": 22344,
+    "deterministic_claims": 0,
+    "agent_claims": 2,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 2,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/payouts/{id}",
+        "method": "get",
+        "kind": "response_field_mismatch",
+        "detail": "Response field named 'feeAmount' but spec documents 'fee'",
+        "source": "agent"
+      },
+      {
+        "path": "/payouts",
+        "method": "post",
+        "kind": "response_field_mismatch",
+        "detail": "201 response body field name: handler returns 'feeAmount', spec documents 'fee'",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "T01"
+}

@@ -1,0 +1,23 @@
+{
+  "case": "D07",
+  "findings": [
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "request_param_mismatch",
+      "detail": "perPage",
+      "severity": "high",
+      "evidence": "handlers/accounts.go:35 ListTransactions reads per_page; spec documents perPage \u2014 the documented parameter is ignored",
+      "file": "handlers/accounts.go",
+      "line": 35,
+      "rule": "R7",
+      "source": "deterministic"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 0.01,
+    "cost_usd": 0.0,
+    "human_minutes": 0,
+    "layer": "deterministic"
+  }
+}

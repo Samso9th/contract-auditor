@@ -1,0 +1,35 @@
+{
+  "case": "D08",
+  "findings": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "X-Api-Key",
+      "severity": "critical",
+      "evidence": "handlers/misc.go:44 ListBanks requires X-Api-Key but the spec documents this endpoint as public",
+      "file": "handlers/misc.go",
+      "line": 44,
+      "rule": "R8",
+      "source": "deterministic"
+    },
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "undocumented_status",
+      "detail": "401",
+      "severity": "medium",
+      "evidence": "handlers/misc.go:44 ListBanks can return 401, which the spec does not document",
+      "file": "handlers/misc.go",
+      "line": 44,
+      "rule": "R5",
+      "source": "deterministic"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 0.01,
+    "cost_usd": 0.0,
+    "human_minutes": 0,
+    "layer": "deterministic"
+  }
+}

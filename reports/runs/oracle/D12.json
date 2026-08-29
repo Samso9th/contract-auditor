@@ -1,0 +1,12 @@
+{
+  "case": "D12",
+  "findings": [
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "undocumented_status",
+      "detail": "429"
+    }
+  ],
+  "meta": {}
+}

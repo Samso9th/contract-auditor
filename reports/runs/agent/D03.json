@@ -1,0 +1,40 @@
+{
+  "findings": [
+    {
+      "path": "/payouts/{id}/cancel",
+      "method": "post",
+      "kind": "route_missing_from_spec",
+      "detail": "",
+      "severity": "high",
+      "evidence": "handlers/routes.go:11 registers POST /payouts/{id}/cancel (handler CancelPayout), which the spec does not document",
+      "file": "handlers/routes.go",
+      "line": 11,
+      "rule": "R1",
+      "source": "deterministic",
+      "verdict": "unsupported",
+      "verification": "route_missing_from_spec cannot be settled by executing the handler; it needs review rather than a test"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 36.1,
+    "cost_usd": 0.003915,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 7797,
+    "output_tokens": 7869,
+    "deterministic_claims": 1,
+    "agent_claims": 0,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 0,
+      "unsupported": 1,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "D03"
+}

@@ -1,0 +1,15 @@
+{
+  "case": "D06",
+  "findings": [],
+  "meta": {
+    "wall_clock_seconds": 280.9,
+    "cost_usd": 0.004562,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7499,
+    "output_tokens": 16000,
+    "parsed": false,
+    "truncated": true
+  }
+}

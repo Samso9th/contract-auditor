@@ -1,5 +1,4 @@
 eval/cases/
-reports/runs/
 eval/fixture/fixture
 **/.env
 .DS_Store

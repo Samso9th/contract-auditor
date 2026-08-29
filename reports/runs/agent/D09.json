@@ -1,0 +1,41 @@
+{
+  "findings": [
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "default_value_mismatch",
+      "detail": "perPage default: spec documents default 25, handler applies 50 when the parameter is omitted (Atoi of empty string yield",
+      "severity": "medium",
+      "evidence": "handlers/accounts.go:43-45: `if perPage < 1 {` / `perPage = 50` \u2014 spec says perPage has \"default\": 25 \u2014 verified: spec documents a default of 25 for \"perPage\"; handler applied 50",
+      "file": "handlers/accounts.go",
+      "line": 35,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "confirmed",
+      "verification": "spec documents a default of 25 for \"perPage\"; handler applied 50"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 58.9,
+    "cost_usd": 0.004553,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 7641,
+    "output_tokens": 7706,
+    "deterministic_claims": 0,
+    "agent_claims": 1,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 0,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "D09"
+}

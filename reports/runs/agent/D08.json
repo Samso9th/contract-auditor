@@ -1,0 +1,54 @@
+{
+  "findings": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "X-Api-Key",
+      "severity": "critical",
+      "evidence": "handlers/misc.go:44 ListBanks requires X-Api-Key but the spec documents this endpoint as public \u2014 verified: spec documents this endpoint as public; unauthenticated request returned 401",
+      "file": "handlers/misc.go",
+      "line": 44,
+      "rule": "R8",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "spec documents this endpoint as public; unauthenticated request returned 401"
+    },
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "undocumented_status",
+      "detail": "401",
+      "severity": "medium",
+      "evidence": "handlers/misc.go:44 ListBanks can return 401, which the spec does not document",
+      "file": "handlers/misc.go",
+      "line": 44,
+      "rule": "R5",
+      "source": "deterministic",
+      "verdict": "unsupported",
+      "verification": "undocumented_status cannot be settled by executing the handler; it needs review rather than a test"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 45.9,
+    "cost_usd": 0.003021,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 7909,
+    "output_tokens": 6558,
+    "deterministic_claims": 2,
+    "agent_claims": 0,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 0,
+      "unsupported": 1,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "D08"
+}
