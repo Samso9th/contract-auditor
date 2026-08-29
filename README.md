@@ -39,21 +39,26 @@ Running `make languages` prints the same table straight from the code.
 Everything here comes from the part of the tool that uses no AI at all. It costs
 nothing, needs no account, and finishes in under a second:
 
-| Language | Faults it finds without AI | Of what it reported, how much was real | Of what was there, how much it found | Combined score |
+| Language | Faults found without AI | Score without AI | Score with AI | Of what it reported, how much was real |
 |---|---|---|---|---|
-| **Go** | 9 kinds | 100% | 80% | **0.889** |
-| **TypeScript** (Express) | 8 kinds | 100% | 80% | **0.889** |
-| **Python** (FastAPI, Flask) | 8 kinds | 100% | 70% | **0.824** |
-| **PHP** (Laravel) | 6 kinds | 100% | 70% | **0.824** |
+| **Go** | 9 kinds | 0.889 | **1.000** | 100% |
+| **TypeScript** (Express) | 8 kinds | 0.889 | **1.000** | 100% |
+| **Python** (FastAPI, Flask) | 8 kinds | 0.824 | **1.000** | 100% |
+| **PHP** (Laravel) | 6 kinds | 0.824 | **1.000** | 100% |
 
-Two things matter in that table. Everything it reported was real, in every
-language, with no false alarms. And it never once raised a complaint about the
-sample applications we deliberately left correct.
+Every language finds every fault, and not one of them raised a false alarm or
+complained about the sample code we deliberately left correct.
 
-What it does not find without AI is the same short list everywhere: a field the
-code secretly insists on, a rule quietly relaxed, a default value changed. Those
-need reading comprehension rather than lookup, and they are what the AI part is
-for.
+The middle column is worth pausing on. That is the score with the AI switched
+off entirely, and it is most of the way there for free. What the no-AI part
+cannot find is the same short list everywhere: a field the code secretly insists
+on, a rule quietly relaxed, a default value changed. Those need reading
+comprehension rather than lookup, and they are the only thing the AI is used for.
+
+The AI is also wrong most of the time, which is the point. Across the four
+languages it suggested between 6 and 13 things per run, and 50% to 78% of those
+were wrong. Every single wrong one was caught and thrown away by the proving
+step, in every language, which is why the last column reads 100% four times.
 
 The tool never runs or installs your application. It only reads the source code.
 So a project whose dependencies are not installed can still be checked, which
@@ -98,10 +103,10 @@ Adding `webhook-url` sends the full report to Slack, Telegram, or a database.
 
 ## What is the Problem and Who this is for
 
-Any company that publishes software for other developers to use, and every
+Who: Any company that publishes software for other developers to use, and every
 developer building against it.
 
-The case that prompted this is a payments company. Other financial companies read
+The Problem: The case that prompted this is a payments company. Other financial companies read
 its published document, write code to move money through it, and go live. When
 the document and the running software disagree, the failure lands in someone
 else's business, often involving real money.
@@ -371,8 +376,14 @@ code. Nothing in the writing separated the wrong ones from the right ones.
 An earlier run of identical code over identical cases made 13 suggestions, 10 of
 them false. The number of *correct* suggestions did not move: 3 both times,
 because there are 3 such faults to find. What moved was the noise, by more than
-three times, with nothing changed at all. You cannot write a better prompt to fix
-a number that swings that much between identical runs.
+three times, with nothing changed at all.
+
+Then the same thing happened in three more languages. The AI's raw accuracy was
+50% and 23% on two runs of the first language, 38% on the second, 22% on the
+third and 23% on the fourth. Every one of those became 100% after the proving
+step. That is five independent measurements of a number that will not sit still,
+and one measurement of a number that does. You cannot write a better prompt to
+fix the first. You can build something that makes it stop mattering.
 
 The same shape showed up three more times while building this, and each was
 invisible until something actually ran:
@@ -401,9 +412,9 @@ then be confidently wrong.
 
 But prompt work has a ceiling and it is never a guarantee. What actually changed
 the outcome was making every single complaint pay for itself with a test that
-runs against the real code. The AI's raw accuracy was 50% on one run and 23% on
-another. Both became 100% after the proving step, and it found *more*, not less.
-Two runs whose raw noise differed threefold produced identical reports.
+runs against the real code. Across five runs in four languages the AI's raw accuracy ranged from 22% to 50%.
+Every one became 100% after the proving step, and each found *more*, not less.
+Runs whose raw noise differed by more than twofold produced identical reports.
 
 The AI became more useful once it was allowed to be wrong, because being wrong
 stopped mattering.
