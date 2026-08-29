@@ -101,15 +101,22 @@ jobs:
           if-no-files-found: ignore
       # The artifact id is minted by the upload, so the download link cannot
       # come from the audit step. This is what makes the comment one click.
-      - if: always() && steps.brief.outputs.artifact-url != ''
+      - id: body
+        if: always() && steps.audit.outputs.summary != ''
+        env:
+          SUMMARY: ${{ steps.audit.outputs.summary }}
+          BRIEF_URL: ${{ steps.brief.outputs.artifact-url }}
         run: |
-          printf '\n**[Download the fix brief](%s)**\n' \
-            "${{ steps.brief.outputs.artifact-url }}" >> "${{ steps.audit.outputs.summary }}"
+          set -euo pipefail
+          cp "$SUMMARY" contract-audit-comment.md
+          [ -z "$BRIEF_URL" ] || \
+            printf '\n**[Download the fix brief](%s)**\n' "$BRIEF_URL" >> contract-audit-comment.md
+          echo "path=contract-audit-comment.md" >> "$GITHUB_OUTPUT"
       - uses: marocchino/sticky-pull-request-comment@v2
-        if: always() && github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request' && steps.body.outputs.path != ''
         with:
           header: contract-audit
-          path: ${{ steps.audit.outputs.summary }}
+          path: ${{ steps.body.outputs.path }}
 ```
 
 The comment is edited in place on every push, so a pull request carries one

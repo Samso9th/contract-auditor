@@ -150,6 +150,15 @@ if [ -n "${SLACK_WEBHOOK_URL:-}" ] || [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
     log "::warning::notification delivery failed; the audit itself succeeded"
 fi
 
+# A Docker action runs as root, so every file written above belongs to root and
+# the runner user cannot touch it: a workflow appending a download link to the
+# summary fails with "Permission denied". Hand the outputs back to whoever owns
+# the workspace, which is the user the rest of the job runs as.
+for path in "$SUMMARY" "$SARIF" "$BRIEF_DIR" "$BRIEF_ZIP"; do
+  [ -e "$path" ] || continue
+  chown -R --reference="${GITHUB_WORKSPACE:-.}" "$path" 2>/dev/null || true
+done
+
 TOTAL=$(jq '.findings | length' "$REPORT" 2>/dev/null || echo 0)
 CRITICAL=$(jq '[.findings[] | select(.severity=="critical")] | length' "$REPORT" 2>/dev/null || echo 0)
 HIGH=$(jq '[.findings[] | select(.severity=="high")] | length' "$REPORT" 2>/dev/null || echo 0)

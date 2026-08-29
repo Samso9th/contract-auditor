@@ -109,21 +109,30 @@ jobs:
           path: ${{ steps.audit.outputs.brief-dir }}
           if-no-files-found: ignore
 
-      # The artifact id does not exist until the upload above has finished, so
-      # the direct download link cannot come from the audit step. Appending it
-      # here is what turns "hunt through the run page" into one click.
-      - name: Add the brief download link to the summary
-        if: always() && steps.brief.outputs.artifact-url != '' && steps.audit.outputs.summary != ''
+      # The audit runs in a Docker container as root, so the summary it writes
+      # belongs to root and the runner user cannot append to it. Copy first: the
+      # copy belongs to the runner. The artifact id does not exist until the
+      # upload above has finished, which is why the link cannot come from the
+      # audit step itself.
+      - name: Build the comment body
+        id: body
+        if: always() && steps.audit.outputs.summary != ''
+        env:
+          SUMMARY: ${{ steps.audit.outputs.summary }}
+          BRIEF_URL: ${{ steps.brief.outputs.artifact-url }}
         run: |
-          printf '\n**[Download the fix brief](%s)**\n' \
-            "${{ steps.brief.outputs.artifact-url }}" >> "${{ steps.audit.outputs.summary }}"
+          set -euo pipefail
+          cp "$SUMMARY" contract-audit-comment.md
+          [ -z "$BRIEF_URL" ] || \
+            printf '\n**[Download the fix brief](%s)**\n' "$BRIEF_URL" >> contract-audit-comment.md
+          echo "path=contract-audit-comment.md" >> "$GITHUB_OUTPUT"
 
       - name: Comment the summary on the pull request
         uses: marocchino/sticky-pull-request-comment@v3
-        if: always() && github.event_name == 'pull_request' && steps.audit.outputs.summary != ''
+        if: always() && github.event_name == 'pull_request' && steps.body.outputs.path != ''
         with:
           header: contract-audit
-          path: ${{ steps.audit.outputs.summary }}
+          path: ${{ steps.body.outputs.path }}
 
       # The whole point of auditing a case whose answer is written down. A
       # decoy must come back silent and a fault must be caught; either one
