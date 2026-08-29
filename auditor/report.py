@@ -141,7 +141,7 @@ def to_sarif(findings, tool_version="0.1.0", repo_subdir=""):
     }
 
 
-def to_markdown(findings, meta, title="Contract audit"):
+def to_markdown(findings, meta, title="Contract audit", brief_text="", artifact_name=""):
     if not findings:
         return (f"## {title}\n\n"
                 "No contract drift found. Code and specification agree on every "
@@ -169,6 +169,32 @@ def to_markdown(findings, meta, title="Contract audit"):
         lines += ["", f"{verified} of {len(findings)} finding(s) were confirmed by "
                       "executing a generated test against the handler; claims whose "
                       "test passed were discarded."]
+
+    # Three ways to take this to a coding agent, because people work differently:
+    # copy it straight from here, download the brief alone, or download the brief
+    # with the generated tests so the agent can run them.
+    if brief_text:
+        lines += ["", "---", "",
+                  "### Hand this to a coding agent", "",
+                  "Copy the brief below straight into Cursor, Codex or Claude Code. "
+                  "It contains every finding, what was observed, and the test that "
+                  "proved it."]
+        if artifact_name:
+            run_url = meta.get("run_url") if isinstance(meta, dict) else ""
+            where = (f"the Artifacts section of [this run]({run_url})" if run_url
+                     else f"`{artifact_name}/`")
+            has_tests = any(f.get("test_source") for f in findings)
+            tests_note = ("the `.zip` has the brief and a `tests/` directory of runnable "
+                          "tests, and the `.md` is the brief on its own."
+                          if has_tests else
+                          "the `.md` is the brief. No tests are included: this run had no "
+                          "API key, so findings came from parsing alone and nothing was "
+                          "executed to prove them.")
+            lines += ["", f"To download it instead, take **{artifact_name}** from "
+                          f"{where}: {tests_note}"]
+        lines += ["", "<details>", "<summary>Fix brief (click to expand, then copy)</summary>",
+                  "", "```markdown", brief_text.strip(), "```", "", "</details>", ""]
+
     return "\n".join(lines) + "\n"
 
 
@@ -212,6 +238,8 @@ def main():
     parser.add_argument("--fail-on", default="high",
                         choices=["critical", "high", "medium", "low", "none"])
     parser.add_argument("--title", default="Contract audit")
+    parser.add_argument("--brief", default="", help="path to the fix brief, embedded for copying")
+    parser.add_argument("--artifact-name", default="", help="name of the uploaded artifact")
     args = parser.parse_args()
 
     findings, meta = load_findings(args.run)
@@ -221,7 +249,19 @@ def main():
             json.dumps(to_sarif(findings, repo_subdir=args.repo_subdir), indent=2))
         print(f"sarif    {args.sarif} ({len(findings)} result(s))")
 
-    markdown = to_markdown(findings, meta, args.title)
+    brief_text = ""
+    if args.brief and pathlib.Path(args.brief).exists():
+        brief_text = pathlib.Path(args.brief).read_text()
+        # GitHub rejects a comment over 65536 characters, and a long audit's brief
+        # can pass that on its own. The download still carries everything.
+        if len(brief_text) > 45000:
+            brief_text = (brief_text[:45000]
+                          + "\n\n[... truncated. Download the artifact for the full brief.]")
+    if os.environ.get("GITHUB_RUN_ID"):
+        meta = dict(meta, run_url=(f"{os.environ.get('GITHUB_SERVER_URL', '')}/"
+                                   f"{os.environ.get('GITHUB_REPOSITORY', '')}/actions/runs/"
+                                   f"{os.environ['GITHUB_RUN_ID']}"))
+    markdown = to_markdown(findings, meta, args.title, brief_text, args.artifact_name)
     if args.markdown:
         pathlib.Path(args.markdown).write_text(markdown)
         print(f"markdown {args.markdown}")

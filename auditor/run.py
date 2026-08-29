@@ -102,6 +102,15 @@ def agent_pass(api, spec, table, known, model, pool, adapter=None):
     return claims, usage
 
 
+def adapter_test_name(language, claim):
+    """A filename that identifies which finding a shipped test belongs to."""
+    slug = f"{claim['method']}_{claim['path']}".strip("/").replace("/", "_")
+    slug = "".join(c if c.isalnum() or c in "_-" else "_" for c in slug)
+    suffix = {"go": "_test.go", "typescript": ".test.mjs",
+              "python": "_check.py", "php": "_check.php"}.get(language, ".txt")
+    return f"{claim['kind']}__{slug}{suffix}"
+
+
 def verify_all(case_dir, spec, claims, language=None, strip_prefix="/v1"):
     """Put every claim through the gate.
 
@@ -115,6 +124,13 @@ def verify_all(case_dir, spec, claims, language=None, strip_prefix="/v1"):
         verdict = outcome["verdict"]
         stats[verdict] = stats.get(verdict, 0) + 1
         enriched = dict(claim, verdict=verdict, verification=outcome.get("detail", ""))
+        # The generated test is the most useful thing a fixing agent can be
+        # handed: it already encodes what "fixed" means, so the agent can run it
+        # rather than be told. Kept on confirmed findings so the brief can ship
+        # them; refuted claims carry nothing worth keeping.
+        if verdict == "confirmed" and outcome.get("test"):
+            enriched["test_source"] = outcome["test"]
+            enriched["test_filename"] = adapter_test_name(language, claim)
         if verdict == "confirmed" and outcome.get("detail"):
             # The gate saw the real behaviour, so its observation belongs in the
             # evidence - appended, not substituted. Replacing the static evidence

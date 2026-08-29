@@ -98,6 +98,51 @@ at precision **1.0**. You read verified findings, not a model's opinion. See
 Cost across the full 16-case evaluation was **$0.044 for 159 model calls**. One
 repository audit is a fraction of that.
 
+## Handing findings to a coding agent
+
+Every run produces a fix brief: one document covering every finding, what was
+observed, and the test that proved it. There are three ways to use it, and no
+storage to set up for any of them. The files are uploaded as a GitHub Actions
+artifact, which needs no bucket, no account and no credentials.
+
+```yaml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-audit-brief
+          path: ${{ steps.audit.outputs.brief-dir }}
+```
+
+<Tabs>
+  <Tab title="Copy it">
+    The pull request comment contains the whole brief in a collapsible block.
+    Expand it, copy it, paste it into Cursor, Codex or Claude Code. Nothing to
+    download.
+
+    Best when you want a fix started immediately and do not care about running
+    the tests yourself.
+  </Tab>
+  <Tab title="Download the brief">
+    `<name>_brief.md` from the run's Artifacts section. The same document as a
+    file, for attaching to a ticket or keeping alongside a branch.
+  </Tab>
+  <Tab title="Download the zip">
+    `<name>_brief.zip` contains the brief and a `tests/` directory holding every
+    generated test as a runnable file.
+
+    This is the strongest option. The agent does not have to be told what
+    "fixed" means, because each test already asserts what the specification
+    promises and currently fails. When it passes, that finding is resolved.
+  </Tab>
+</Tabs>
+
+<Note>
+The brief opens by telling the agent the one judgement the tool deliberately does
+not make: whether the code drifted or the document went stale. Getting that
+backwards turns a documentation edit into a breaking change for everyone already
+integrated, so the brief asks the agent to decide explicitly and say why.
+</Note>
+
 ## Inputs
 
 | Input | Default | Notes |
@@ -117,7 +162,8 @@ repository audit is a fraction of that.
 | `telegram-bot-token` | n/a | With `telegram-chat-id`. |
 | `notify-min-severity` | `high` | Lowest severity worth interrupting a human for. |
 
-**Outputs:** `findings`, `critical`, `high`, `sarif`, `summary`.
+**Outputs:** `findings`, `critical`, `high`, `sarif`, `summary`, `brief`,
+`brief-zip`, `brief-dir`.
 
 ## Alerting a human
 

@@ -63,9 +63,25 @@ log "::endgroup::"
 REPORT="$OUT_DIR/report.json"
 [ -f "$REPORT" ] || fail "the audit produced no report"
 
+# The fix brief: one per run, with every finding and the test that proved it.
+# Written next to the workspace so the workflow can upload it as an artifact,
+# which is why this needs no external storage of any kind.
+BRIEF_NAME="${INPUT_BRIEF_NAME:-contract-audit}"
+BRIEF_DIR="${INPUT_BRIEF_DIR:-contract-audit-brief}"
+mkdir -p "$BRIEF_DIR"
+python3 "$AUDITOR/auditor/brief.py" "$REPORT" \
+    --name "$BRIEF_NAME" --out "$BRIEF_DIR" \
+    --repo "${GITHUB_REPOSITORY:-}" --sha "${GITHUB_SHA:-}" \
+    --run-url "${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}" \
+    || log "::warning::could not build the fix brief; the audit itself succeeded"
+
+BRIEF_MD="$BRIEF_DIR/${BRIEF_NAME}_brief.md"
+BRIEF_ZIP="$BRIEF_DIR/${BRIEF_NAME}_brief.zip"
+
 set +e
 python3 "$AUDITOR/auditor/report.py" "$REPORT" \
     --sarif "$SARIF" --markdown "$SUMMARY" \
+    ${BRIEF_MD:+--brief "$BRIEF_MD"} --artifact-name "$BRIEF_DIR" \
     --repo-subdir "$([ "$SOURCE_DIR" = "." ] && echo "" || echo "$SOURCE_DIR")" \
     --fail-on "$FAIL_ON" --title "Contract audit"
 STATUS=$?
@@ -94,6 +110,9 @@ if [ -n "${GITHUB_OUTPUT:-}" ]; then
     echo "high=$HIGH"
     echo "sarif=$SARIF"
     echo "summary=$SUMMARY"
+    echo "brief=$BRIEF_MD"
+    echo "brief-zip=$BRIEF_ZIP"
+    echo "brief-dir=$BRIEF_DIR"
   } >> "$GITHUB_OUTPUT"
 fi
 

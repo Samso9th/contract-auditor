@@ -84,7 +84,8 @@ async function invoke(handler, req) {
 """
 
 
-def render_test(claim, operation, module_path, handler, request, success_code, documented):
+def render_test(claim, operation, module_path, handler, request, success_code, documented,
+                documented_header=None):
     """Emit the whole test file for one claim."""
     kind = claim["kind"]
     detail = claim.get("detail", "")
@@ -116,8 +117,13 @@ test({lit(kind + " on " + claim["method"].upper() + " " + claim["path"])}, async
     `spec declares {lit(detail)} as {expected}; response carries ${{jsonType(obj[{lit(detail)}])}} (${{obj[{lit(detail)}]}})`);"""
 
     elif kind == "response_header_mismatch":
-        body = f"""  assert.ok(res.get({lit(detail)}),
-    `documentation names header {lit(detail)}; response sent ${{JSON.stringify(Object.keys(res.headers))}}`);"""
+        # The probe must assert the header the *specification* names. The
+        # claim's detail carries the header the code sets, and asserting that
+        # tests the drift instead of the promise: the header is present, the
+        # test passes, and a true finding is refuted.
+        expected_header = documented_header or detail
+        body = f"""  assert.ok(res.get({lit(expected_header)}),
+    `documentation names header {expected_header}; response sent ${{JSON.stringify(Object.keys(res.headers))}}`);"""
 
     elif kind == "auth_mismatch":
         body = """  assert.ok(res.statusCode !== 401 && res.statusCode !== 403,

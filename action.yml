@@ -78,6 +78,15 @@ inputs:
     description: Sent as X-Auditor-Token so your receiver can authenticate the POST.
     required: false
     default: ""
+  brief-name:
+    description: >-
+      Base name for the fix brief. Produces <name>_brief.md and <name>_brief.zip.
+    required: false
+    default: contract-audit
+  brief-dir:
+    description: Directory the brief and its tests are written to, for uploading as an artifact.
+    required: false
+    default: contract-audit-brief
   sarif-path:
     description: Where to write SARIF for upload to code scanning.
     required: false
@@ -98,6 +107,12 @@ outputs:
     description: Path to the SARIF file.
   summary:
     description: Path to the Markdown summary.
+  brief:
+    description: Path to the fix brief, ready to paste into a coding agent.
+  brief-zip:
+    description: Path to the brief plus the generated tests as runnable files.
+  brief-dir:
+    description: Directory holding the brief, the zip and the tests. Upload this as an artifact.
 
 runs:
   using: docker

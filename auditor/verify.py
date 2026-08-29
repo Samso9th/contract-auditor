@@ -660,7 +660,8 @@ def verify_claim(case_dir, claim, spec=None, keep_test=False, language=None,
             claim, operation, rel_module, route["handler"],
             {"method": claim["method"].upper(), "params": path_params,
              "query": query, "headers": headers, "body": json.loads(body) if body else None},
-            success_code, documented)
+            success_code, documented,
+            documented_header=_documented_header(spec, claim, detail))
     else:
         source = render_test(claim, operation, route["handler"], url, headers, body,
                              success_code, spec)
