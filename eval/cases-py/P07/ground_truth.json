@@ -1,0 +1,14 @@
+{
+  "id": "P07",
+  "category": "validation-drift",
+  "severity": "medium",
+  "description": "BVN length check loosened to 10 digits; the spec constrains it to exactly 11.",
+  "expect": [
+    {
+      "path": "/kyc/bvn",
+      "method": "post",
+      "kind": "validation_mismatch",
+      "detail": "bvn"
+    }
+  ]
+}

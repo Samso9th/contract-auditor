@@ -214,7 +214,7 @@ def main():
         selected = [d for d in selected if d.name in wanted]
 
     log(f"auditing {len(selected)} case(s) with {args.model}, {args.workers} workers\n")
-    total_cost, total_calls = 0.0, 0
+    total_cost, total_calls, total_unread = 0.0, 0, 0
     started = time.time()
 
     for case_dir in selected:
@@ -227,6 +227,7 @@ def main():
         meta = result["meta"]
         total_cost += meta["cost_usd"]
         total_calls += meta["model_calls"]
+        total_unread += len(meta.get("unread_endpoints", []))
         verification = meta["verification"]
         log(f"  {case_dir.name}  {len(result['findings']):>2} kept  "
             f"(det {meta['deterministic_claims']}, agent {meta['agent_claims']}, "
@@ -239,6 +240,13 @@ def main():
     log(f"\n{len(selected)} cases, {total_calls} model calls, "
         f"${total_cost:.4f}, {time.time() - started:.0f}s total")
     log(f"written to {out}")
+
+    if total_unread:
+        # Stated at the end, where it cannot be missed. A run that could not read
+        # part of the API is not a run that found nothing wrong there, and the
+        # two look identical in the findings alone.
+        log(f"\n::warning::{total_unread} endpoint(s) could not be audited. "
+            f"This run is incomplete - the findings do not cover them.")
 
 
 if __name__ == "__main__":

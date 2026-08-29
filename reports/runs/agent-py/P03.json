@@ -1,0 +1,44 @@
+{
+  "findings": [
+    {
+      "path": "/payouts/{id}/cancel",
+      "method": "post",
+      "kind": "route_missing_from_spec",
+      "detail": "",
+      "severity": "high",
+      "evidence": "app/routes.py:26 registers POST /payouts/{id}/cancel (handler cancel_payout), which the spec does not document",
+      "file": "app/routes.py",
+      "line": 26,
+      "rule": "R1",
+      "source": "deterministic",
+      "verdict": "unsupported",
+      "verification": "route_missing_from_spec cannot be settled by executing the handler; it needs review rather than a test"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 1275.5,
+    "cost_usd": 0.007998,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 7,
+    "input_tokens": 11271,
+    "output_tokens": 16765,
+    "deterministic_claims": 1,
+    "agent_claims": 0,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 0,
+      "unsupported": 1,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [
+      "post /payouts: z-ai/glm-5.3-flash: curl: (28) Operation timed out after 494742 milliseconds with 891 bytes received"
+    ],
+    "unread_endpoints": [
+      "POST /payouts"
+    ]
+  },
+  "case": "P03"
+}

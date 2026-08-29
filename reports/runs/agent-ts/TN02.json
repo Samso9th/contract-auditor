@@ -1,13 +1,13 @@
 {
   "findings": [],
   "meta": {
-    "wall_clock_seconds": 0.2,
-    "cost_usd": 0.0,
+    "wall_clock_seconds": 1367.5,
+    "cost_usd": 0.014545,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
-    "model_calls": 0,
-    "input_tokens": 0,
-    "output_tokens": 0,
+    "model_calls": 10,
+    "input_tokens": 14373,
+    "output_tokens": 26804,
     "deterministic_claims": 0,
     "agent_claims": 0,
     "suppressed_by_allowlist": 0,
@@ -18,8 +18,12 @@
       "error": 0
     },
     "dropped_by_gate": [],
-    "agent_errors": [],
-    "unread_endpoints": []
+    "agent_errors": [
+      "post /customers: z-ai/glm-5.3-flash: curl: (28) Operation timed out after 495267 milliseconds with 902 bytes received"
+    ],
+    "unread_endpoints": [
+      "POST /customers"
+    ]
   },
   "case": "TN02"
 }

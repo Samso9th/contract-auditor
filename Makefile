@@ -3,8 +3,15 @@
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "};{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-cases: ## Build the 16 evaluation cases (verifies each compiles)
+cases: ## Build the Go evaluation cases (verifies each compiles)
 	@cd eval && python3 inject.py --all
+
+cases-all: ## Build the evaluation cases for every supported language
+	@cd eval && python3 inject.py --language go --all
+	@echo
+	@cd eval && python3 inject.py --language typescript --all
+	@echo
+	@cd eval && python3 inject.py --language python --all
 
 baseline: cases ## Run the single-prompt baseline over every case
 	@python3 baseline/run.py --cases eval/cases --out reports/runs/baseline
@@ -30,10 +37,13 @@ test-tools: cases ## Verify the auditor's deterministic tools
 	@echo
 	@python3 auditor/test_notify.py
 
-deterministic: cases ## Run the no-model layer over every case and score it
+deterministic: cases ## Run the no-model layer over the Go cases and score it
 	@python3 auditor/run_deterministic.py
 	@echo
 	@cd eval && python3 score.py --run ../reports/runs/deterministic --markdown
+
+languages: ## Show which languages are supported and what each layer covers
+	@python3 auditor/languages/report.py
 
 models: ## Show the configured models and their prices
 	@python3 auditor/llm.py --models

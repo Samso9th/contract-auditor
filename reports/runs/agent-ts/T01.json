@@ -1,13 +1,13 @@
 {
   "findings": [],
   "meta": {
-    "wall_clock_seconds": 141.4,
-    "cost_usd": 0.012908,
+    "wall_clock_seconds": 136.6,
+    "cost_usd": 0.007605,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
-    "model_calls": 11,
-    "input_tokens": 16308,
-    "output_tokens": 22344,
+    "model_calls": 10,
+    "input_tokens": 14784,
+    "output_tokens": 25637,
     "deterministic_claims": 0,
     "agent_claims": 2,
     "suppressed_by_allowlist": 0,
@@ -19,17 +19,17 @@
     },
     "dropped_by_gate": [
       {
-        "path": "/payouts/{id}",
-        "method": "get",
-        "kind": "response_field_mismatch",
-        "detail": "Response field named 'feeAmount' but spec documents 'fee'",
-        "source": "agent"
-      },
-      {
         "path": "/payouts",
         "method": "post",
         "kind": "response_field_mismatch",
-        "detail": "201 response body field name: handler returns 'feeAmount', spec documents 'fee'",
+        "detail": "201 response body carries the field `feeAmount`, which the specification does not document, and omits `fee`, which the s",
+        "source": "agent"
+      },
+      {
+        "path": "/payouts/{id}",
+        "method": "get",
+        "kind": "response_field_mismatch",
+        "detail": "200 response body carries \"feeAmount\" but the specification documents the field as \"fee\"",
         "source": "agent"
       }
     ],

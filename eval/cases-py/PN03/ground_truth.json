@@ -1,0 +1,7 @@
+{
+  "id": "PN03",
+  "category": "decoy-key-reorder",
+  "severity": "none",
+  "description": "DECOY. Reorders response keys. Same JSON, same values.",
+  "expect": []
+}

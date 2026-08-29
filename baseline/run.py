@@ -110,7 +110,18 @@ def run_case(case_dir, model):
 
     started = time.time()
     try:
-        reply = chat(model, SYSTEM, prompt, max_tokens=16000)
+        # The baseline prompt is the whole package plus the whole spec, and a
+        # reasoning model will happily spend an entire modest budget thinking
+        # about it and emit nothing. At 16000 every completed case truncated
+        # before producing an answer, which scores as "found nothing" and is not
+        # a fair reading of what one direct prompt achieves.
+        # A generous timeout is a fairness requirement, not a convenience. The
+        # baseline prompt is the whole package plus the whole spec, and a
+        # reasoning model spends minutes on it: at the default 300s, six of
+        # sixteen cases timed out mid-stream and scored as finding nothing.
+        # Cutting the baseline off early would flatter the agent for the wrong
+        # reason. The wall-clock difference is reported instead.
+        reply = chat(model, SYSTEM, prompt, max_tokens=48000, timeout=1200)
     except LLMError as exc:
         return case_dir.name, {
             "case": case_dir.name, "findings": [],

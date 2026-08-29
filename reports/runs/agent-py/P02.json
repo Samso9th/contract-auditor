@@ -1,0 +1,48 @@
+{
+  "findings": [
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "201",
+      "severity": "medium",
+      "evidence": "app/routes.py:36 declares status_code=200 on success; spec documents 201 (verified: ASSERTION: spec documents 201 on success; handler returned 200)",
+      "file": "app/routes.py",
+      "line": 36,
+      "rule": "R6",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: spec documents 201 on success; handler returned 200"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 137.4,
+    "cost_usd": 0.006217,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 8,
+    "input_tokens": 13596,
+    "output_tokens": 19679,
+    "deterministic_claims": 1,
+    "agent_claims": 1,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 1,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "email: spec documents format \"email\" (type string); handler enforces only presence and accepts any non-empty value",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "P02"
+}

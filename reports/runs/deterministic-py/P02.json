@@ -1,0 +1,23 @@
+{
+  "case": "P02",
+  "findings": [
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "201",
+      "severity": "medium",
+      "evidence": "app/routes.py:36 declares status_code=200 on success; spec documents 201",
+      "file": "app/routes.py",
+      "line": 36,
+      "rule": "R6",
+      "source": "deterministic"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 0.05,
+    "cost_usd": 0.0,
+    "human_minutes": 0,
+    "layer": "deterministic"
+  }
+}

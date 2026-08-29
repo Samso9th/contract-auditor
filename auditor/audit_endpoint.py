@@ -301,7 +301,12 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
             reply = chat(model, SYSTEM, prompt,
                          max_tokens=DEFAULT_MAX_TOKENS * (attempt + 1))
         except LLMError as exc:
+            # Any failure to read an endpoint marks it unread, not just an
+            # unparseable reply. A DNS failure or a rate limit produces zero
+            # claims exactly like a clean endpoint does, and without this the
+            # difference never reaches the report.
             usage["error"] = str(exc)
+            usage["unread_endpoint"] = f"{method.upper()} {path}"
             return [], usage
 
         usage["calls"] += 1

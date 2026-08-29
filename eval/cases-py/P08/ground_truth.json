@@ -1,0 +1,14 @@
+{
+  "id": "P08",
+  "category": "default-value-drift",
+  "severity": "low",
+  "description": "Page size default changed to 50 in the route signature; the spec still documents 25. A caller who omits the parameter gets a different page size than the docs promise.",
+  "expect": [
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "default_value_mismatch",
+      "detail": "perPage"
+    }
+  ]
+}

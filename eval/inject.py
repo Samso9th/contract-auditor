@@ -38,6 +38,16 @@ SUITES = {
         # `node --check` on every source file: the analogue of `go build`, and
         # the same gate - a mutation that does not parse tests nothing.
         "build": None,
+        "check": ["node", "--check"],
+        "suffixes": (".js", ".mjs"),
+    },
+    "python": {
+        "fixture": ROOT / "fixture-py",
+        "mutations": ROOT / "mutations" / "mutations-py.json",
+        "cases": ROOT / "cases-py",
+        "build": None,
+        "check": ["python3", "-m", "py_compile"],
+        "suffixes": (".py",),
     },
 }
 
@@ -77,13 +87,16 @@ def verify_build(case_dir, language="go"):
         result = subprocess.run(spec["build"], cwd=api, capture_output=True, text=True)
         return result.returncode == 0, result.stderr.strip()
 
-    # JavaScript has no build step, so parse every source file instead.
+    # Interpreted languages have no build step, so parse every source file.
+    check = spec.get("check")
+    if not check:
+        return True, ""
     errors = []
-    for path in sorted(api.rglob("*.js")) + sorted(api.rglob("*.mjs")):
-        result = subprocess.run(["node", "--check", str(path)],
-                                capture_output=True, text=True)
-        if result.returncode != 0:
-            errors.append(result.stderr.strip())
+    for suffix in spec.get("suffixes", ()):
+        for path in sorted(api.rglob(f"*{suffix}")):
+            result = subprocess.run(check + [str(path)], capture_output=True, text=True)
+            if result.returncode != 0:
+                errors.append(result.stderr.strip())
     return not errors, "\n".join(errors)
 
 

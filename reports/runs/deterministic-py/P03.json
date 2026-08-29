@@ -1,0 +1,23 @@
+{
+  "case": "P03",
+  "findings": [
+    {
+      "path": "/payouts/{id}/cancel",
+      "method": "post",
+      "kind": "route_missing_from_spec",
+      "detail": "",
+      "severity": "high",
+      "evidence": "app/routes.py:26 registers POST /payouts/{id}/cancel (handler cancel_payout), which the spec does not document",
+      "file": "app/routes.py",
+      "line": 26,
+      "rule": "R1",
+      "source": "deterministic"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 0.05,
+    "cost_usd": 0.0,
+    "human_minutes": 0,
+    "layer": "deterministic"
+  }
+}

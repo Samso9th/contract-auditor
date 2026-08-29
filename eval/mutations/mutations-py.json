@@ -1,0 +1,229 @@
+{
+  "_comment": "Python/FastAPI mutations, mirroring the Go and TypeScript sets so all three languages are measured the same way.",
+  "language": "python",
+  "fixture": "eval/fixture-py",
+  "mutations": [
+    {
+      "id": "P01",
+      "category": "response-field-rename",
+      "severity": "high",
+      "description": "Payout fee renamed in code; spec still advertises 'fee'. Lands on both endpoints returning the payout shape.",
+      "edits": [
+        {
+          "file": "app/models.py",
+          "find": "        \"fee\": \"5000\",",
+          "replace": "        \"feeAmount\": \"5000\","
+        }
+      ],
+      "expect": [
+        {
+          "path": "/payouts",
+          "method": "post",
+          "kind": "response_field_mismatch",
+          "detail": "fee"
+        },
+        {
+          "path": "/payouts/{id}",
+          "method": "get",
+          "kind": "response_field_mismatch",
+          "detail": "fee"
+        }
+      ]
+    },
+    {
+      "id": "P02",
+      "category": "status-code",
+      "severity": "medium",
+      "description": "Customer creation declares 200 on the route but the spec documents 201.",
+      "edits": [
+        {
+          "file": "app/routes.py",
+          "find": "@router.post(\"/customers\", status_code=201)",
+          "replace": "@router.post(\"/customers\", status_code=200)"
+        }
+      ],
+      "expect": [
+        {
+          "path": "/customers",
+          "method": "post",
+          "kind": "status_code_mismatch",
+          "detail": "201"
+        }
+      ]
+    },
+    {
+      "id": "P03",
+      "category": "undocumented-route",
+      "severity": "high",
+      "description": "A payout cancellation endpoint exists in code and is absent from the spec.",
+      "edits": [
+        {
+          "file": "app/routes.py",
+          "find": "@router.get(\"/balance\")",
+          "replace": "@router.post(\"/payouts/{id}/cancel\")\nasync def cancel_payout(id: str):\n    return {\"id\": id, \"status\": \"cancelled\"}\n\n\n@router.get(\"/balance\")"
+        }
+      ],
+      "expect": [
+        {
+          "path": "/payouts/{id}/cancel",
+          "method": "post",
+          "kind": "route_missing_from_spec",
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "id": "P04",
+      "category": "phantom-route",
+      "severity": "high",
+      "description": "Spec documents GET /banks but the route is no longer registered.",
+      "edits": [
+        {
+          "file": "app/routes.py",
+          "find": "@router.get(\"/banks\")\nasync def list_banks():\n    return handlers.list_banks()",
+          "replace": "async def list_banks():\n    return handlers.list_banks()"
+        }
+      ],
+      "expect": [
+        {
+          "path": "/banks",
+          "method": "get",
+          "kind": "route_missing_from_code",
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "id": "P05",
+      "category": "money-type-change",
+      "severity": "critical",
+      "description": "Balance switched from decimal string to number on both money fields; the spec still says string.",
+      "edits": [
+        {
+          "file": "app/models.py",
+          "find": "    return {\"available\": \"2450000\", \"ledger\": \"2500000\", \"currency\": \"NGN\"}",
+          "replace": "    return {\"available\": 2450000, \"ledger\": 2500000, \"currency\": \"NGN\"}"
+        }
+      ],
+      "expect": [
+        {
+          "path": "/balance",
+          "method": "get",
+          "kind": "response_type_mismatch",
+          "detail": "available"
+        },
+        {
+          "path": "/balance",
+          "method": "get",
+          "kind": "response_type_mismatch",
+          "detail": "ledger"
+        }
+      ]
+    },
+    {
+      "id": "P06",
+      "category": "undocumented-required-field",
+      "severity": "high",
+      "description": "Refund now rejects an empty reason, but the spec does not mark reason required.",
+      "edits": [
+        {
+          "file": "app/handlers.py",
+          "find": "def create_refund(body):\n    return {",
+          "replace": "def create_refund(body):\n    if not body.get(\"reason\"):\n        raise HttpError(400, \"missing_reason\", \"reason is required\")\n    return {"
+        }
+      ],
+      "expect": [
+        {
+          "path": "/refunds",
+          "method": "post",
+          "kind": "request_required_mismatch",
+          "detail": "reason"
+        }
+      ]
+    },
+    {
+      "id": "P07",
+      "category": "validation-drift",
+      "severity": "medium",
+      "description": "BVN length check loosened to 10 digits; the spec constrains it to exactly 11.",
+      "edits": [
+        {
+          "file": "app/handlers.py",
+          "find": "    if len(str(body.get(\"bvn\", \"\"))) != 11:",
+          "replace": "    if len(str(body.get(\"bvn\", \"\"))) != 10:"
+        }
+      ],
+      "expect": [
+        {
+          "path": "/kyc/bvn",
+          "method": "post",
+          "kind": "validation_mismatch",
+          "detail": "bvn"
+        }
+      ]
+    },
+    {
+      "id": "P08",
+      "category": "default-value-drift",
+      "severity": "low",
+      "description": "Page size default changed to 50 in the route signature; the spec still documents 25. A caller who omits the parameter gets a different page size than the docs promise.",
+      "edits": [
+        {
+          "file": "app/routes.py",
+          "find": "async def list_transactions(page: int = 1, perPage: int = 25):",
+          "replace": "async def list_transactions(page: int = 1, perPage: int = 50):"
+        }
+      ],
+      "expect": [
+        {
+          "path": "/transactions",
+          "method": "get",
+          "kind": "default_value_mismatch",
+          "detail": "perPage"
+        }
+      ]
+    },
+    {
+      "id": "PN01",
+      "category": "decoy-local-rename",
+      "severity": "none",
+      "description": "DECOY. Renames a local variable. No contract change.",
+      "edits": [
+        {
+          "file": "app/handlers.py",
+          "find": "    page = max(int(page or 1), 1)",
+          "replace": "    page_number = max(int(page or 1), 1)\n    page = page_number"
+        }
+      ],
+      "expect": []
+    },
+    {
+      "id": "PN02",
+      "category": "decoy-comment",
+      "severity": "none",
+      "description": "DECOY. Adds an implementation comment.",
+      "edits": [
+        {
+          "file": "app/handlers.py",
+          "find": "def get_payout(payout_id):",
+          "replace": "# Lookup is stubbed; the fixture returns a fixed record.\ndef get_payout(payout_id):"
+        }
+      ],
+      "expect": []
+    },
+    {
+      "id": "PN03",
+      "category": "decoy-key-reorder",
+      "severity": "none",
+      "description": "DECOY. Reorders response keys. Same JSON, same values.",
+      "edits": [
+        {
+          "file": "app/models.py",
+          "find": "    return {\"available\": \"2450000\", \"ledger\": \"2500000\", \"currency\": \"NGN\"}",
+          "replace": "    return {\"currency\": \"NGN\", \"ledger\": \"2500000\", \"available\": \"2450000\"}"
+        }
+      ],
+      "expect": []
+    }
+  ]
+}

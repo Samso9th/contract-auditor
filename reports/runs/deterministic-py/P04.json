@@ -1,0 +1,23 @@
+{
+  "case": "P04",
+  "findings": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "route_missing_from_code",
+      "detail": "",
+      "severity": "high",
+      "evidence": "spec documents GET /banks but no route registers it (/Users/samsonite/Documents/Sam/micro1/eval/cases-py/P04/spec/openapi.json)",
+      "file": "",
+      "line": 0,
+      "rule": "R2",
+      "source": "deterministic"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 0.05,
+    "cost_usd": 0.0,
+    "human_minutes": 0,
+    "layer": "deterministic"
+  }
+}

@@ -239,6 +239,16 @@ def _operation_rules(path, method, route, operation, spec, facts, structs, auth_
     # one package cannot be attributed to this route, so every body-derived rule
     # below declines rather than guessing which declaration to cite.
     if not facts or facts.get("ambiguous"):
+        # Some extractors report the declared success status on the route itself
+        # (a FastAPI decorator's status_code) without emitting full handler
+        # facts. That is enough to settle this one rule without a model.
+        declared = route.get("status_code")
+        if declared and success_codes and str(declared) not in success_codes:
+            out.append(finding(
+                path, method, "status_code_mismatch", success_codes[0],
+                f"{route['file']}:{route['line']} declares status_code={declared} "
+                f"on success; spec documents {', '.join(success_codes)}",
+                "R6", file=route["file"], line=route["line"]))
         return out
 
     # R5/R6 - status codes the handler can actually emit.

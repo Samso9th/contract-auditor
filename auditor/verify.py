@@ -37,6 +37,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from spec import load as load_spec  # noqa: E402
 import languages  # noqa: E402
 import verify_ts  # noqa: E402
+import verify_py  # noqa: E402
 
 TEST_FILE = "contract_verify_test.go"
 
@@ -425,6 +426,41 @@ def _resolve_detail(claim, operation, spec, key):
     return detail
 
 
+def _python_kwargs(route, operation, claim, path_params, headers, request_body):
+    """Arguments for calling a Python handler directly.
+
+    Built from the handler's real parameter names, matched against path
+    parameters, query parameters and the request body. A name the route does not
+    declare is left out: passing an argument the function does not accept raises
+    a TypeError that would read as a failed verification rather than a bad probe.
+    """
+    kwargs = {}
+    declared = route.get("args") or []
+    parsed_body = json.loads(request_body) if request_body else None
+
+    for name in declared:
+        if name in path_params:
+            kwargs[name] = path_params[name]
+            continue
+        header_match = next((v for k, v in headers.items()
+                             if k.lower().replace("-", "_") == name.lower()), None)
+        if header_match is not None:
+            kwargs[name] = header_match
+            continue
+        if name in ("body", "payload", "data", "request_body") and parsed_body is not None:
+            kwargs[name] = parsed_body
+            continue
+        param = next((p for p in operation["params"] if p["name"] == name), None)
+        if param is not None:
+            # A default-value probe must omit the parameter so the handler's own
+            # default is what the response reflects.
+            if claim["kind"] == "default_value_mismatch" and name == claim.get("detail"):
+                continue
+            if param.get("default") is None:
+                kwargs[name] = sample_value(name, param.get("type", "string"))
+    return kwargs
+
+
 def _documented_properties(spec, key, success_code):
     op = spec[key]
     return op["responses"].get(str(success_code), {}).get("properties", {})
@@ -545,7 +581,14 @@ def verify_claim(case_dir, claim, spec=None, keep_test=False, language=None,
         omit_param=detail if kind == "default_value_mismatch" else None,
     )
 
-    if adapter.NAME == "typescript":
+    if adapter.NAME == "python":
+        documented = dict(_documented_properties(spec, key, success_code))
+        documented["__default__"] = _raw_default(operation, claim.get("detail"))
+        kwargs = _python_kwargs(route, operation, claim, path_params, headers, body)
+        source = verify_py.render_test(
+            claim, operation, route["file"], route["handler"], kwargs,
+            success_code, documented, declared_status=route.get("status_code"))
+    elif adapter.NAME == "typescript":
         module = adapter.handler_module(api_dir, route, table)
         if not module:
             result["verdict"] = "error"
