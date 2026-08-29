@@ -24,11 +24,14 @@ TEST_FILENAME = "contract_verify_check.php"
 VERIFICATION_SUPPORTED = True
 EXTRACTOR = pathlib.Path(__file__).resolve().parents[1] / "tools" / "phproutes" / "extract.php"
 
-# Routes only for now. The extractor does not yet read controller response
-# shapes, so the rules settle route existence and the agent covers the rest -
-# every claim still going through the gate. Extending it the way the TypeScript
-# and Python extractors were extended is what moves kinds onto this list.
-DETERMINISTIC_KINDS = {"route_missing_from_spec", "route_missing_from_code"}
+# The extractor now reads controller response shapes and statuses from the token
+# stream, following one level of $this->helper() delegation, so the same kinds
+# the other languages settle by parsing are settled here too.
+DETERMINISTIC_KINDS = {
+    "route_missing_from_spec", "route_missing_from_code",
+    "response_field_mismatch", "response_type_mismatch",
+    "status_code_mismatch", "undocumented_status",
+}
 
 
 class ExtractionError(RuntimeError):

@@ -23,6 +23,7 @@ SUITES = {
     "go": ("eval/fixture", "eval/mutations/mutations.json"),
     "typescript": ("eval/fixture-ts", "eval/mutations/mutations-ts.json"),
     "python": ("eval/fixture-py", "eval/mutations/mutations-py.json"),
+    "php": ("eval/fixture-php", "eval/mutations/mutations-php.json"),
 }
 
 

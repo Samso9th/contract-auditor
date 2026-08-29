@@ -1,6 +1,31 @@
 {
   "case": "L05",
-  "findings": [],
+  "findings": [
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "available",
+      "severity": "critical",
+      "evidence": "app/Http/Controllers/PaymentsController.php:42 getBalance returns available as number; spec declares string",
+      "file": "app/Http/Controllers/PaymentsController.php",
+      "line": 42,
+      "rule": "R4",
+      "source": "deterministic"
+    },
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "ledger",
+      "severity": "critical",
+      "evidence": "app/Http/Controllers/PaymentsController.php:42 getBalance returns ledger as number; spec declares string",
+      "file": "app/Http/Controllers/PaymentsController.php",
+      "line": 42,
+      "rule": "R4",
+      "source": "deterministic"
+    }
+  ],
   "meta": {
     "wall_clock_seconds": 0.13,
     "cost_usd": 0.0,

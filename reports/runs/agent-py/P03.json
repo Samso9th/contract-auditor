@@ -1,0 +1,48 @@
+{
+  "findings": [
+    {
+      "path": "/payouts/{id}/cancel",
+      "method": "post",
+      "kind": "route_missing_from_spec",
+      "detail": "",
+      "severity": "high",
+      "evidence": "app/routes.py:26 registers POST /payouts/{id}/cancel (handler cancel_payout), which the spec does not document",
+      "file": "app/routes.py",
+      "line": 26,
+      "rule": "R1",
+      "source": "deterministic",
+      "verdict": "unsupported",
+      "verification": "route_missing_from_spec cannot be settled by executing the handler; it needs review rather than a test"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 124.0,
+    "cost_usd": 0.01049,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 9,
+    "input_tokens": 11547,
+    "output_tokens": 23968,
+    "deterministic_claims": 1,
+    "agent_claims": 1,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 1,
+      "unsupported": 1,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "email request body property: the spec constrains it to type string with format \"email\", but the handler enforces no form",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "P03"
+}

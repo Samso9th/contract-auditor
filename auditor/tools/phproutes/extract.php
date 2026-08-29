@@ -193,15 +193,177 @@ function collectRoutes(array $tokens, string $rel, string $strip): array
     return $routes;
 }
 
+/**
+ * Handler-body facts, the PHP counterpart of what the other extractors read.
+ *
+ * Without these the rules settle only route existence, and every response shape,
+ * status and default falls to a model reading source approximately. PHP has no
+ * parser in core, so this is a focused recursive read of the token stream: it
+ * recognises the shapes a controller actually returns and declines the rest.
+ */
+
+/** Index of the closing brace matching the one at $start. */
+function matchBrace(array $tokens, int $start): int
+{
+    $depth = 0;
+    for ($i = $start; $i < count($tokens); $i++) {
+        if ($tokens[$i]['text'] === '{') $depth++;
+        if ($tokens[$i]['text'] === '}') { $depth--; if ($depth === 0) return $i; }
+    }
+    return count($tokens) - 1;
+}
+
+/** JSON type of a literal token, or "" where the tokens cannot say. */
+function literalJsonType(array $token): string
+{
+    if ($token['type'] === T_CONSTANT_ENCAPSED_STRING) return 'string';
+    if ($token['type'] === T_LNUMBER || $token['type'] === T_DNUMBER) return 'number';
+    if ($token['type'] === T_STRING && in_array(strtolower($token['text']), ['true','false'], true)) return 'boolean';
+    if ($token['type'] === T_STRING && strtolower($token['text']) === 'null') return 'null';
+    if ($token['text'] === '[') return 'array';
+    return '';
+}
+
+/** Read the array literal whose '[' is at $start. */
+function readArrayLiteral(array $tokens, int $start): array
+{
+    $fields = []; $complete = true; $depth = 0; $i = $start; $count = count($tokens);
+    for (; $i < $count; $i++) {
+        $text = $tokens[$i]['text'];
+        if ($text === '[') { $depth++; continue; }
+        if ($text === ']') { $depth--; if ($depth === 0) break; continue; }
+        if ($depth !== 1) continue;
+        if ($tokens[$i]['type'] === T_CONSTANT_ENCAPSED_STRING
+            && isset($tokens[$i + 1]) && $tokens[$i + 1]['type'] === T_DOUBLE_ARROW) {
+            $key = substr($tokens[$i]['text'], 1, -1);
+            $value = $tokens[$i + 2] ?? null;
+            $fields[$key] = ['json_name' => $key,
+                             'json_type' => $value ? literalJsonType($value) : '',
+                             'line' => $tokens[$i]['line']];
+            continue;
+        }
+        // A spread makes the shape incomplete, and an incomplete shape must not
+        // be compared: a field this could not see would read as a missing one.
+        if ($tokens[$i]['type'] === T_ELLIPSIS) $complete = false;
+    }
+    return ['fields' => $fields, 'complete' => $complete];
+}
+
+/** Method bodies in a file, keyed by name. */
+function methodBodies(array $tokens): array
+{
+    $out = [];
+    for ($i = 0; $i < count($tokens); $i++) {
+        if ($tokens[$i]['type'] !== T_FUNCTION) continue;
+        $name = $tokens[$i + 1]['text'] ?? '';
+        if ($name === '' || $name === '(') continue;
+        for ($j = $i; $j < count($tokens); $j++) {
+            if ($tokens[$j]['text'] === '{') {
+                $out[$name] = ['start' => $j, 'end' => matchBrace($tokens, $j), 'line' => $tokens[$i]['line']];
+                break;
+            }
+            if ($tokens[$j]['text'] === ';') break;
+        }
+    }
+    return $out;
+}
+
+/** The shape a method returns, following one level of $this->helper(). */
+function returnedShape(array $tokens, array $bodies, string $name, int $depth = 0): ?array
+{
+    if ($depth > 2 || !isset($bodies[$name])) return null;
+    $start = $bodies[$name]['start']; $end = $bodies[$name]['end'];
+    $fallback = null;
+
+    for ($i = $start; $i < $end; $i++) {
+        if ($tokens[$i]['type'] !== T_RETURN) continue;
+        $j = $i + 1;
+        if (($tokens[$j]['text'] ?? '') !== '[') continue;
+        $inner = $j + 1;
+
+        // `return [201, [...]]` and `return [200, $this->payout(...)]`
+        if (($tokens[$inner]['type'] ?? 0) === T_LNUMBER && ($tokens[$inner + 1]['text'] ?? '') === ',') {
+            $status = (int) $tokens[$inner]['text'];
+            $bodyStart = $inner + 2;
+            $shape = null;
+            if (($tokens[$bodyStart]['text'] ?? '') === '[') {
+                $shape = readArrayLiteral($tokens, $bodyStart);
+            } elseif (($tokens[$bodyStart]['type'] ?? 0) === T_VARIABLE
+                      && ($tokens[$bodyStart + 2]['type'] ?? 0) === T_STRING) {
+                $shape = returnedShape($tokens, $bodies, $tokens[$bodyStart + 2]['text'], $depth + 1);
+            }
+            if ($shape === null) continue;
+
+            // Only the success return describes the contract. Taking the first
+            // return instead reports the guard clause's error shape, which is a
+            // different shape entirely and would manufacture drift on every
+            // handler that validates its input before doing any work.
+            if ($status >= 200 && $status < 300) return $shape;
+            if ($fallback === null) $fallback = $shape;
+            continue;
+        }
+        return readArrayLiteral($tokens, $j);
+    }
+    return $fallback;
+}
+
+/** Statuses a method returns, from `return [<int>, ...]`. */
+function returnedStatuses(array $tokens, array $bodies, string $name): array
+{
+    if (!isset($bodies[$name])) return [];
+    $statuses = [];
+    for ($i = $bodies[$name]['start']; $i < $bodies[$name]['end']; $i++) {
+        if ($tokens[$i]['type'] !== T_RETURN) continue;
+        if (($tokens[$i + 1]['text'] ?? '') !== '[') continue;
+        $value = $tokens[$i + 2] ?? null;
+        if ($value && $value['type'] === T_LNUMBER) {
+            $code = (int) $value['text'];
+            if ($code >= 100 && $code < 600) $statuses[] = $code;
+        }
+    }
+    sort($statuses);
+    return array_values(array_unique($statuses));
+}
+
 $routes = [];
 $seen = [];
+$handlers = [];
+$handlersByLocation = [];
 foreach (sourceFiles($root) as $path) {
     $source = @file_get_contents($path);
-    if ($source === false || !str_contains($source, 'Route::')) {
+    if ($source === false) {
         continue;
     }
     $rel = substr($path, strlen($root) + 1);
-    foreach (collectRoutes(significantTokens($source), $rel, $strip) as $route) {
+    $tokens = significantTokens($source);
+
+    foreach (methodBodies($tokens) as $name => $meta) {
+        $bodies = methodBodies($tokens);
+        $shape = returnedShape($tokens, $bodies, $name);
+        $statuses = returnedStatuses($tokens, $bodies, $name);
+        $success = 0;
+        foreach ($statuses as $code) { if ($code >= 200 && $code < 300) { $success = $code; break; } }
+        $fact = [
+            'name' => $name, 'statuses' => $statuses, 'success_code' => $success,
+            'query_params' => [], 'headers_read' => [], 'headers_set' => [],
+            'response_fields' => (object) ($shape ? $shape['fields'] : []),
+            'response_complete' => $shape ? $shape['complete'] : false,
+            'file' => $rel, 'line' => $meta['line'],
+            'end_line' => $tokens[$meta['end']]['line'] ?? $meta['line'],
+            'ambiguous' => false,
+        ];
+        $handlersByLocation["{$rel}::{$name}"] = $fact;
+        if (isset($handlers[$name])) {
+            if ($handlers[$name]['file'] !== $rel) $handlers[$name]['ambiguous'] = true;
+        } else {
+            $handlers[$name] = $fact;
+        }
+    }
+
+    if (!str_contains($source, 'Route::')) {
+        continue;
+    }
+    foreach (collectRoutes($tokens, $rel, $strip) as $route) {
         $key = $route['method'] . ' ' . $route['path'];
         if (isset($seen[$key])) {
             continue;
@@ -220,7 +382,8 @@ echo json_encode([
     'routes' => $routes,
     'annotations_unrouted' => [],
     'structs' => (object) [],
-    'handlers' => (object) [],
+    'handlers' => (object) $handlers,
+    'handlers_by_location' => (object) $handlersByLocation,
     'route_count' => count($routes),
     'routes_without_annotation' => count($routes),
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), "\n";

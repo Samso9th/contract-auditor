@@ -1,6 +1,19 @@
 {
   "case": "L02",
-  "findings": [],
+  "findings": [
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "201",
+      "severity": "medium",
+      "evidence": "app/Http/Controllers/PaymentsController.php:59 createCustomer returns 200 on success; spec documents 201",
+      "file": "app/Http/Controllers/PaymentsController.php",
+      "line": 59,
+      "rule": "R6",
+      "source": "deterministic"
+    }
+  ],
   "meta": {
     "wall_clock_seconds": 0.13,
     "cost_usd": 0.0,

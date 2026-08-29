@@ -2,7 +2,7 @@
   "case": "LN03",
   "findings": [],
   "meta": {
-    "wall_clock_seconds": 0.13,
+    "wall_clock_seconds": 0.12,
     "cost_usd": 0.0,
     "human_minutes": 0,
     "layer": "deterministic"
