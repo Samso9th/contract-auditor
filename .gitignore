@@ -1,0 +1,8 @@
+eval/cases/
+reports/runs/
+eval/fixture/fixture
+**/.env
+.DS_Store
+__pycache__/
+auditor/tools/goroutes/goroutes
+micro1 - First Hackathon97ce7c5.pdf
