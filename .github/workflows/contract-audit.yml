@@ -1,0 +1,170 @@
+name: Contract Audit
+
+# This repository has no API of its own, so the thing under audit is the
+# evaluation fixture: a small payments service with a spec that matches it
+# exactly. The job injects one known fault, then points the published action at
+# the result.
+#
+# That makes every run a known-answer check rather than a demonstration. The
+# case's ground_truth.json says precisely what a correct auditor reports, so the
+# last step can fail the job when the published image stops finding it. CI in
+# ci.yml tests this repository's code; this tests the artifact people actually
+# consume, through the same GitHub Action surface they use.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # samso9th/contract-auditor@v1 is a floating tag. A release can change what
+    # the image finds without a single commit landing here, and this is the only
+    # run that would notice.
+    - cron: '0 9 1 * *'
+  workflow_dispatch:
+    inputs:
+      case:
+        description: 'Evaluation case to audit: D01-D12 with a fault, N01-N04 without'
+        required: false
+        default: D05
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  pull-requests: write
+
+env:
+  # D05 is the money-type change: a balance that turns from an exact decimal
+  # string into a float. It is the most legible of the critical cases, because
+  # the code builds, the tests pass and the request still succeeds.
+  CASE: ${{ inputs.case || 'D05' }}
+
+jobs:
+  self-audit:
+    name: Audit the fixture with the published action
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # inject.py compiles every mutated case before accepting it. A fault that
+      # breaks the build tests nothing, so this step needs a toolchain.
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.24"
+          cache: false
+
+      - name: Inject the known fault
+        run: |
+          cd eval && python3 inject.py --case "$CASE"
+          echo "--- ground truth"
+          python3 -c "
+          import json
+          t = json.load(open('cases/$CASE/ground_truth.json'))
+          print(t['severity'], t['category'])
+          print(t['description'])
+          print(f\"expects {len(t['expect'])} finding(s)\")
+          "
+
+      - name: Audit the case against its spec
+        id: audit
+        uses: samso9th/contract-auditor@v1
+        # The action never fails this job. The known-answer check below is what
+        # decides, because "found something" and "found the right thing" are
+        # different questions and only the second one is worth a red build.
+        continue-on-error: true
+        with:
+          # The published spec, which the injection deliberately leaves untouched.
+          spec: eval/cases/${{ env.CASE }}/spec/openapi.json
+          # The mutated copy of the fixture, built by the step above.
+          source-dir: eval/cases/${{ env.CASE }}/api
+          language: go
+          # The fixture registers /v1/payouts while its spec documents /payouts.
+          strip-prefix: /v1
+          # Optional. A fork's pull request gets no secret, so it falls back to
+          # the deterministic layer, which catches this fault anyway.
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          fail-on: none
+          # Optional, and skipped silently when unset. Configuring memory also
+          # turns on the verification gate, so each finding ships with the test
+          # that proved it rather than on the rules' word.
+          memory-url: ${{ secrets.CONTRACT_AUDIT_MEMORY_URL }}
+          memory-key-id: ${{ secrets.CONTRACT_AUDIT_MEMORY_KEY_ID }}
+          memory-secret: ${{ secrets.CONTRACT_AUDIT_MEMORY_SECRET }}
+          memory-region: ${{ secrets.CONTRACT_AUDIT_MEMORY_REGION }}
+
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v4
+        if: always() && steps.audit.outputs.sarif != ''
+        with:
+          sarif_file: ${{ steps.audit.outputs.sarif }}
+          category: contract-audit
+
+      - name: Upload the fix brief
+        id: brief
+        uses: actions/upload-artifact@v7
+        if: always() && steps.audit.outputs.brief-dir != ''
+        with:
+          name: contract-audit-brief-${{ env.CASE }}
+          path: ${{ steps.audit.outputs.brief-dir }}
+          if-no-files-found: ignore
+
+      # The audit runs in a Docker container as root, so the summary it writes
+      # belongs to root and the runner user cannot append to it. Copy first: the
+      # copy belongs to the runner. The artifact id does not exist until the
+      # upload above has finished, which is why the link cannot come from the
+      # audit step itself.
+      - name: Build the comment body
+        id: body
+        if: always() && steps.audit.outputs.summary != ''
+        env:
+          SUMMARY: ${{ steps.audit.outputs.summary }}
+          BRIEF_URL: ${{ steps.brief.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          cp "$SUMMARY" contract-audit-comment.md
+          [ -z "$BRIEF_URL" ] || \
+            printf '\n**[Download the fix brief](%s)**\n' "$BRIEF_URL" >> contract-audit-comment.md
+          echo "path=contract-audit-comment.md" >> "$GITHUB_OUTPUT"
+
+      - name: Comment the summary on the pull request
+        uses: marocchino/sticky-pull-request-comment@v3
+        if: always() && github.event_name == 'pull_request' && steps.body.outputs.path != ''
+        with:
+          header: contract-audit
+          path: ${{ steps.body.outputs.path }}
+
+      # The whole point of auditing a case whose answer is written down. A
+      # decoy must come back silent and a fault must be caught; either one
+      # failing is a regression in the published image, not in this repository.
+      - name: Check the result against ground truth
+        env:
+          FINDINGS: ${{ steps.audit.outputs.findings }}
+        run: |
+          set -euo pipefail
+          expected=$(python3 -c "
+          import json
+          print(len(json.load(open('eval/cases/$CASE/ground_truth.json'))['expect']))
+          ")
+          found="${FINDINGS:-0}"
+          echo "case $CASE: expected $expected finding(s), the action reported $found"
+
+          if [ "$expected" -eq 0 ]; then
+            # A decoy: code that changed without its behaviour changing. One
+            # complaint here is a false alarm, which is the failure this tool
+            # exists to avoid.
+            if [ "$found" -ne 0 ]; then
+              echo "::error::$CASE is a decoy and must produce no findings, got $found"
+              exit 1
+            fi
+            echo "decoy stayed clean"
+          else
+            # Not an equality check: the agent may legitimately raise a further
+            # claim the rules cannot settle, and the gate decides whether it
+            # ships. Missing the known fault is the regression worth failing on.
+            if [ "$found" -lt "$expected" ]; then
+              echo "::error::$CASE expects at least $expected finding(s), got $found"
+              exit 1
+            fi
+            echo "known fault caught"
+          fi

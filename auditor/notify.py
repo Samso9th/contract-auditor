@@ -185,7 +185,10 @@ def format_slack(findings, title, report_url=None, verified_only=True):
               if verified_only else
               ":warning: Unverified run: these claims have not been through the verification gate.")
     if report_url:
-        footer += f" <{report_url}|Open the report>"
+        # The artifact id is only minted after this action has finished, so the
+        # message cannot carry a direct download link. Naming the panel is the
+        # next best thing: the brief is at the foot of the run summary page.
+        footer += f" <{report_url}|Open the run> · the fix brief is under Artifacts."
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": footer}]})
 
     return {"blocks": blocks,
@@ -212,6 +215,8 @@ def format_telegram(findings, title, chat_id, report_url=None, verified_only=Tru
     lines.append("Every finding was proved by a failing test." if verified_only
                  else "Unverified run: no verification gate.")
     if report_url:
+        lines.append("Open the run, then take the fix brief from the Artifacts "
+                     "panel at the foot of the summary page:")
         lines.append(escape_html(report_url))
 
     text = "\n".join(lines)

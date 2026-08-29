@@ -14,16 +14,20 @@ jobs:
     name: Lint, build and verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.24"
           cache: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
+          # setup-node v5 began caching package manager downloads on its own.
+          # This job installs one global package and never restores project
+          # dependencies, so the cache would only add steps that never pay off.
+          package-manager-cache: false
 
       - name: Install TypeScript for the route extractor
         run: npm install -g typescript@5
@@ -90,13 +94,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: verify
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
 
       # Build only; publishing happens in release.yml. A pull request from a
       # fork must never be able to push an image.
       - name: Build (no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
@@ -112,3 +116,21 @@ jobs:
             /opt/auditor/auditor/llm.py --models
           docker run --rm --entrypoint sh contract-auditor:ci -c \
             'go version && python3 --version && node --version && tsc --version'
+
+      # The runner spells a hyphenated input INPUT_SOURCE-DIR, which is not a
+      # name any shell can expand, so reading it wrongly is silent: every
+      # hyphenated input falls back to its default and the audit still runs.
+      # The clean fixture answers 0 only when source-dir and strip-prefix both
+      # arrive; with either one lost it reports the whole repository's drift.
+      - name: The action reads its hyphenated inputs
+        run: |
+          set -e
+          docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
+            -e 'INPUT_SPEC=eval/fixture/spec/openapi.json' \
+            -e 'INPUT_SOURCE-DIR=eval/fixture' \
+            -e 'INPUT_LANGUAGE=go' \
+            -e 'INPUT_STRIP-PREFIX=/v1' \
+            -e 'INPUT_FAIL-ON=none' \
+            contract-auditor:ci | tee audit.log
+          grep -q 'source     eval/fixture' audit.log
+          grep -q 'findings: 0 ' audit.log

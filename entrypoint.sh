@@ -6,38 +6,63 @@ set -euo pipefail
 
 AUDITOR=/opt/auditor
 
-SOURCE_DIR="${INPUT_SOURCE_DIR:-.}"
-SPEC="${INPUT_SPEC:-}"
-LANGUAGE="${INPUT_LANGUAGE:-auto}"
-STRIP_PREFIX="${INPUT_STRIP_PREFIX:-}"
-MODEL="${INPUT_MODEL:-z-ai/glm-5.3-flash}"
+# The runner uppercases an input id and replaces spaces with underscores, but it
+# leaves hyphens alone: `source-dir` arrives as INPUT_SOURCE-DIR, which is not a
+# name any shell can expand. Read it out of the environment instead, falling back
+# to the underscored spelling so the image stays runnable by hand with
+# `docker run -e INPUT_SOURCE_DIR=...`.
+input() {
+  local value
+  value="$(printenv "INPUT_$1" || true)"
+  [ -n "$value" ] || value="$(printenv "INPUT_${1//-/_}" || true)"
+  printf '%s' "$value"
+}
+
+SOURCE_DIR="$(input SOURCE-DIR)"; SOURCE_DIR="${SOURCE_DIR:-.}"
+SPEC="$(input SPEC)"
+LANGUAGE="$(input LANGUAGE)"; LANGUAGE="${LANGUAGE:-auto}"
+STRIP_PREFIX="$(input STRIP-PREFIX)"
+MODEL="$(input MODEL)"; MODEL="${MODEL:-z-ai/glm-5.3-flash}"
 # Empty means send no reasoning field at all and let the model do what it
 # normally does, which is what the published numbers were measured under.
-REASONING="${INPUT_REASONING:-}"
-WORKERS="${INPUT_WORKERS:-8}"
-FAIL_ON="${INPUT_FAIL_ON:-high}"
-SARIF="${INPUT_SARIF_PATH:-contract-audit.sarif}"
-SUMMARY="${INPUT_SUMMARY_PATH:-contract-audit.md}"
+REASONING="$(input REASONING)"
+WORKERS="$(input WORKERS)"; WORKERS="${WORKERS:-8}"
+FAIL_ON="$(input FAIL-ON)"; FAIL_ON="${FAIL_ON:-high}"
+SARIF="$(input SARIF-PATH)"; SARIF="${SARIF:-contract-audit.sarif}"
+SUMMARY="$(input SUMMARY-PATH)"; SUMMARY="${SUMMARY:-contract-audit.md}"
 OUT_DIR="${RUNNER_TEMP:-/tmp}/contract-audit"
 
-export OPENROUTER_API_KEY="${INPUT_API_KEY:-${OPENROUTER_API_KEY:-}}"
-export OPENROUTER_BASE_URL="${INPUT_BASE_URL:-${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}}"
-export AUDITOR_WEBHOOK_URL="${INPUT_WEBHOOK_URL:-}"
-export AUDITOR_WEBHOOK_SECRET="${INPUT_WEBHOOK_SECRET:-}"
+# Each of these falls back to an ambient variable of the same name, so the image
+# stays usable outside Actions. The right-hand side is evaluated before the
+# assignment lands, so reading the variable being exported is safe.
+IN_API_KEY="$(input API-KEY)"
+export OPENROUTER_API_KEY="${IN_API_KEY:-${OPENROUTER_API_KEY:-}}"
+IN_BASE_URL="$(input BASE-URL)"
+export OPENROUTER_BASE_URL="${IN_BASE_URL:-${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}}"
+export AUDITOR_WEBHOOK_URL="$(input WEBHOOK-URL)"
+export AUDITOR_WEBHOOK_SECRET="$(input WEBHOOK-SECRET)"
 # Self-improvement is a layer, exactly like the model and the notifications: it
 # exists only when the operator points it at storage they own. No url means no
 # memory, and in that case nothing is read, nothing is written, and the audit is
 # unchanged. Nothing is ever stored in the checkout or inside this image.
-export AUDITOR_MEMORY_URL="${INPUT_MEMORY_URL:-${AUDITOR_MEMORY_URL:-}}"
-export AUDITOR_MEMORY_KEY_ID="${INPUT_MEMORY_KEY_ID:-${AUDITOR_MEMORY_KEY_ID:-}}"
-export AUDITOR_MEMORY_SECRET="${INPUT_MEMORY_SECRET:-${AUDITOR_MEMORY_SECRET:-}}"
-export AUDITOR_MEMORY_TOKEN="${INPUT_MEMORY_TOKEN:-${AUDITOR_MEMORY_TOKEN:-}}"
-export AUDITOR_MEMORY_REGION="${INPUT_MEMORY_REGION:-${AUDITOR_MEMORY_REGION:-}}"
+IN_MEMORY_URL="$(input MEMORY-URL)"
+IN_MEMORY_KEY_ID="$(input MEMORY-KEY-ID)"
+IN_MEMORY_SECRET="$(input MEMORY-SECRET)"
+IN_MEMORY_TOKEN="$(input MEMORY-TOKEN)"
+IN_MEMORY_REGION="$(input MEMORY-REGION)"
+export AUDITOR_MEMORY_URL="${IN_MEMORY_URL:-${AUDITOR_MEMORY_URL:-}}"
+export AUDITOR_MEMORY_KEY_ID="${IN_MEMORY_KEY_ID:-${AUDITOR_MEMORY_KEY_ID:-}}"
+export AUDITOR_MEMORY_SECRET="${IN_MEMORY_SECRET:-${AUDITOR_MEMORY_SECRET:-}}"
+export AUDITOR_MEMORY_TOKEN="${IN_MEMORY_TOKEN:-${AUDITOR_MEMORY_TOKEN:-}}"
+export AUDITOR_MEMORY_REGION="${IN_MEMORY_REGION:-${AUDITOR_MEMORY_REGION:-}}"
 
-export SLACK_WEBHOOK_URL="${INPUT_SLACK_WEBHOOK_URL:-${SLACK_WEBHOOK_URL:-}}"
-export TELEGRAM_BOT_TOKEN="${INPUT_TELEGRAM_BOT_TOKEN:-${TELEGRAM_BOT_TOKEN:-}}"
-export TELEGRAM_CHAT_ID="${INPUT_TELEGRAM_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}"
-NOTIFY_MIN="${INPUT_NOTIFY_MIN_SEVERITY:-high}"
+IN_SLACK="$(input SLACK-WEBHOOK-URL)"
+IN_TG_TOKEN="$(input TELEGRAM-BOT-TOKEN)"
+IN_TG_CHAT="$(input TELEGRAM-CHAT-ID)"
+export SLACK_WEBHOOK_URL="${IN_SLACK:-${SLACK_WEBHOOK_URL:-}}"
+export TELEGRAM_BOT_TOKEN="${IN_TG_TOKEN:-${TELEGRAM_BOT_TOKEN:-}}"
+export TELEGRAM_CHAT_ID="${IN_TG_CHAT:-${TELEGRAM_CHAT_ID:-}}"
+NOTIFY_MIN="$(input NOTIFY-MIN-SEVERITY)"; NOTIFY_MIN="${NOTIFY_MIN:-high}"
 
 log() { printf '%s\n' "$*"; }
 fail() { printf '::error::%s\n' "$*" >&2; exit 1; }
@@ -90,17 +115,19 @@ REPORT="$OUT_DIR/report.json"
 # The fix brief: one per run, with every finding and the test that proved it.
 # Written next to the workspace so the workflow can upload it as an artifact,
 # which is why this needs no external storage of any kind.
-BRIEF_NAME="${INPUT_BRIEF_NAME:-contract-audit}"
-BRIEF_DIR="${INPUT_BRIEF_DIR:-contract-audit-brief}"
+BRIEF_NAME="$(input BRIEF-NAME)"; BRIEF_NAME="${BRIEF_NAME:-contract-audit}"
+BRIEF_DIR="$(input BRIEF-DIR)"; BRIEF_DIR="${BRIEF_DIR:-contract-audit-brief}"
 mkdir -p "$BRIEF_DIR"
+# The archive goes beside the directory, not inside it. actions/upload-artifact
+# zips whatever it is given, so a zip within the uploaded directory arrives as a
+# zip inside a zip: two copies of the same brief, one of them buried.
+BRIEF_MD="$BRIEF_DIR/${BRIEF_NAME}_brief.md"
+BRIEF_ZIP="${BRIEF_DIR%/}.zip"
 python3 "$AUDITOR/auditor/brief.py" "$REPORT" \
-    --name "$BRIEF_NAME" --out "$BRIEF_DIR" \
+    --name "$BRIEF_NAME" --out "$BRIEF_DIR" --zip-path "$BRIEF_ZIP" \
     --repo "${GITHUB_REPOSITORY:-}" --sha "${GITHUB_SHA:-}" \
     --run-url "${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}" \
     || log "::warning::could not build the fix brief; the audit itself succeeded"
-
-BRIEF_MD="$BRIEF_DIR/${BRIEF_NAME}_brief.md"
-BRIEF_ZIP="$BRIEF_DIR/${BRIEF_NAME}_brief.zip"
 
 set +e
 python3 "$AUDITOR/auditor/report.py" "$REPORT" \
@@ -122,6 +149,15 @@ if [ -n "${SLACK_WEBHOOK_URL:-}" ] || [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
       ${GITHUB_RUN_ID:+--report-url "$RUN_URL"} || \
     log "::warning::notification delivery failed; the audit itself succeeded"
 fi
+
+# A Docker action runs as root, so every file written above belongs to root and
+# the runner user cannot touch it: a workflow appending a download link to the
+# summary fails with "Permission denied". Hand the outputs back to whoever owns
+# the workspace, which is the user the rest of the job runs as.
+for path in "$SUMMARY" "$SARIF" "$BRIEF_DIR" "$BRIEF_ZIP"; do
+  [ -e "$path" ] || continue
+  chown -R --reference="${GITHUB_WORKSPACE:-.}" "$path" 2>/dev/null || true
+done
 
 TOTAL=$(jq '.findings | length' "$REPORT" 2>/dev/null || echo 0)
 CRITICAL=$(jq '[.findings[] | select(.severity=="critical")] | length' "$REPORT" 2>/dev/null || echo 0)

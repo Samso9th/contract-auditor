@@ -7,7 +7,10 @@ Produces three things from one audit, because people consume them differently:
                        that proved it, quoted inline. Copy the whole thing into
                        Cursor, Codex or Claude Code and it has what it needs.
     tests/             the generated tests as runnable files.
-    <name>_brief.zip   both together, for someone who wants to run them.
+    <name>_brief.zip   both together, for someone who wants to run them. In CI
+                       this is written beside the output directory rather than
+                       inside it, because the artifact upload zips that directory
+                       and a zip nested in a zip helps nobody.
 
 The brief is written to be pasted, not read aloud. It opens with the rule the
 agent must follow, because the one judgement a tool cannot make is which side of
@@ -129,8 +132,13 @@ def render(findings, name, meta, repo="", sha="", run_url=""):
     return "\n".join(line for line in out if line is not None)
 
 
-def write(findings, out_dir, name, meta, repo="", sha="", run_url=""):
-    """Write the brief, the test files, and a zip of both."""
+def write(findings, out_dir, name, meta, repo="", sha="", run_url="", zip_path=None):
+    """Write the brief, the test files, and a zip of both.
+
+    zip_path places the archive somewhere other than inside out_dir, which is
+    what the action does: out_dir is uploaded as an artifact, and GitHub zips it
+    on the way out.
+    """
     out_dir = pathlib.Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -153,7 +161,8 @@ def write(findings, out_dir, name, meta, repo="", sha="", run_url=""):
         path.write_text(f["test_source"])
         written.append(path)
 
-    zip_path = out_dir / f"{name}_brief.zip"
+    zip_path = pathlib.Path(zip_path) if zip_path else out_dir / f"{name}_brief.zip"
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.write(brief_path, brief_path.name)
         for path in written:
@@ -171,6 +180,8 @@ def main():
     parser.add_argument("--repo", default="")
     parser.add_argument("--sha", default="")
     parser.add_argument("--run-url", default="")
+    parser.add_argument("--zip-path", default="",
+                        help="write the archive here instead of inside --out")
     args = parser.parse_args()
 
     findings, meta = load(args.run)
@@ -179,7 +190,8 @@ def main():
         return
 
     brief, archive, tests = write(findings, args.out, args.name, meta,
-                                  args.repo, args.sha, args.run_url)
+                                  args.repo, args.sha, args.run_url,
+                                  args.zip_path or None)
     print(f"brief  {brief}  ({len(findings)} findings)")
     print(f"tests  {len(tests)} file(s)")
     print(f"zip    {archive}")

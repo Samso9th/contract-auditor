@@ -59,7 +59,7 @@ The tool never runs or installs your application. It only reads the source code.
 So a project whose dependencies are not installed can still be checked, which
 matters because that is the normal state of a fresh checkout.
 
-## Use it in your CI
+## Usage
 
 This runs automatically on every proposed change to your code. The smallest
 useful setup needs no account and no password: the no-AI part costs nothing and
@@ -70,26 +70,101 @@ name: Contract audit
 on: [pull_request]
 permissions:
   contents: read
-  security-events: write
+  pull-requests: write
 
 jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: audit
         uses: samso9th/contract-auditor@v1
         continue-on-error: true
         with:
+          # Your OpenAPI document: the file your integrators build against.
+          # Often openapi.json, docs/openapi.json, or api/openapi.yaml.
           spec: openapi.json
+          # The directory your route registrations and handlers live in.
+          # This example is a Go layout; the table below has the other three.
           source-dir: internal
-          strip-prefix: /api/v1
+          # The path prefix your code registers but your spec leaves out.
+          # Check your spec's servers[].url if you are unsure.
+          strip-prefix: /v1
+          # Warn only, to start. Tighten once the first backlog is cleared.
           fail-on: none
-      - uses: github/codeql-action/upload-sarif@v3
-        if: always()
+      - id: brief
+        uses: actions/upload-artifact@v4
+        if: always() && steps.audit.outputs.brief-dir != ''
+        with:
+          name: contract-audit-brief
+          path: ${{ steps.audit.outputs.brief-dir }}
+          if-no-files-found: ignore
+      # The artifact id is minted by the upload, so the download link cannot
+      # come from the audit step. This is what makes the comment one click.
+      - id: body
+        if: always() && steps.audit.outputs.summary != ''
+        env:
+          SUMMARY: ${{ steps.audit.outputs.summary }}
+          BRIEF_URL: ${{ steps.brief.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          cp "$SUMMARY" contract-audit-comment.md
+          [ -z "$BRIEF_URL" ] || \
+            printf '\n**[Download the fix brief](%s)**\n' "$BRIEF_URL" >> contract-audit-comment.md
+          echo "path=contract-audit-comment.md" >> "$GITHUB_OUTPUT"
+      - uses: marocchino/sticky-pull-request-comment@v2
+        if: always() && github.event_name == 'pull_request' && steps.body.outputs.path != ''
+        with:
+          header: contract-audit
+          path: ${{ steps.body.outputs.path }}
+```
+
+The comment is edited in place on every push, so a pull request carries one
+audit that is always current rather than a column of stale ones.
+
+Findings are also written to SARIF, if you would rather read them as annotations
+in the Security tab. Add the upload step and the permissions it needs:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write   # upload the SARIF
+  actions: read            # required as well on a private repository
+
+    # ... after the audit step:
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always() && steps.audit.outputs.sarif != ''
         with:
           sarif_file: ${{ steps.audit.outputs.sarif }}
 ```
+
+Code scanning has to be enabled on the repository for that step to land, which
+on a private repository means GitHub Advanced Security. Without it the upload
+fails with `Resource not accessible by integration`, so leave the step out
+unless you want the annotations.
+
+Those three inputs are the ones that differ from project to project, and a first
+run that goes wrong almost always goes wrong on one of them. What to put depends
+on the language:
+
+| Your project | `source-dir` | `strip-prefix` | Detected by |
+|---|---|---|---|
+| **Go** (net/http, gin, chi, echo) | `internal`, `cmd`, or the module root | `/v1` | `go.mod`, or any `.go` file |
+| **TypeScript** (Express) | `src` | `/api/v1` | `package.json`, or any `.ts` file |
+| **Python** (FastAPI, Flask) | the package your app lives in, commonly `app` | `/api/v1` | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` |
+| **PHP** (Laravel) | the project root, so both `routes/api.php` and `app/Http/Controllers` are readable | `/api` | `artisan`, `composer.json`, `routes/api.php` |
+
+You do not have to set `language`: it is detected from the markers in the last
+column. Set it explicitly only in a polyglot repository, where the first marker
+found wins and may not be the one you meant.
+
+`strip-prefix` is the one worth checking twice. It is whatever your code
+registers that your spec's paths do not repeat. If the code says
+`Route::prefix('v1')` or `router.post("/v1/payouts", ...)` while the spec
+documents `/payouts`, the prefix is `/v1`. Your spec's `servers[].url` usually
+spells it out. Get it wrong and the first run reports that *every* route is
+missing from the spec, which is the symptom to recognise.
 
 Anything found then shows up as a note attached to the exact line of code, right
 where the change is being reviewed.

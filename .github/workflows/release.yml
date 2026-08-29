@@ -5,9 +5,14 @@ on:
     tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
+      bump:
+        description: Which part of the version to increase.
+        type: choice
+        options: [patch, minor, major, none]
+        default: patch
       tag:
-        description: Tag to publish, e.g. v0.1.0
-        required: true
+        description: Existing tag to re-publish, e.g. v1.2.0. Read only when bump is none.
+        required: false
 
 permissions:
   contents: write        # required to move the major version tag
@@ -24,15 +29,90 @@ jobs:
     name: Build and push to GHCR
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          # The bump reads the tags that already exist to work out the next one.
+          fetch-depth: 0
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      # A tag push carries its own version. A dispatch has to be told, or work it
+      # out: bump reads the highest release tag and increases one part of it.
+      #
+      # The tag is created here, in the run that publishes it, and not by some
+      # earlier step or separate workflow. A ref pushed with GITHUB_TOKEN does
+      # not fire `on: push: tags`, so a tagger workflow would create the tag and
+      # nothing would ever build it.
+      - name: Resolve the release tag
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BUMP: ${{ inputs.bump }}
+          GIVEN: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT" = "push" ]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "publishing $GITHUB_REF_NAME"
+            exit 0
+          fi
+
+          if [ "${BUMP:-none}" = "none" ]; then
+            [ -n "$GIVEN" ] || { echo "::error::bump is none, so a tag to re-publish is required"; exit 1; }
+            git rev-parse -q --verify "refs/tags/$GIVEN^{commit}" >/dev/null || {
+              echo "::error::$GIVEN does not exist; pick a bump to cut a new one"; exit 1; }
+            echo "tag=$GIVEN" >> "$GITHUB_OUTPUT"
+            echo "re-publishing $GIVEN"
+            exit 0
+          fi
+
+          # Prereleases are deliberately excluded: v1.2.0-rc1 must not be read as
+          # the highest release, or the next patch would collide with v1.2.0.
+          LATEST=$(git tag --list 'v*' --sort=-v:refname \
+                   | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          LATEST="${LATEST:-v0.0.0}"
+          IFS=. read -r MAJOR MINOR PATCH <<<"${LATEST#v}"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+            *) echo "::error::unknown bump '$BUMP'"; exit 1 ;;
+          esac
+          NEXT="v$MAJOR.$MINOR.$PATCH"
+
+          if git rev-parse -q --verify "refs/tags/$NEXT" >/dev/null; then
+            echo "::error::$NEXT already exists; it was cut from $LATEST"
+            exit 1
+          fi
+
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$NEXT" -f sha="$GITHUB_SHA" >/dev/null
+          echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "::notice::cut $NEXT at $GITHUB_SHA, up from $LATEST"
+
+      # Only matters when re-publishing an existing tag: the checkout above is
+      # the branch the dispatch ran from, which is not necessarily what that tag
+      # points at. Building the wrong tree under a released tag is the one
+      # mistake here that cannot be undone by re-running.
+      - name: Check out the tagged commit
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # A tag cut through the API moments ago is not in this clone yet, and a
+          # tag that is needs forcing rather than failing on "would clobber".
+          git fetch --no-tags --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          git checkout --detach "refs/tags/$TAG"
+          echo "building $(git rev-parse HEAD) as $TAG"
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
 
       # GITHUB_TOKEN is enough for GHCR in the repository that owns the package.
       # No personal access token to create, rotate, or leak.
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -40,20 +120,22 @@ jobs:
 
       - name: Derive tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE }}
           # v1.2.3 publishes 1.2.3, 1.2 and 1, so consumers can pin at whatever
           # granularity they want. `latest` only ever moves on the default branch.
+          # value= is what makes a dispatch work: without it the semver patterns
+          # read github.ref, which on a dispatch is a branch and yields nothing.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern=v{{major}}
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.tag }}
+            type=semver,pattern=v{{major}},value=${{ steps.version.outputs.tag }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -68,7 +150,7 @@ jobs:
       # Lets consumers verify the image was built by this workflow from this
       # source, rather than pushed by hand.
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE }}
           subject-digest: ${{ steps.push.outputs.digest }}
@@ -85,7 +167,7 @@ jobs:
       - name: Move the major version tag
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
 

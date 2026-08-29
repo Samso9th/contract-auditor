@@ -25,7 +25,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - id: audit
         uses: samso9th/contract-auditor@v1
@@ -36,7 +36,7 @@ jobs:
           strip-prefix: /api/v1
           fail-on: none
 
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: ${{ steps.audit.outputs.sarif }}
@@ -56,8 +56,21 @@ Most first runs fail on one of these.
 | Input | What it means | Finding yours |
 |---|---|---|
 | `spec` | The OpenAPI document your integrators build against | Commonly `openapi.json`, `docs/openapi.json`, `api/openapi.yaml`, or wherever your generator writes it |
-| `source-dir` | Where route registrations and handlers live | Go: `internal` or `cmd`. Express: `src` |
+| `source-dir` | Where route registrations and handlers live | Per language, below |
 | `strip-prefix` | The prefix present in code but absent from spec paths | If code registers `/api/v1/payouts` and the spec documents `/payouts`, this is `/api/v1` |
+
+The last two are what differ between projects:
+
+| Your project | `source-dir` | `strip-prefix` | Detected by |
+|---|---|---|---|
+| **Go** (net/http, gin, chi, echo) | `internal`, `cmd`, or the module root | `/v1` | `go.mod`, or any `.go` file |
+| **TypeScript** (Express) | `src` | `/api/v1` | `package.json`, or any `.ts` file |
+| **Python** (FastAPI, Flask) | the package your app lives in, commonly `app` | `/api/v1` | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` |
+| **PHP** (Laravel) | the project root, so both `routes/api.php` and `app/Http/Controllers` are readable | `/api` | `artisan`, `composer.json`, `routes/api.php` |
+
+`language` is detected from the markers in the last column and only needs
+setting in a polyglot repository, where the first marker found wins and may not
+be the one you meant.
 
 <Warning>
 If a first run reports that **every** route is missing from the spec,
@@ -106,7 +119,7 @@ storage to set up for any of them. The files are uploaded as a GitHub Actions
 artifact, which needs no bucket, no account and no credentials.
 
 ```yaml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: contract-audit-brief
