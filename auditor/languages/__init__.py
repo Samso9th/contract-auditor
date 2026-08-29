@@ -26,17 +26,18 @@ from __future__ import annotations
 
 import pathlib
 
-from . import go_lang, python_lang, typescript
+from . import go_lang, php_lang, python_lang, typescript
 
 ADAPTERS = {
     go_lang.NAME: go_lang,
     typescript.NAME: typescript,
     python_lang.NAME: python_lang,
+    php_lang.NAME: php_lang,
 }
 
 # Ordered by how decisive the marker is, so a polyglot repository resolves to
 # the language whose marker is least likely to be incidental.
-DETECTION_ORDER = (go_lang, typescript, python_lang)
+DETECTION_ORDER = (go_lang, php_lang, typescript, python_lang)
 
 
 def detect(directory):

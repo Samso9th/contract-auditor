@@ -1,11 +1,70 @@
 {
   "case": "N01",
-  "findings": [],
+  "findings": [
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "409: spec documents 409 (Duplicate reference) for payout creation, but CreatePayout contains no duplicate-reference/idem",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:21-44 (CreatePayout only ever calls writeError with 400 or writeJSON with http.StatusCreated); spec paths./payouts.post.responses.409",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "422: spec documents 422 (Refund not permitted) for refund creation, but CreateRefund has no such code path and can only ",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:85-97 (CreateRefund only returns 400 for unparseable body, otherwise 201); spec paths./refunds.post.responses.422",
+      "source": "baseline"
+    },
+    {
+      "path": "/customers/{id}",
+      "method": "get",
+      "kind": "status_code_mismatch",
+      "detail": "404: spec documents 404 (Not found) for customer retrieval, but GetCustomer unconditionally returns 200 with a hardcoded",
+      "severity": "medium",
+      "evidence": "handlers/accounts.go:98-108 (GetCustomer always calls writeJSON with http.StatusOK); spec paths./customers/{id}.get.responses.404",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "accountNumber, bankCode, amount, currency: spec marks them required in PayoutRequest, but CreatePayout only validates re",
+      "severity": "high",
+      "evidence": "handlers/payouts.go:31-34 (only req.Reference is checked); spec components.schemas.PayoutRequest.required = [accountNumber, bankCode, amount, currency, reference]",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "payoutId, amount: spec marks them required in RefundRequest, but CreateRefund performs no field validation at all and ac",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:85-97 (body is decoded and echoed back with no validation); spec components.schemas.RefundRequest.required = [payoutId, amount]",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "X-Signature: TestWebhook sets an X-Signature response header on the 202 response, but the spec's 202 response object dec",
+      "severity": "medium",
+      "evidence": "handlers/misc.go:60 (w.Header().Set(\"X-Signature\", \"sha256=deadbeef\")); spec paths./webhooks/test.post.responses.202 has no headers map",
+      "source": "baseline"
+    }
+  ],
   "meta": {
-    "error": "z-ai/glm-5.3-flash: curl: (28) Operation timed out after 300005 milliseconds with 7821 bytes received",
-    "cost_usd": 0.0,
-    "wall_clock_seconds": 903.1,
+    "wall_clock_seconds": 436.4,
+    "cost_usd": 0.006708,
     "human_minutes": 0,
-    "model": "z-ai/glm-5.3-flash"
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7484,
+    "output_tokens": 24601,
+    "parsed": true,
+    "truncated": false
   }
 }

@@ -41,6 +41,14 @@ SUITES = {
         "check": ["node", "--check"],
         "suffixes": (".js", ".mjs"),
     },
+    "php": {
+        "fixture": ROOT / "fixture-php",
+        "mutations": ROOT / "mutations" / "mutations-php.json",
+        "cases": ROOT / "cases-php",
+        "build": None,
+        "check": ["php", "-l"],
+        "suffixes": (".php",),
+    },
     "python": {
         "fixture": ROOT / "fixture-py",
         "mutations": ROOT / "mutations" / "mutations-py.json",

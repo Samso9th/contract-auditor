@@ -1,0 +1,101 @@
+{
+  "_comment": "Laravel mutations, mirroring the other language suites so all four are measured the same way.",
+  "language": "php",
+  "fixture": "eval/fixture-php",
+  "mutations": [
+    {
+      "id": "L01",
+      "category": "response-field-rename",
+      "severity": "high",
+      "description": "Payout fee renamed in code; spec still advertises 'fee'. Lands on both endpoints returning the payout shape.",
+      "edits": [{"file": "app/Http/Controllers/PaymentsController.php", "find": "            'fee' => '5000',", "replace": "            'feeAmount' => '5000',"}],
+      "expect": [
+        {"path": "/payouts", "method": "post", "kind": "response_field_mismatch", "detail": "fee"},
+        {"path": "/payouts/{id}", "method": "get", "kind": "response_field_mismatch", "detail": "fee"}
+      ]
+    },
+    {
+      "id": "L02",
+      "category": "status-code",
+      "severity": "medium",
+      "description": "Customer creation returns 200 but the spec documents 201.",
+      "edits": [{"file": "app/Http/Controllers/PaymentsController.php", "find": "        return [201, [\n            'id' => 'cus_01HZX',", "replace": "        return [200, [\n            'id' => 'cus_01HZX',"}],
+      "expect": [{"path": "/customers", "method": "post", "kind": "status_code_mismatch", "detail": "201"}]
+    },
+    {
+      "id": "L03",
+      "category": "undocumented-route",
+      "severity": "high",
+      "description": "A payout cancellation endpoint exists in code and is absent from the spec.",
+      "edits": [{"file": "routes/api.php", "find": "    Route::post('/refunds', [PaymentsController::class, 'createRefund']);", "replace": "    Route::post('/payouts/{id}/cancel', [PaymentsController::class, 'cancelPayout']);\n    Route::post('/refunds', [PaymentsController::class, 'createRefund']);"}],
+      "expect": [{"path": "/payouts/{id}/cancel", "method": "post", "kind": "route_missing_from_spec", "detail": ""}]
+    },
+    {
+      "id": "L04",
+      "category": "phantom-route",
+      "severity": "high",
+      "description": "Spec documents GET /banks but the route is no longer registered.",
+      "edits": [{"file": "routes/api.php", "find": "    Route::get('/banks', [PaymentsController::class, 'listBanks']);\n", "replace": ""}],
+      "expect": [{"path": "/banks", "method": "get", "kind": "route_missing_from_code", "detail": ""}]
+    },
+    {
+      "id": "L05",
+      "category": "money-type-change",
+      "severity": "critical",
+      "description": "Balance switched from decimal string to number on both money fields; the spec still says string.",
+      "edits": [{"file": "app/Http/Controllers/PaymentsController.php", "find": "        return [200, ['available' => '2450000', 'ledger' => '2500000', 'currency' => 'NGN']];", "replace": "        return [200, ['available' => 2450000, 'ledger' => 2500000, 'currency' => 'NGN']];"}],
+      "expect": [
+        {"path": "/balance", "method": "get", "kind": "response_type_mismatch", "detail": "available"},
+        {"path": "/balance", "method": "get", "kind": "response_type_mismatch", "detail": "ledger"}
+      ]
+    },
+    {
+      "id": "L06",
+      "category": "undocumented-required-field",
+      "severity": "high",
+      "description": "Refund now rejects an empty reason, but the spec does not mark reason required.",
+      "edits": [{"file": "app/Http/Controllers/PaymentsController.php", "find": "    public function createRefund(array $body): array\n    {\n        return [201, [", "replace": "    public function createRefund(array $body): array\n    {\n        if (empty($body['reason'])) {\n            return [400, $this->error('missing_reason', 'reason is required')];\n        }\n        return [201, ["}],
+      "expect": [{"path": "/refunds", "method": "post", "kind": "request_required_mismatch", "detail": "reason"}]
+    },
+    {
+      "id": "L07",
+      "category": "validation-drift",
+      "severity": "medium",
+      "description": "BVN length check loosened to 10 digits; the spec constrains it to exactly 11.",
+      "edits": [{"file": "app/Http/Controllers/PaymentsController.php", "find": "!== 11) {\n            return [400, $this->error('invalid_bvn'", "replace": "!== 10) {\n            return [400, $this->error('invalid_bvn'"}],
+      "expect": [{"path": "/kyc/bvn", "method": "post", "kind": "validation_mismatch", "detail": "bvn"}]
+    },
+    {
+      "id": "L08",
+      "category": "default-value-drift",
+      "severity": "low",
+      "description": "Page size default changed to 50 in the method signature; the spec still documents 25.",
+      "edits": [{"file": "app/Http/Controllers/PaymentsController.php", "find": "public function listTransactions(int $page = 1, int $perPage = 25): array", "replace": "public function listTransactions(int $page = 1, int $perPage = 50): array"}],
+      "expect": [{"path": "/transactions", "method": "get", "kind": "default_value_mismatch", "detail": "perPage"}]
+    },
+    {
+      "id": "LN01",
+      "category": "decoy-local-rename",
+      "severity": "none",
+      "description": "DECOY. Renames a local variable. No contract change.",
+      "edits": [{"file": "app/Http/Controllers/PaymentsController.php", "find": "        if ($page < 1) {\n            $page = 1;\n        }", "replace": "        $pageNumber = $page;\n        if ($pageNumber < 1) {\n            $pageNumber = 1;\n        }\n        $page = $pageNumber;"}],
+      "expect": []
+    },
+    {
+      "id": "LN02",
+      "category": "decoy-comment",
+      "severity": "none",
+      "description": "DECOY. Adds an implementation comment.",
+      "edits": [{"file": "app/Http/Controllers/PaymentsController.php", "find": "    public function getPayout(string $id): array", "replace": "    // Lookup is stubbed; the fixture returns a fixed record.\n    public function getPayout(string $id): array"}],
+      "expect": []
+    },
+    {
+      "id": "LN03",
+      "category": "decoy-key-reorder",
+      "severity": "none",
+      "description": "DECOY. Reorders response keys. Same JSON, same values.",
+      "edits": [{"file": "app/Http/Controllers/PaymentsController.php", "find": "        return [200, ['available' => '2450000', 'ledger' => '2500000', 'currency' => 'NGN']];", "replace": "        return [200, ['currency' => 'NGN', 'ledger' => '2500000', 'available' => '2450000']];"}],
+      "expect": []
+    }
+  ]
+}

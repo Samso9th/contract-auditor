@@ -257,8 +257,16 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
                   if r["path"] == path and r["method"].lower() == method.lower()), None)
     if route is None:
         return [], usage
-    facts = (table.get("handlers") or {}).get(route["handler"])
+    # Same location-keyed lookup the rules use. Keyed only by name, a route
+    # function and the service it delegates to collide, the ambiguity guard fires,
+    # and this returned silently - no call, no claim, no error. Eight endpoints
+    # per case went unaudited and the run still reported as complete.
+    facts = (table.get("handlers_by_location") or {}).get(
+        f"{route['file']}::{route['handler']}") or (table.get("handlers") or {}).get(route["handler"])
     if facts and facts.get("ambiguous"):
+        usage["error"] = (f"handler {route['handler']!r} is declared in more than one "
+                          f"file; declining rather than auditing the wrong one")
+        usage["unread_endpoint"] = f"{method.upper()} {path}"
         return [], usage
 
     if facts:
@@ -270,14 +278,18 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
         # TypeScript agent silently audit nothing.
         source, file, line = adapter.handler_source(api_dir, route, table)
         location = (file, line)
-        # The response shape is often built in a module the handler imports.
-        # Without it the agent answers about code it cannot see, and reports a
-        # clean endpoint truthfully but uselessly.
-        if source and hasattr(adapter, "supporting_sources") and file:
-            for label, body in adapter.supporting_sources(api_dir, file):
-                source += f"\n\n// ---- imported by {file}: {label} ----\n{body}"
     else:
         source, location = None, (None, 0)
+
+    # The behaviour being audited is frequently not in the function the route
+    # registers. A thin route handler delegating to a service shows the agent
+    # nothing, and it then reports a clean endpoint truthfully but uselessly.
+    # Appended for every language whose adapter can find them, not just the
+    # branch above - that asymmetry cost every Python judgment finding.
+    if source and location[0] and adapter is not None \
+            and hasattr(adapter, "supporting_sources"):
+        for label, body in adapter.supporting_sources(api_dir, location[0]):
+            source += f"\n\n# ---- imported by {location[0]}: {label} ----\n{body}"
 
     if not source:
         usage["error"] = f"could not locate the source of handler {route['handler']!r}"

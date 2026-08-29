@@ -38,6 +38,7 @@ from spec import load as load_spec  # noqa: E402
 import languages  # noqa: E402
 import verify_ts  # noqa: E402
 import verify_py  # noqa: E402
+import verify_php  # noqa: E402
 
 TEST_FILE = "contract_verify_test.go"
 
@@ -445,6 +446,27 @@ def _resolve_detail(claim, operation, spec, key):
     return detail
 
 
+def _positional_args(operation, claim, path_params, headers, request_body):
+    """Positional arguments for a controller method.
+
+    PHP has no keyword arguments, so the order has to be inferred: a request body
+    first where the operation declares one, then path parameters in the order the
+    spec lists them. Where the guess is wrong the call raises rather than
+    silently testing something else, and the gate reports an error instead of a
+    verdict - which is the safe direction.
+    """
+    args = []
+    parsed_body = json.loads(request_body) if request_body else None
+    if parsed_body is not None:
+        args.append(parsed_body)
+    for param in operation["params"]:
+        if param["in"] == "path" and param["name"] in path_params:
+            args.append(path_params[param["name"]])
+    if parsed_body is not None and headers:
+        args.append(headers)
+    return args
+
+
 def _python_kwargs(route, operation, claim, path_params, headers, request_body):
     """Arguments for calling a Python handler directly.
 
@@ -600,7 +622,20 @@ def verify_claim(case_dir, claim, spec=None, keep_test=False, language=None,
         omit_param=detail if kind == "default_value_mismatch" else None,
     )
 
-    if adapter.NAME == "python":
+    if adapter.NAME == "php":
+        module = adapter._controller_file(api_dir, route)
+        if not module:
+            result["verdict"] = "error"
+            result["detail"] = f"could not locate the controller defining {route['handler']!r}"
+            return result
+        klass = adapter.controller_class(api_dir, module)
+        documented = dict(_documented_properties(spec, key, success_code))
+        documented["__default__"] = _raw_default(operation, claim.get("detail"))
+        args = _positional_args(operation, claim, path_params, headers, body)
+        source = verify_php.render_test(
+            claim, operation, module, klass, route["handler"], args,
+            success_code, documented, declared_status=route.get("status_code"))
+    elif adapter.NAME == "python":
         documented = dict(_documented_properties(spec, key, success_code))
         documented["__default__"] = _raw_default(operation, claim.get("detail"))
         kwargs = _python_kwargs(route, operation, claim, path_params, headers, body)

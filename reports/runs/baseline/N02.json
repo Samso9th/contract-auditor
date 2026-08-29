@@ -2,41 +2,149 @@
   "case": "N02",
   "findings": [
     {
-      "path": "/webhooks/test",
+      "path": "/payouts",
       "method": "post",
-      "kind": "response_header_mismatch",
-      "detail": "Response header 'X-Signature': the handler sets X-Signature on the HTTP response (w.Header().Set(\"X-Signature\", \"sha256=",
-      "severity": "low",
-      "evidence": "handlers/misc.go:60",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires ApiKeyAuth (X-Api-Key header) for this operation, but the code enforces no authentication at all: no middl",
+      "severity": "critical",
+      "evidence": "handlers/routes.go:9 (route registered with no auth middleware; main.go:24-25 wires a bare ServeMux); spec paths./payouts.post.security requires ApiKeyAuth",
       "source": "baseline"
     },
     {
       "path": "/payouts",
       "method": "post",
       "kind": "request_required_mismatch",
-      "detail": "Request body fields 'accountNumber', 'bankCode', 'amount' and 'currency' are listed as required in the spec's PayoutRequ",
+      "detail": "PayoutRequest marks accountNumber, bankCode, amount and currency as required, but CreatePayout validates only the Idempo",
+      "severity": "high",
+      "evidence": "handlers/payouts.go:22-34 (only header presence and req.Reference are checked); spec components.PayoutRequest.required = [accountNumber, bankCode, amount, currency, reference]",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "Spec documents a 409 'Duplicate reference' response, but the handler contains no duplicate-reference check and can never",
       "severity": "medium",
-      "evidence": "handlers/payouts.go:31-34",
+      "evidence": "handlers/payouts.go:21-44 (only 201 and 400 are ever written); spec paths./payouts.post.responses includes 409",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts/{id}",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "Operation is secured in the spec (ApiKeyAuth: X-Api-Key header) but the code performs no authentication \u2014 no middleware,",
+      "severity": "high",
+      "evidence": "handlers/routes.go:10; spec paths./payouts/{id}.get.security requires ApiKeyAuth",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "auth_mismatch",
+      "detail": "Spec requires ApiKeyAuth (X-Api-Key header) for this operation, but the code enforces no authentication at all: no middl",
+      "severity": "critical",
+      "evidence": "handlers/routes.go:16 (route registered with no auth middleware; main.go:24-25); spec paths./refunds.post.security requires ApiKeyAuth",
       "source": "baseline"
     },
     {
       "path": "/refunds",
       "method": "post",
       "kind": "request_required_mismatch",
-      "detail": "Request body fields 'payoutId' and 'amount' are listed as required in the spec's RefundRequest schema, but CreateRefund ",
+      "detail": "RefundRequest marks payoutId and amount as required, but CreateRefund performs no field validation after decoding the bo",
+      "severity": "high",
+      "evidence": "handlers/payouts.go:87-91 (body decoded, no field checks); spec components.RefundRequest.required = [payoutId, amount]",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "Spec documents a 422 'Refund not permitted' response, but the handler never returns 422 \u2014 every syntactically valid body",
       "severity": "medium",
-      "evidence": "handlers/payouts.go:86-91",
+      "evidence": "handlers/payouts.go:86-98 (only 201 and 400 are ever written); spec paths./refunds.post.responses includes 422",
+      "source": "baseline"
+    },
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "Operation is secured in the spec (ApiKeyAuth: X-Api-Key header) but the code performs no authentication \u2014 wallet balance",
+      "severity": "high",
+      "evidence": "handlers/routes.go:11; handlers/accounts.go:17-23; spec paths./balance.get.security requires ApiKeyAuth",
+      "source": "baseline"
+    },
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "Operation is secured in the spec (ApiKeyAuth: X-Api-Key header) but the code performs no authentication \u2014 transaction hi",
+      "severity": "high",
+      "evidence": "handlers/routes.go:14; handlers/accounts.go:35-53; spec paths./transactions.get.security requires ApiKeyAuth",
+      "source": "baseline"
+    },
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "auth_mismatch",
+      "detail": "Operation is secured in the spec (ApiKeyAuth: X-Api-Key header) but the code performs no authentication \u2014 customers can ",
+      "severity": "high",
+      "evidence": "handlers/routes.go:12; handlers/accounts.go:66-85; spec paths./customers.post.security requires ApiKeyAuth",
+      "source": "baseline"
+    },
+    {
+      "path": "/customers/{id}",
+      "method": "get",
+      "kind": "auth_mismatch",
+      "detail": "Operation is secured in the spec (ApiKeyAuth: X-Api-Key header) but the code performs no authentication \u2014 customer PII i",
+      "severity": "high",
+      "evidence": "handlers/routes.go:13; handlers/accounts.go:97-106; spec paths./customers/{id}.get.security requires ApiKeyAuth",
+      "source": "baseline"
+    },
+    {
+      "path": "/customers/{id}",
+      "method": "get",
+      "kind": "status_code_mismatch",
+      "detail": "Spec documents a 404 'Not found' response, but GetCustomer has no 404 path and returns 200 with fixture data for any id",
+      "severity": "low",
+      "evidence": "handlers/accounts.go:97-106 (only writeJSON 200; no not-found branch, unlike GetPayout); spec paths./customers/{id}.get.responses includes 404",
+      "source": "baseline"
+    },
+    {
+      "path": "/kyc/bvn",
+      "method": "post",
+      "kind": "auth_mismatch",
+      "detail": "Operation is secured in the spec (ApiKeyAuth: X-Api-Key header) but the code performs no authentication \u2014 BVN verificati",
+      "severity": "high",
+      "evidence": "handlers/routes.go:15; handlers/misc.go:19-35; spec paths./kyc/bvn.post.security requires ApiKeyAuth",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "auth_mismatch",
+      "detail": "Operation is secured in the spec (ApiKeyAuth: X-Api-Key header) but the code performs no authentication \u2014 test webhook d",
+      "severity": "medium",
+      "evidence": "handlers/routes.go:18; handlers/misc.go:59-66; spec paths./webhooks/test.post.security requires ApiKeyAuth",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "The 202 response carries an X-Signature header that is not defined in the spec; the spec's description mentions X-Signat",
+      "severity": "low",
+      "evidence": "handlers/misc.go:60 (w.Header().Set(\"X-Signature\", \"sha256=deadbeef\") on the API response); spec paths./webhooks/test.post.responses.202 has no headers object",
       "source": "baseline"
     }
   ],
   "meta": {
-    "wall_clock_seconds": 281.3,
-    "cost_usd": 0.013902,
+    "wall_clock_seconds": 153.0,
+    "cost_usd": 0.013204,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
     "model_calls": 1,
     "input_tokens": 7430,
-    "output_tokens": 27359,
+    "output_tokens": 24182,
     "parsed": true,
     "truncated": false
   }
