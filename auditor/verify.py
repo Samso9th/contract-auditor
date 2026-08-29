@@ -33,7 +33,10 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from spec import load as load_spec  # noqa: E402
+import languages  # noqa: E402
+import verify_ts  # noqa: E402
 
 TEST_FILE = "contract_verify_test.go"
 
@@ -422,6 +425,18 @@ def _resolve_detail(claim, operation, spec, key):
     return detail
 
 
+def _documented_properties(spec, key, success_code):
+    op = spec[key]
+    return op["responses"].get(str(success_code), {}).get("properties", {})
+
+
+def _raw_default(operation, detail):
+    for param in operation["params"]:
+        if param["name"] == detail and param.get("default") is not None:
+            return param["default"]
+    return None
+
+
 def _documented_default(spec, claim, detail):
     """The default the spec documents for a parameter, as a Go literal."""
     op = spec[(claim["path"], claim["method"])]
@@ -445,7 +460,8 @@ def _documented_header(spec, claim, detail):
 
 # -- execution -----------------------------------------------------------
 
-def verify_claim(case_dir, claim, spec=None, keep_test=False):
+def verify_claim(case_dir, claim, spec=None, keep_test=False, language=None,
+                 strip_prefix="/v1"):
     """Generate and run the test for one claim.
 
     Returns a dict with `verdict` in {confirmed, refuted, unsupported, error}.
@@ -492,9 +508,12 @@ def verify_claim(case_dir, claim, spec=None, keep_test=False):
 
     # Resolve the handler from the route table so the test calls the same
     # function the route registers, not one matched by name similarity.
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
-    from routes import extract  # noqa: E402
-    table = extract(api_dir, strip_prefix="/v1")
+    adapter = languages.get(language) if language else languages.detect(api_dir)
+    if adapter is None:
+        result["verdict"] = "error"
+        result["detail"] = f"could not identify the language of {api_dir}"
+        return result
+    table = adapter.extract(api_dir, strip_prefix=strip_prefix)
     route = next((r for r in table["routes"]
                   if r["path"] == claim["path"] and r["method"].lower() == claim["method"]), None)
     if route is None or not route["handler"]:
@@ -507,6 +526,14 @@ def verify_claim(case_dir, claim, spec=None, keep_test=False):
 
     kind = claim["kind"]
     detail = claim.get("detail") or ""
+    path_params = {p["name"]: sample_value(p["name"], p["type"])
+                   for p in operation["params"] if p["in"] == "path"}
+    query = {p["name"]: p.get("default")
+             for p in operation["params"]
+             if p["in"] == "query" and p["name"] != (detail if kind == "default_value_mismatch" else None)
+             and p.get("default") is not None}
+    query = {}   # omitted by default; a probe that needs one sets it explicitly
+
     url, headers, body = build_request(
         operation, claim["path"], claim["method"],
         include_auth=(kind != "auth_mismatch"),
@@ -518,26 +545,46 @@ def verify_claim(case_dir, claim, spec=None, keep_test=False):
         omit_param=detail if kind == "default_value_mismatch" else None,
     )
 
-    source = render_test(claim, operation, route["handler"], url, headers, body,
-                         success_code, spec)
+    if adapter.NAME == "typescript":
+        module = adapter.handler_module(api_dir, route, table)
+        if not module:
+            result["verdict"] = "error"
+            result["detail"] = f"could not locate the module defining {route['handler']}"
+            return result
+        # The test is written beside the route file, so the import is relative to
+        # that directory.
+        test_dir = pathlib.Path(route["file"]).parent
+        rel_module = str(pathlib.Path(module).relative_to(test_dir)) \
+            if str(test_dir) != "." and str(module).startswith(str(test_dir)) \
+            else pathlib.Path(module).name
+        documented = dict(_documented_properties(spec, key, success_code))
+        documented["__default__"] = _raw_default(operation, claim.get("detail"))
+        source = verify_ts.render_test(
+            claim, operation, rel_module, route["handler"],
+            {"method": claim["method"].upper(), "params": path_params,
+             "query": query, "headers": headers, "body": json.loads(body) if body else None},
+            success_code, documented)
+    else:
+        source = render_test(claim, operation, route["handler"], url, headers, body,
+                             success_code, spec)
     result["test"] = source
 
-    package_dir = api_dir / pathlib.Path(route["file"]).parent
-    test_path = package_dir / TEST_FILE
+    test_path = adapter.test_path(api_dir, route)
     test_path.write_text(source)
+    command = adapter.test_command(api_dir)
+    cwd = test_path.parent if adapter.NAME == "typescript" else api_dir
 
     try:
         completed = subprocess.run(
-            ["go", "test", "-run", "TestContractVerify", "-count=1", "./..."],
-            cwd=api_dir, capture_output=True, text=True, timeout=120,
+            command, cwd=cwd, capture_output=True, text=True, timeout=180,
         )
         output = (completed.stdout + completed.stderr).strip()
         result["output"] = output
 
-        if "build failed" in output or "cannot use" in output or "undefined:" in output:
+        if adapter.build_failed(output):
             result["verdict"] = "error"
             result["detail"] = "generated test did not compile"
-        elif "--- SKIP" in output or "SKIP:" in output:
+        elif adapter.skipped(output):
             # `go test` exits 0 on a skip, which an exit-code check reads as a
             # passing test and therefore as a refuted claim. A skip means the
             # probe could not be built - unknown, not false. Conflating the two
@@ -569,11 +616,26 @@ def _skip_reason(output):
 
 
 def _failure_message(output):
+    """The assertion message, which becomes the evidence in the report.
+
+    Each runner buries it differently: Go prefixes it with the test file and
+    line, node puts it after an AssertionError banner. Reporting the runner's
+    summary line instead would put "test failed" in front of a reviewer where
+    the observed behaviour should be.
+    """
     for line in output.splitlines():
         stripped = line.strip()
         if stripped.startswith("contract_verify_test.go:"):
             return stripped.split(":", 2)[-1].strip()
-    return output.splitlines()[0] if output else "test failed"
+        if "AssertionError" in stripped and ":" in stripped:
+            message = stripped.split(":", 2)[-1].strip()
+            if message:
+                return message
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith(("\u2716", "\u2714", "\u2139", "#", "at ")):
+            return stripped
+    return "test failed"
 
 
 def main():

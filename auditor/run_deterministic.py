@@ -24,6 +24,8 @@ def main():
     parser.add_argument("--cases", default="eval/cases")
     parser.add_argument("--out", default="reports/runs/deterministic")
     parser.add_argument("--strip-prefix", default="/v1")
+    parser.add_argument("--language", default=None,
+                        help="go or typescript; detected when omitted")
     args = parser.parse_args()
 
     cases = pathlib.Path(args.cases).resolve()
@@ -39,7 +41,7 @@ def main():
             continue
         started = time.time()
         findings = audit(case_dir / "api", case_dir / "spec" / "openapi.json",
-                         strip_prefix=args.strip_prefix)
+                         strip_prefix=args.strip_prefix, language=args.language)
         elapsed = time.time() - started
 
         with open(out / f"{case_dir.name}.json", "w") as f:

@@ -1,0 +1,14 @@
+{
+  "id": "T02",
+  "category": "status-code",
+  "severity": "medium",
+  "description": "Customer creation returns 200 in code but the spec documents 201.",
+  "expect": [
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "201"
+    }
+  ]
+}

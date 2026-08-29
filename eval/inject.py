@@ -18,13 +18,38 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
-FIXTURE = ROOT / "fixture"
-CASES = ROOT / "cases"
-MUTATIONS = ROOT / "mutations" / "mutations.json"
+
+# Each language brings its own fixture, its own mutations and its own build
+# check. A language is only "supported" once it has all three and a passing
+# evaluation - shipping a parser and calling that support would be claiming a
+# contract we had not verified, which is the exact failure this tool exists to
+# catch.
+SUITES = {
+    "go": {
+        "fixture": ROOT / "fixture",
+        "mutations": ROOT / "mutations" / "mutations.json",
+        "cases": ROOT / "cases",
+        "build": ["go", "build", "./..."],
+    },
+    "typescript": {
+        "fixture": ROOT / "fixture-ts",
+        "mutations": ROOT / "mutations" / "mutations-ts.json",
+        "cases": ROOT / "cases-ts",
+        # `node --check` on every source file: the analogue of `go build`, and
+        # the same gate - a mutation that does not parse tests nothing.
+        "build": None,
+    },
+}
 
 
-def load_mutations():
-    with open(MUTATIONS) as f:
+def suite(language):
+    if language not in SUITES:
+        raise SystemExit(f"unknown language {language!r}; known: {', '.join(SUITES)}")
+    return SUITES[language]
+
+
+def load_mutations(language="go"):
+    with open(suite(language)["mutations"]) as f:
         return json.load(f)["mutations"]
 
 
@@ -43,18 +68,28 @@ def apply_edits(case_dir, mutation):
         target.write_text(source.replace(edit["find"], edit["replace"]))
 
 
-def verify_build(case_dir):
-    """A mutation that does not compile tests nothing. Gate on it."""
-    result = subprocess.run(
-        ["go", "build", "./..."],
-        cwd=case_dir / "api",
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0, result.stderr.strip()
+def verify_build(case_dir, language="go"):
+    """A mutation that does not build tests nothing. Gate on it."""
+    spec = suite(language)
+    api = case_dir / "api"
+
+    if spec["build"]:
+        result = subprocess.run(spec["build"], cwd=api, capture_output=True, text=True)
+        return result.returncode == 0, result.stderr.strip()
+
+    # JavaScript has no build step, so parse every source file instead.
+    errors = []
+    for path in sorted(api.rglob("*.js")) + sorted(api.rglob("*.mjs")):
+        result = subprocess.run(["node", "--check", str(path)],
+                                capture_output=True, text=True)
+        if result.returncode != 0:
+            errors.append(result.stderr.strip())
+    return not errors, "\n".join(errors)
 
 
-def build_case(mutation, quiet=False):
+def build_case(mutation, quiet=False, language="go"):
+    spec = suite(language)
+    FIXTURE, CASES = spec["fixture"], spec["cases"]
     case_dir = CASES / mutation["id"]
     if case_dir.exists():
         shutil.rmtree(case_dir)
@@ -69,9 +104,9 @@ def build_case(mutation, quiet=False):
     shutil.copytree(FIXTURE / "spec", case_dir / "spec")
     apply_edits(case_dir, mutation)
 
-    ok, stderr = verify_build(case_dir)
+    ok, stderr = verify_build(case_dir, language)
     if not ok:
-        raise SystemExit(f"{mutation['id']}: mutated fixture does not compile\n{stderr}")
+        raise SystemExit(f"{mutation['id']}: mutated fixture does not build\n{stderr}")
 
     with open(case_dir / "ground_truth.json", "w") as f:
         json.dump(
@@ -98,9 +133,12 @@ def main():
     parser.add_argument("--all", action="store_true", help="build every case")
     parser.add_argument("--case", help="build a single case by id")
     parser.add_argument("--list", action="store_true", help="list cases")
+    parser.add_argument("--language", default="go", choices=sorted(SUITES),
+                        help="which language suite to build (default go)")
     args = parser.parse_args()
 
-    mutations = load_mutations()
+    mutations = load_mutations(args.language)
+    CASES = suite(args.language)["cases"]
 
     if args.list:
         print(f"{'ID':<5} {'SEVERITY':<10} {'CATEGORY':<28} DESCRIPTION")
@@ -121,7 +159,7 @@ def main():
     CASES.mkdir(exist_ok=True)
     print(f"building {len(selected)} case(s) into {CASES.relative_to(ROOT.parent)}/")
     for m in selected:
-        build_case(m)
+        build_case(m, language=args.language)
     drift = sum(1 for m in selected if m["expect"])
     print(f"\n{len(selected)} cases: {drift} with drift, {len(selected) - drift} decoys")
 

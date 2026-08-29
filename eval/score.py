@@ -33,7 +33,7 @@ import json
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent
-CASES = ROOT / "cases"
+DEFAULT_CASES = ROOT / "cases"
 
 
 def norm(value):
@@ -75,15 +75,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run", required=True, help="directory of findings JSON files")
+    parser.add_argument("--cases", default=str(DEFAULT_CASES),
+                        help="case directory the run was scored against")
     parser.add_argument("--markdown", action="store_true", help="emit a markdown table")
     parser.add_argument("--json", action="store_true", help="emit raw JSON")
     args = parser.parse_args()
 
     run_dir = pathlib.Path(args.run).resolve()
-    if not CASES.exists():
-        raise SystemExit("no cases built. Run: python3 inject.py --all")
+    cases = pathlib.Path(args.cases).resolve()
+    if not cases.exists():
+        raise SystemExit(f"no cases at {cases}. Run: python3 inject.py --all")
 
-    results = [score_case(d, run_dir) for d in sorted(CASES.iterdir()) if d.is_dir()]
+    results = [score_case(d, run_dir) for d in sorted(cases.iterdir()) if d.is_dir()]
 
     tp = sum(r["tp"] for r in results)
     fp = sum(r["fp"] for r in results)

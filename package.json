@@ -1,0 +1,12 @@
+{
+  "name": "contract-auditor",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Tooling dependencies for the auditor's TypeScript support.",
+  "scripts": {
+    "extract": "node auditor/tools/tsroutes/extract.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}

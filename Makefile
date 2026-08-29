@@ -58,6 +58,10 @@ check: ## Verify the fixture builds and the scorer is sound
 	@cd eval && python3 oracle.py >/dev/null
 	@cd eval && python3 score.py --run ../reports/runs/oracle | grep -E "precision|recall|decoys"
 
-clean: ## Remove generated cases and runs
+clean: ## Remove generated cases and free runs (keeps paid runs)
+	@rm -rf eval/cases reports/runs/deterministic reports/runs/oracle
+	@echo "cleaned (agent and baseline runs kept - they cost money and time to produce)"
+
+clean-all: ## Remove everything generated, including paid runs
 	@rm -rf eval/cases reports/runs
-	@echo "cleaned"
+	@echo "cleaned everything, including agent and baseline runs"

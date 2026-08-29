@@ -1,0 +1,14 @@
+{
+  "id": "T04",
+  "category": "phantom-route",
+  "severity": "high",
+  "description": "Spec documents GET /banks but the route is no longer registered.",
+  "expect": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "route_missing_from_code",
+      "detail": ""
+    }
+  ]
+}

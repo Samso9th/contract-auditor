@@ -4,10 +4,14 @@ Route extraction runs through the TypeScript compiler's own parser (see
 tools/tsroutes/extract.mjs) and emits the same table shape as the Go adapter, so
 nothing above this layer changes.
 
-Verification is not implemented yet, and is reported as such. The gate will
-declare a TypeScript claim `unsupported` rather than let it through unchecked —
-a finding that reaches a report without being executed is exactly what this
-project refuses to ship, and that rule does not get relaxed for a new language.
+Verification runs the real handler under `node --test` with a mock request and
+response, which is the Express analogue of driving a Go handler through
+`httptest`: the handler under test is the one the route registers, and nothing
+about its behaviour is reimplemented.
+
+The mock is deliberately dependency-free. Requiring supertest or a running
+server would mean the gate could only verify projects that already have those,
+and a gate that cannot run is a gate that lets claims through.
 """
 
 from __future__ import annotations
@@ -20,7 +24,8 @@ NAME = "typescript"
 DEFAULT_PREFIX = "/api/v1"
 EXTRACTOR = pathlib.Path(__file__).resolve().parents[1] / "tools" / "tsroutes" / "extract.mjs"
 
-VERIFICATION_SUPPORTED = False
+VERIFICATION_SUPPORTED = True
+TEST_FILENAME = "contract_verify.test.mjs"
 
 
 class ExtractionError(RuntimeError):
@@ -52,16 +57,40 @@ def extract(directory, strip_prefix=DEFAULT_PREFIX):
 
 
 def test_path(api_dir, route):
-    raise NotImplementedError("TypeScript verification is not implemented")
+    """Beside the handler module, so a relative import resolves without config."""
+    return pathlib.Path(api_dir) / pathlib.Path(route["file"]).parent / TEST_FILENAME
 
 
 def test_command(api_dir):
-    raise NotImplementedError("TypeScript verification is not implemented")
+    return ["node", "--test", TEST_FILENAME]
 
 
 def build_failed(output):
-    return False
+    return ("SyntaxError" in output or "Cannot find module" in output
+            or "ERR_MODULE_NOT_FOUND" in output)
 
 
 def skipped(output):
-    return False
+    return "# skipped 1" in output or "SKIP" in output
+
+
+def handler_module(api_dir, route, table):
+    """The module file that defines the handler, which is not always the file
+    that registers the route."""
+    facts = (table.get("handlers") or {}).get(route["handler"])
+    if facts and facts.get("file"):
+        return facts["file"]
+
+    # Fall back to searching the tree for the exported name. Express projects
+    # routinely register handlers imported from a sibling module.
+    name = route["handler"]
+    for candidate in sorted(pathlib.Path(api_dir).rglob("*.[jt]s")):
+        if candidate.name.endswith((".test.js", ".test.ts", ".spec.js", ".spec.ts")):
+            continue
+        try:
+            text = candidate.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if f"function {name}" in text or f"const {name}" in text or f"{name} =" in text:
+            return str(candidate.relative_to(pathlib.Path(api_dir)))
+    return None

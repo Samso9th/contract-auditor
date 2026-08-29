@@ -1,0 +1,104 @@
+{
+  "_comment": "TypeScript/Express mutations, mirroring the Go set so the two languages are measured the same way. Same ground-truth principle: `expect` lists every drift the edit creates, not only the one the case is named for.",
+  "language": "typescript",
+  "fixture": "eval/fixture-ts",
+  "mutations": [
+    {
+      "id": "T01",
+      "category": "response-field-rename",
+      "severity": "high",
+      "description": "Payout fee renamed in code; spec still advertises 'fee'. Lands on both endpoints returning the payout shape.",
+      "edits": [{"file": "src/types.js", "find": "    fee: \"5000\",", "replace": "    feeAmount: \"5000\","}],
+      "expect": [
+        {"path": "/payouts", "method": "post", "kind": "response_field_mismatch", "detail": "fee"},
+        {"path": "/payouts/{id}", "method": "get", "kind": "response_field_mismatch", "detail": "fee"}
+      ]
+    },
+    {
+      "id": "T02",
+      "category": "status-code",
+      "severity": "medium",
+      "description": "Customer creation returns 200 in code but the spec documents 201.",
+      "edits": [{"file": "src/handlers.js", "find": "  return res.status(201).json(customerResponse(req.body));", "replace": "  return res.status(200).json(customerResponse(req.body));"}],
+      "expect": [{"path": "/customers", "method": "post", "kind": "status_code_mismatch", "detail": "201"}]
+    },
+    {
+      "id": "T03",
+      "category": "undocumented-route",
+      "severity": "high",
+      "description": "A payout cancellation endpoint exists in code and is absent from the spec.",
+      "edits": [
+        {"file": "src/routes.js", "find": "router.post(\"/v1/refunds\", h.createRefund);", "replace": "router.post(\"/v1/payouts/:id/cancel\", h.cancelPayout);\nrouter.post(\"/v1/refunds\", h.createRefund);"},
+        {"file": "src/handlers.js", "find": "export function createRefund(req, res) {", "replace": "export function cancelPayout(req, res) {\n  return res.status(200).json({ id: req.params.id, status: \"cancelled\" });\n}\n\nexport function createRefund(req, res) {"}
+      ],
+      "expect": [{"path": "/payouts/{id}/cancel", "method": "post", "kind": "route_missing_from_spec", "detail": ""}]
+    },
+    {
+      "id": "T04",
+      "category": "phantom-route",
+      "severity": "high",
+      "description": "Spec documents GET /banks but the route is no longer registered.",
+      "edits": [{"file": "src/routes.js", "find": "router.get(\"/v1/banks\", h.listBanks);\n", "replace": ""}],
+      "expect": [{"path": "/banks", "method": "get", "kind": "route_missing_from_code", "detail": ""}]
+    },
+    {
+      "id": "T05",
+      "category": "money-type-change",
+      "severity": "critical",
+      "description": "Balance switched from decimal string to number on both money fields; the spec still says string. Float money loses precision and silently breaks parsers.",
+      "edits": [{"file": "src/types.js", "find": "  return { available: \"2450000\", ledger: \"2500000\", currency: \"NGN\" };", "replace": "  return { available: 2450000, ledger: 2500000, currency: \"NGN\" };"}],
+      "expect": [
+        {"path": "/balance", "method": "get", "kind": "response_type_mismatch", "detail": "available"},
+        {"path": "/balance", "method": "get", "kind": "response_type_mismatch", "detail": "ledger"}
+      ]
+    },
+    {
+      "id": "T06",
+      "category": "undocumented-required-field",
+      "severity": "high",
+      "description": "Refund now rejects an empty reason, but the spec does not mark reason required. Every compliant client gets a 400.",
+      "edits": [{"file": "src/handlers.js", "find": "export function createRefund(req, res) {\n  return res.status(201).json({", "replace": "export function createRefund(req, res) {\n  if (!req.body || !req.body.reason) {\n    return res.status(400).json(errorResponse(\"missing_reason\", \"reason is required\"));\n  }\n  return res.status(201).json({"}],
+      "expect": [{"path": "/refunds", "method": "post", "kind": "request_required_mismatch", "detail": "reason"}]
+    },
+    {
+      "id": "T07",
+      "category": "validation-drift",
+      "severity": "medium",
+      "description": "BVN length check loosened to 10 digits; the spec constrains it to exactly 11.",
+      "edits": [{"file": "src/handlers.js", "find": "String(req.body.bvn || \"\").length !== 11", "replace": "String(req.body.bvn || \"\").length !== 10"}],
+      "expect": [{"path": "/kyc/bvn", "method": "post", "kind": "validation_mismatch", "detail": "bvn"}]
+    },
+    {
+      "id": "T08",
+      "category": "header-rename",
+      "severity": "critical",
+      "description": "Webhook signature header renamed. Partners verifying against the documented header reject every delivery.",
+      "edits": [{"file": "src/handlers.js", "find": "res.set(\"X-Signature\", \"sha256=deadbeef\");", "replace": "res.set(\"X-Fixture-Signature\", \"sha256=deadbeef\");"}],
+      "expect": [{"path": "/webhooks/test", "method": "post", "kind": "response_header_mismatch", "detail": "X-Signature"}]
+    },
+    {
+      "id": "TN01",
+      "category": "decoy-local-rename",
+      "severity": "none",
+      "description": "DECOY. Renames a local variable. No contract change.",
+      "edits": [{"file": "src/handlers.js", "find": "  let page = Number(req.query.page);\n  if (!Number.isFinite(page) || page < 1) page = 1;", "replace": "  let pageNum = Number(req.query.page);\n  if (!Number.isFinite(pageNum) || pageNum < 1) pageNum = 1;\n  let page = pageNum;"}],
+      "expect": []
+    },
+    {
+      "id": "TN02",
+      "category": "decoy-comment",
+      "severity": "none",
+      "description": "DECOY. Adds an implementation comment.",
+      "edits": [{"file": "src/handlers.js", "find": "export function getPayout(req, res) {", "replace": "// Lookup is stubbed; the fixture returns a fixed record.\nexport function getPayout(req, res) {"}],
+      "expect": []
+    },
+    {
+      "id": "TN03",
+      "category": "decoy-field-reorder",
+      "severity": "none",
+      "description": "DECOY. Reorders response fields. Same JSON keys, same values.",
+      "edits": [{"file": "src/types.js", "find": "  return { available: \"2450000\", ledger: \"2500000\", currency: \"NGN\" };", "replace": "  return { currency: \"NGN\", ledger: \"2500000\", available: \"2450000\" };"}],
+      "expect": []
+    }
+  ]
+}

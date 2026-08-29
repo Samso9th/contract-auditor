@@ -12,7 +12,8 @@ on:
 permissions:
   contents: read
   packages: write        # required to push to GHCR
-  id-token: write        # required for build provenance attestation
+  id-token: write        # required to mint the Sigstore signing certificate
+  attestations: write    # required to persist the attestation to the repository
 
 env:
   REGISTRY: ghcr.io

@@ -1,0 +1,20 @@
+{
+  "id": "T05",
+  "category": "money-type-change",
+  "severity": "critical",
+  "description": "Balance switched from decimal string to number on both money fields; the spec still says string. Float money loses precision and silently breaks parsers.",
+  "expect": [
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "available"
+    },
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "ledger"
+    }
+  ]
+}
