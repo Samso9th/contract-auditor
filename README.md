@@ -1,64 +1,63 @@
+<p align="center">
+  <img src="docs/assets/pr-comment.svg" alt="A pull request comment from contract-auditor listing four verified contract findings, each with the file and line it was found on, and a footer confirming every finding was proved by executing a generated test" width="880">
+</p>
+
 # Contract Auditor
 
 **micro1 Agentic Workflows Hackathon**
 
-An agent that finds where an HTTP API's code, its OpenAPI spec and its published
-documentation disagree, and proves each finding with a test that fails before the
-fix and passes after.
+When a company lets other developers use its software, it publishes a document
+describing exactly what each request will do and what will come back. Other teams
+read that document and write code against it.
 
-Nothing reaches the report unverified. That constraint is the whole design.
+The trouble is that the document and the code are edited by different people at
+different times, and nothing checks that they still agree. When they drift apart,
+nobody finds out until an outside developer builds something against a promise the
+software no longer keeps.
 
-<p align="center">
-  <img src="docs/assets/pr-comment.svg" alt="A pull request comment from contract-auditor listing four verified contract findings, each with the file and line it was found on, and a footer confirming every finding was proved by executing a generated test" width="880">
-</p>
+This tool reads both, finds every place they disagree, and then proves each one by
+writing a small test and running it. If the test passes, the software was keeping
+its promise after all, and the finding is thrown away before anyone sees it.
+
+Nothing reaches the report unproven. That single rule is the whole design.
 
 The findings above are real output from the evaluation in this repository, not a
 mockup. Three further claims were refuted by their own tests and never appeared.
 
 ---
 
-## Language support
+## Which languages it works with
 
-Four languages. A language counts as supported only once it has its own fixture,
-its own injected mutations, and a scored evaluation, so these are measured rather
-than claimed. `make languages` prints the same table from the code.
+The tool has to read your code to do its job, so it needs to understand the
+language you wrote the software in. Four are supported today.
 
-Everything below is the deterministic layer on its own. No model, no API key, no
-cost, tenths of a second:
+A language only counts as supported once it has a complete test setup of its own:
+a small sample application, a set of deliberately introduced faults, and a scored
+run proving the tool finds them. The numbers below are measured, not claimed.
+Running `make languages` prints the same table straight from the code.
 
-| Language | Extraction | Verification gate | Rules settle | Precision | Recall | F1 |
-|---|---|---|---|---|---|---|
-| **Go** | `go/ast` | `httptest` | 9 kinds | 1.000 | 0.800 | **0.889** |
-| **TypeScript** (Express) | TypeScript compiler API | mock request/response | 8 kinds | 1.000 | 0.800 | **0.889** |
-| **Python** (FastAPI, Flask) | `ast`, nothing to install | direct call, framework stubbed | 8 kinds | 1.000 | 0.700 | **0.824** |
-| **PHP** (Laravel) | `token_get_all` | direct controller call | 6 kinds | 1.000 | 0.700 | **0.824** |
+Everything here comes from the part of the tool that uses no AI at all. It costs
+nothing, needs no account, and finishes in under a second:
 
-Precision is 1.000 everywhere and every decoy stays clean. Every remaining miss,
-in every language, is one of the three kinds that need judgment rather than
-lookup: an undocumented required field, a validation bound loosened, a default
-that changed. Those are the agent's job, and Go delegates them too. That is parity
-in kind, not a shortfall.
+| Language | Faults it finds without AI | Of what it reported, how much was real | Of what was there, how much it found | Combined score |
+|---|---|---|---|---|
+| **Go** | 9 kinds | 100% | 80% | **0.889** |
+| **TypeScript** (Express) | 8 kinds | 100% | 80% | **0.889** |
+| **Python** (FastAPI, Flask) | 8 kinds | 100% | 70% | **0.824** |
+| **PHP** (Laravel) | 6 kinds | 100% | 70% | **0.824** |
 
-No adapter imports or boots the target's framework. A Go project without its
-modules downloaded, a FastAPI app without FastAPI installed, a Laravel app with
-no `vendor/`: each is still auditable, because the extractors read source and the
-gates call handlers directly. A gate that needs the target's runtime can only
-verify projects that already have it.
+Two things matter in that table. Everything it reported was real, in every
+language, with no false alarms. And it never once raised a complaint about the
+sample applications we deliberately left correct.
 
-### How a language gets more reliable
+What it does not find without AI is the same short list everywhere: a field the
+code secretly insists on, a rule quietly relaxed, a default value changed. Those
+need reading comprehension rather than lookup, and they are what the AI part is
+for.
 
-Not by prompting better. TypeScript first scored **0.571** and Laravel **0.333**,
-because their extractors emitted routes and nothing else, so response shapes,
-statuses and headers fell to a model reading source approximately. Teaching each
-extractor to emit those facts (response shapes resolved across files and through
-delegation, statuses read from the response call's own receiver, headers set,
-query parameters read) moved six kinds from "a model might notice" to "a parser
-always notices", and took both to the numbers above.
-
-Each adapter declares what its rules settle in `DETERMINISTIC_KINDS`. That list is
-the handover point: a kind on it is the rules' job and the agent is never asked
-about it. Extending an extractor and adding the kind to that list is the whole
-mechanism.
+The tool never runs or installs your application. It only reads the source code.
+So a project whose dependencies are not installed can still be checked, which
+matters because that is the normal state of a fresh checkout.
 
 ## Use it in your CI
 
@@ -98,55 +97,52 @@ report to Slack, Telegram or a Postgres sink.
 **Full setup, every input, and troubleshooting: [docs/site/github-actions.mdx](docs/site/github-actions.mdx)**, published at the docs site.
 
 
-## The user and the bottleneck
+## Who this is for, and what goes wrong
 
-Backend teams that publish an HTTP API to external
-integrators, and the integrators downstream of them. The motivating case is
-Hyparrow, a payments API: partner fintechs build against its published
-docs, and every disagreement between those docs and the running handlers becomes
-someone else's production incident.
+Any company that publishes software for other developers to use, and every
+developer building against it.
 
-A published API has at least three descriptions of
-itself and no mechanism keeping them aligned:
+The case that prompted this is a payments company. Other financial companies read
+its published document, write code to move money through it, and go live. When
+the document and the running software disagree, the failure lands in someone
+else's business, often involving real money.
 
-1. the handler code, which is what actually runs;
-2. the `swag` annotations above each handler, from which the OpenAPI spec is generated;
-3. the prose documentation partners actually read.
+A published service ends up with three separate descriptions of itself, and
+nothing keeps them in step:
 
-Each is edited by different people at different times. Code review catches
-whether the code is correct, not whether it still matches what was promised. So
-drift accumulates silently and surfaces at the worst possible moment: at
-integration time, in someone else's codebase, with no error message that points
-at the real cause.
+1. the code, which is what actually runs;
+2. short notes written above the code, which a tool turns into the formal document;
+3. the human-readable guide that outside developers actually read.
 
-The measurements below come from the motivating repository (a private Go
-payments API, ~324 source files):
+Different people edit each one, at different times. Code review asks whether the
+code is correct. It does not ask whether the code still matches what was promised
+months ago, so the two drift apart quietly.
 
-| Signal | Value | Why it matters |
+The measurements below come from that payments company's own codebase, which has
+roughly 324 files of code:
+
+| What we counted | Number | Why it matters |
 |---|---|---|
-| Routes registered in code | 841 | The real surface |
-| Paths in published OpenAPI spec | 170 | What partners can see |
-| Routes carrying no `@Router` annotation | 500 of 841 (59%) | Invisible to the generated spec |
-| `@Success` annotations typed as `map[string]interface{}` | 153 of 194 (79%) | The spec documents "an object" and nothing more |
+| Requests the software actually answers | 841 | What really exists |
+| Requests described in the published document | 170 | What outside developers can see |
+| Requests with no description written for them | 500 of 841 (59%) | Invisible to anyone outside the company |
+| Descriptions that say only "some object comes back" | 153 of 194 (79%) | Technically present, practically useless |
 
-The route count is measured, not estimated. It comes from
-[auditor/tools/routes.py](auditor/tools/routes.py) walking the AST, which is
-also the first component of the auditor itself. A grep for route registrations
-returns 805 lines, but that number is both too high and too low: it counts calls
-that are not registrations, and misses the 50 routes gin registers as
-`group.GET("", handler)` where the path comes entirely from the group prefix.
-Getting from 805 to 841 illustrates the whole thesis: the approximate answer and
-the correct one are not the same answer.
+That first number was counted by the tool itself, not estimated. A crude text
+search finds 805, which is both too many and too few: it counts things that only
+look like request definitions, and misses 50 real ones written in a shorthand it
+cannot recognise. The gap between 805 and 841 is the whole argument in miniature.
+An approximate answer and a correct one are not the same answer.
 
-Not all 841 routes are meant to be public. Admin and internal endpoints
-legitimately stay undocumented, and classifying which is part of the task. But
-no human is diffing 170 paths against 801 routes by hand, which is precisely why
-the gap has never been measured.
+Not all 841 of those are meant to be public. Internal and staff-only functions
+are legitimately left undocumented, and working out which is part of the job. But
+nobody is comparing 170 descriptions against 841 real ones by hand, which is
+exactly why nobody had ever measured the gap.
 
-Drift is expensive in a specific, avoidable way:
-it is cheap to fix at the commit that introduced it and expensive once a partner
-has built against the wrong contract. Catching it in CI moves the cost back to
-where it belongs.
+The cost of this problem is lopsided. It is nearly free to fix on the day someone
+introduces it, and expensive once an outside company has built against the wrong
+promise. Checking automatically on every change moves the cost back to where it
+belongs.
 
 ---
 

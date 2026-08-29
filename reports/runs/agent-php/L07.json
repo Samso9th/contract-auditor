@@ -1,0 +1,49 @@
+{
+  "findings": [
+    {
+      "path": "/kyc/bvn",
+      "method": "post",
+      "kind": "validation_mismatch",
+      "detail": "bvn length: handler requires exactly 10 characters, spec requires exactly 11 (minLength 11, maxLength 11)",
+      "severity": "medium",
+      "evidence": "if (strlen((string) ($body['bvn'] ?? '')) !== 10) { \u2014 the handler rejects any bvn whose length is not 10, while the spec constrains bvn to minLength 11 / maxLength 11 (and the handler's own error message says 'bvn must be 11 digits') (verified: ASSERTION: value for bvn satisfies the documented constraint, but the handler returned 400: {\"success\":false,\"code\":\"invalid_bvn\",\"message\":\"bvn must be 11 digits\"})",
+      "file": "app/Http/Controllers/PaymentsController.php",
+      "line": 75,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: value for bvn satisfies the documented constraint, but the handler returned 400: {\"success\":false,\"code\":\"invalid_bvn\",\"message\":\"bvn must be 11 digits\"}"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 116.5,
+    "cost_usd": 0.011046,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 9,
+    "input_tokens": 17767,
+    "output_tokens": 18213,
+    "deterministic_claims": 0,
+    "agent_claims": 2,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 1,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "email request body field: spec documents format \"email\", handler enforces only presence",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "L07"
+}

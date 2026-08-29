@@ -1,0 +1,49 @@
+{
+  "findings": [
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "default_value_mismatch",
+      "detail": "perPage query parameter default",
+      "severity": "medium",
+      "evidence": "public function listTransactions(int $page = 1, int $perPage = 50): array \u2014 when the caller omits perPage the handler applies a default of 50, but the specification documents \"default\": 25 for perPage. (The `if ($perPage < 1) { $perPage = 25; }` branch only applies to invalid values, not to omitted ones.) (verified: ASSERTION: spec documents a default of 25 for perPage; handler applied 50)",
+      "file": "app/Http/Controllers/PaymentsController.php",
+      "line": 45,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: spec documents a default of 25 for perPage; handler applied 50"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 37.7,
+    "cost_usd": 0.007152,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 8,
+    "input_tokens": 15718,
+    "output_tokens": 10867,
+    "deterministic_claims": 0,
+    "agent_claims": 2,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 1,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "request body field 'email': the specification declares format \"email\", but the handler's only check on 'email' is non-em",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "L08"
+}
