@@ -54,10 +54,12 @@ def offline_checks():
     check("empty returns None", extract_json("") is None)
     check("truncated object returns None", extract_json('{"a": 1') is None)
 
+    # Deliberately not asserted here. CI runs the offline suite with no key, and
+    # a check that fails simply because a secret is absent trains people to
+    # ignore a red build. Credentials are exercised by the live suite instead.
     env = load_env()
-    check("credentials configured",
-          bool(env.get("OPENROUTER_API_KEY") or env.get("OPENAI_API_KEY")),
-          "no OPENROUTER_API_KEY in .env or environment")
+    if not (env.get("OPENROUTER_API_KEY") or env.get("OPENAI_API_KEY")):
+        print("  note   no API key configured — live checks unavailable\n")
 
 
 def live_checks():
