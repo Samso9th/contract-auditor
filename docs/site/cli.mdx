@@ -118,8 +118,8 @@ python3 auditor/memory/store.py --check     # write a probe, read it back
 
 Every run appends each claim and its gate verdict, refuted claims included. Later
 runs read it back: similar past refutations go into the prompt, and per-kind
-survival rates order the report. Memory never suppresses a claim — the gate still
-decides.
+survival rates order the report. Memory never suppresses a claim. The gate
+still decides.
 
 ```bash
 python3 auditor/memory/ledger.py --verdict refuted     # the labelled false positives

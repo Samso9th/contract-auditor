@@ -269,8 +269,8 @@ history bundled with the tool, and no way for one project's statistics to end up
 as another project's assumptions.
 
 Turning it on is the three `memory-*` inputs shown in
-[Use it in your CI](#use-it-in-your-ci). Any S3-compatible bucket works — AWS,
-Cloudflare R2, MinIO, Backblaze, Spaces — and so does a plain HTTPS endpoint,
+[Use it in your CI](#use-it-in-your-ci). Any S3-compatible bucket works (AWS,
+Cloudflare R2, MinIO, Backblaze, Spaces), and so does a plain HTTPS endpoint,
 Cloudinary, or IPFS through a pinning service. Leave `memory-url` out and the
 tool behaves exactly as it always has.
 
@@ -296,10 +296,10 @@ get a vote.
 That rule exists because of a specific way these systems rot. Teach a tool to
 stop raising a kind of complaint, and it stops producing evidence about that kind
 of complaint, so nothing ever contradicts the lesson and the blind spot becomes
-permanent — while the numbers look better, because the misses are no longer
-counted. The defence is cheap: about one endpoint in twenty is checked with the
-memory switched off entirely, purely to keep testing what the memory has learned
-to doubt. A rule that starts being contradicted is demoted automatically.
+permanent. The numbers look better all the while, because the misses are no
+longer counted. The defence is cheap: about one endpoint in twenty is checked
+with the memory switched off entirely, purely to keep testing what the memory
+has learned to doubt. A rule that starts being contradicted is demoted automatically.
 
 Turning memory on also turns on the verification gate for your repository, since
 a complaint with no verdict teaches nothing. That is the same gate the evaluation
@@ -326,15 +326,8 @@ it; one pair of runs is a demonstration, not a trend line.
 
 Growing the test set matters as much as the memory. `make harvest` turns real
 drift found in a live repository into a new evaluation case, and a false alarm
-that survived the test into a new decoy — because a tool that improves against a
-frozen benchmark is indistinguishable from one that has learned the benchmark.
-
-One thing deliberately not done: training a model on any of this. The data is
-dozens of examples, the models are already good at the underlying reading, and a
-fine-tune would freeze the project out of model upgrades that keep arriving
-faster than any training loop here would finish. Looking things up beats training
-decisively at this size. Full reasoning in
-[ddocs/self-improvement.md](ddocs/self-improvement.md).
+that survived the test into a new decoy. A tool that improves against a frozen
+benchmark is indistinguishable from one that has learned the benchmark.
 
 ---
 
