@@ -6,11 +6,11 @@
 
 **micro1 Agentic Workflows Hackathon**
 
-When a company lets other developers use its software, it publishes a document
+When a company lets other developers use its software, it publishes an API documentation
 describing exactly what each request will do and what will come back. Other teams
-read that document and write code against it.
+read that documentation and write code against it.
 
-The trouble is that the document and the code are edited by different people at
+The trouble is that the documentation and the code are edited by different people at
 different times, and nothing checks that they still agree. When they drift apart,
 nobody finds out until an outside developer builds something against a promise the
 software no longer keeps.
