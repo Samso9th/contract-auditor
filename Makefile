@@ -21,11 +21,19 @@ test-tools: cases ## Verify the auditor's deterministic tools
 	@python3 auditor/tools/test_diff.py
 	@echo
 	@python3 auditor/test_verify.py
+	@echo
+	@python3 auditor/test_llm.py --offline
 
 deterministic: cases ## Run the no-model layer over every case and score it
 	@python3 auditor/run_deterministic.py
 	@echo
 	@cd eval && python3 score.py --run ../reports/runs/deterministic --markdown
+
+models: ## Show the configured models and their prices
+	@python3 auditor/llm.py --models
+
+test-llm: ## Verify the model client against the live endpoint (costs <$0.001)
+	@python3 auditor/test_llm.py
 
 verify: deterministic ## Put every deterministic finding through the verification gate
 	@for c in eval/cases/D*; do python3 auditor/verify.py $$c; echo; done

@@ -12,7 +12,19 @@ command is copy-pasteable from the repository root.
 | Anthropic API key | - | Required only for the agent and baseline runs, not for building or scoring cases |
 
 No database, no Docker, no network access is needed to build the evaluation
-cases. The fixture uses only the Go standard library.
+cases. The fixture uses only the Go standard library, and the harness has no pip
+dependencies.
+
+**On the HTTPS transport:** model calls shell out to `curl` rather than using
+`urllib` or `requests`. This is not a stylistic preference — on the development
+machine (macOS system Python 3.9, linked against LibreSSL 2.8.3) both Python
+HTTP libraries took roughly 160 seconds for requests `curl` completed in 3–7
+seconds. Shelling out also keeps the harness dependency-free.
+
+**Models.** The default is `z-ai/glm-5.3-flash` ($0.075/$0.25 per 1M tokens),
+with `moonshotai/kimi-k2.7-code` available for escalation. Run `make models` to
+see the full table. Nothing is hardcoded to a vendor: point
+`OPENROUTER_BASE_URL` at any OpenAI-compatible endpoint and pass `--model`.
 
 Verify your toolchain:
 
@@ -61,7 +73,9 @@ make routes
 ## 2. Run the baseline
 
 ```bash
-export ANTHROPIC_API_KEY=sk-...
+cp .env.example .env      # then put your key in it
+# OPENROUTER_API_KEY=sk-or-v1-...
+# OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 python3 baseline/run.py --cases eval/cases --out reports/runs/baseline
 ```
 
