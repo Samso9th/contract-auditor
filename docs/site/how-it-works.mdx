@@ -3,90 +3,47 @@ title: "How it works"
 description: "Where determinism ends and judgement begins."
 ---
 
-## The pipeline
-
 ```
-   Go source ──────┐
-   OpenAPI spec ───┼──► deterministic pre-pass
-   Docs (.mdx) ────┘    • AST route table extraction
-                        • spec path/schema index
-                        • set difference: code △ spec
-                                 │
-                                 ▼
-                    per-endpoint auditor agents (fan-out)
-                    handler body vs annotation vs prose
-                                 │
-                                 ▼
-                    ┌────────────────────────────────┐
-                    │ VERIFICATION GATE              │
-                    │ write a Go test asserting the  │
-                    │ documented contract, run it.   │
-                    │ Test passes ⇒ claim wrong ⇒    │
-                    │ finding discarded.             │
-                    └────────────────────────────────┘
-                                 │ survivors only
-                                 ▼
-                    reconciler: dedupe, rank, allowlist
-                                 │
-                                 ▼
-                    report + failing tests + spec patch
-                                 │
-                                 ▼
-                    Slack / Telegram alert
+   Go source ──┐
+   OpenAPI ────┼─► deterministic pre-pass
+   Docs ───────┘   AST route table, spec index, code △ spec
+                            │
+                            ▼
+                per-endpoint auditor agents (fan-out)
+                            │
+                            ▼
+                  VERIFICATION GATE
+                  test passes ⇒ claim wrong ⇒ discarded
+                            │ survivors only
+                            ▼
+                reconciler: dedupe, rank, allowlist
+                            │
+                            ▼
+                report + failing tests + Slack alert
 ```
 
-## The four design choices
+## Four design choices
 
-<AccordionGroup>
-  <Accordion title="Deterministic work stays deterministic" icon="calculator">
-    The route table comes from `go/ast`, not from a model reading files. Set
-    differences between the route table and the spec are computed, not inferred.
-    The model is spent only on the part that genuinely needs judgement:
-    reconciling a handler body against prose.
-
-    A small illustration of why this matters: grepping the target repository for
-    route registrations returns 805 lines. The parser finds 841. The grep is both
-    too high (it counts calls that are not registrations) and too low, missing
-    the 50 routes gin registers as `group.GET("", handler)` where the path comes
-    entirely from the group prefix. The approximate answer and the correct answer
-    are not the same answer.
-  </Accordion>
-
-  <Accordion title="The verification gate is the contribution" icon="shield-check">
-    An unverified claim about API behaviour is worth close to nothing, because
-    the failure mode of a model reading handler code is a confident, plausible,
-    wrong finding. Charging every claim the price of a failing test converts the
-    report from opinion into evidence.
-
-    See [The verification gate](/verification-gate).
-  </Accordion>
-
-  <Accordion title="Fan-out is per endpoint, not per file" icon="arrows-split-up-and-left">
-    An endpoint is the unit the contract is expressed in, and one fits in a
-    context window with room left for its schema and its prose. A file is an
-    arbitrary boundary that splits some contracts and merges others.
-  </Accordion>
-
-  <Accordion title="Memory is an allowlist" icon="brain">
-    Intentional divergence gets recorded once and stops being re-reported, so
-    repeat runs stay signal. The long-term version of this idea is in
-    [Self-improvement](/self-improvement).
-  </Accordion>
-</AccordionGroup>
+| Choice | Why |
+|---|---|
+| Route tables come from `go/ast`, not a model | On the target repo the parser finds 841 routes where a grep finds 805 |
+| Every claim must ship a failing test | A model reading handler code produces confident, plausible, wrong findings |
+| Fan-out is per endpoint, not per file | An endpoint is the unit a contract is expressed in |
+| Memory is an allowlist | Intentional divergence is recorded once and stops being re-reported |
 
 ## Components
 
-| Component | File | Verified by |
+| Component | File | Tested by |
 |---|---|---|
 | Route + annotation extraction | `auditor/tools/routes.py` | `test_routes.py` |
-| Spec path and schema index | `auditor/tools/spec.py` | `test_diff.py` |
+| Spec index | `auditor/tools/spec.py` | `test_diff.py` |
 | Code △ spec differ | `auditor/tools/diff.py` | `test_diff.py` |
 | Verification gate | `auditor/verify.py` | `test_verify.py` |
-| Provider-neutral model client | `auditor/llm.py` | `test_llm.py` |
+| Model client | `auditor/llm.py` | `test_llm.py` |
 | Per-endpoint auditor | `auditor/audit_endpoint.py` | n/a |
-| Notification layer | `auditor/notify.py` | `test_notify.py` |
+| Notifications | `auditor/notify.py` | `test_notify.py` |
 
-Every test in that right-hand column runs offline, without an API key:
+Every test above runs offline with no API key:
 
 ```bash
 make test-tools

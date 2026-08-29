@@ -1,0 +1,40 @@
+# Contract auditor — the image GitHub Actions pulls.
+#
+# Base is the full Debian Go image rather than Alpine on purpose. The
+# verification gate runs `go test` inside the *consumer's* repository, and a
+# musl base breaks any project that builds with cgo. A larger image that runs
+# every caller's tests correctly beats a small one that silently fails on some
+# of them — this tool exists to not be quietly wrong.
+FROM golang:1.24-bookworm
+
+LABEL org.opencontainers.image.title="contract-auditor" \
+      org.opencontainers.image.description="Finds drift between API code, its OpenAPI spec, and its published docs — and proves each finding with a test." \
+      org.opencontainers.image.licenses="MIT"
+
+# python3 runs the harness, node runs the TypeScript extractor, curl is the
+# HTTPS transport for model calls. No pip packages: the harness has no Python
+# dependencies, which is why this layer stays small and the build stays offline-safe.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-minimal ca-certificates curl git jq \
+        nodejs npm \
+    && npm install -g typescript@5 --no-fund --no-audit \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    GOFLAGS=-mod=mod \
+    NODE_PATH=/usr/local/lib/node_modules
+
+WORKDIR /opt/auditor
+COPY auditor/ ./auditor/
+COPY baseline/ ./baseline/
+COPY eval/ ./eval/
+COPY entrypoint.sh ./entrypoint.sh
+RUN chmod +x ./entrypoint.sh
+
+# Prebuild the Go route extractor so the first audit does not pay for it.
+RUN cd auditor/tools/goroutes && go build -o goroutes . && ./goroutes -dir . >/dev/null 2>&1 || true
+
+# GitHub Actions mounts the checkout at /github/workspace and runs there.
+WORKDIR /github/workspace
+ENTRYPOINT ["/opt/auditor/entrypoint.sh"]

@@ -1,80 +1,60 @@
 ---
 title: "Command reference"
-description: "Every entry point, and what it costs to run."
+description: "Every entry point, and what it costs."
 ---
 
 ## Make targets
 
-| Target | What it does | API key | Cost |
+| Target | Does | Key | Cost |
 |---|---|---|---|
-| `make cases` | Build the 16 evaluation cases, compiling each | no | none |
-| `make test-tools` | Verify every deterministic component offline | no | none |
+| `make cases` | Build the 16 evaluation cases | no | none |
+| `make test-tools` | Test every deterministic component | no | none |
 | `make check` | Confirm the fixture builds and the scorer is sound | no | none |
 | `make routes` | Print the route table for the clean fixture | no | none |
-| `make deterministic` | Run the no-model layer over every case and score it | no | none |
+| `make deterministic` | Run the no-model layer and score it | no | none |
 | `make verify` | Put every deterministic finding through the gate | no | none |
-| `make models` | Show configured models and their prices | no | none |
+| `make models` | Show configured models and prices | no | none |
 | `make test-llm` | Check the model client against the live endpoint | yes | `<$0.001` |
-| `make baseline` | Run the single-prompt baseline | yes | see status |
-| `make agent` | Run the full auditor | yes | see status |
+| `make baseline` | Run the single-prompt baseline | yes | see [status](/status) |
+| `make agent` | Run the full auditor | yes | see [status](/status) |
 | `make score` | Score both runs side by side | no | none |
 | `make notify` | Preview the alert for the latest run | no | none |
 | `make clean` | Remove generated cases and runs | no | none |
 
-## Direct invocation
+## Direct commands
 
-<AccordionGroup>
-  <Accordion title="Audit a real repository" icon="folder-tree">
-    ```bash
-    python3 auditor/run.py \
-      --repo /path/to/go/api \
-      --spec /path/to/openapi.json \
-      --docs /path/to/docs \
-      --out reports/runs/my-api
-    ```
-    Produces a ranked report rather than a score, because there is no ground
-    truth for a real repository. Each finding carries the test that proves it.
-  </Accordion>
+Audit a real repository:
 
-  <Accordion title="Extract the route table" icon="route">
-    ```bash
-    python3 auditor/tools/routes.py /path/to/go/api --strip-prefix /v1
-    ```
-    Walks the Go AST. This is the component that finds 841 routes where a grep
-    finds 805.
-  </Accordion>
+```bash
+python3 auditor/run.py --repo /path/to/go/api --spec /path/to/openapi.json \
+  --docs /path/to/docs --out reports/runs/my-api
+```
 
-  <Accordion title="Verify a single case" icon="flask">
-    ```bash
-    python3 auditor/verify.py eval/cases/D01
-    ```
-    Runs every deterministic finding for that case through the gate and prints
-    the verdicts.
-  </Accordion>
+Extract the route table:
 
-  <Accordion title="Score a run" icon="chart-simple">
-    ```bash
-    cd eval && python3 score.py --run ../reports/runs/agent --markdown
-    ```
-    Add `--json` for machine-readable output.
-  </Accordion>
+```bash
+python3 auditor/tools/routes.py /path/to/go/api --strip-prefix /v1
+```
 
-  <Accordion title="Send an alert" icon="bell">
-    ```bash
-    python3 auditor/notify.py --run reports/runs/agent --min-severity high
-    ```
-    See [Notifications](/notifications).
-  </Accordion>
-</AccordionGroup>
+Verify one case:
+
+```bash
+python3 auditor/verify.py eval/cases/D01
+```
+
+Score a run:
+
+```bash
+cd eval && python3 score.py --run ../reports/runs/agent --markdown
+```
 
 ## Configuration
 
-All credentials come from `.env` at the repository root, or from the environment,
-which wins. Nothing is written back to a log or a findings file.
+From `.env` at the repository root, or the environment, which wins.
 
 ```bash
 OPENROUTER_API_KEY=sk-or-...
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1   # any OpenAI-compatible endpoint
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 TELEGRAM_BOT_TOKEN=123456:ABC...
 TELEGRAM_CHAT_ID=-1001234567890

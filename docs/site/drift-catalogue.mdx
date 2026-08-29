@@ -1,19 +1,19 @@
 ---
 title: "What counts as drift"
-description: "The twelve failures the auditor is measured against, and the four refactors it must stay quiet about."
+description: "The 12 failures the auditor is measured against, and the 4 refactors it must ignore."
 ---
 
-Evaluation runs against a synthetic Go payments API with a committed OpenAPI spec
-that matches it exactly in the clean state. Drift is then **injected**, so the
-ground truth is known by construction rather than argued about.
+Evaluation runs against a synthetic Go payments API whose spec matches it exactly
+in the clean state. Drift is then injected, so ground truth is known by
+construction.
 
-## The twelve drifts
+## The 12 drifts
 
 | ID | Severity | What changed |
 |---|---|---|
 | D01 | high | Response field renamed in code, spec unchanged |
 | D02 | medium | Handler returns 200, spec documents 201 |
-| D03 | high | Endpoint exists in code, absent from spec |
+| D03 | high | Endpoint in code, absent from spec |
 | D04 | high | Spec documents an endpoint that is no longer routed |
 | D05 | **critical** | Money field changed from decimal string to `float64` |
 | D06 | high | Code requires a field the spec marks optional |
@@ -24,48 +24,44 @@ ground truth is known by construction rather than argued about.
 | D11 | medium | Validation loosened below the documented constraint |
 | D12 | medium | New 429 response undocumented |
 
-## The three that actually hurt
+## The three that hurt
 
 <CardGroup cols={3}>
-  <Card title="D05 · Money precision" icon="coins">
-    An amount moves from `"1500.50"` to `1500.50`. Partners parsing a string
-    break; partners parsing a float lose precision. Ledgers stop balancing months
-    later and nobody knows why.
+  <Card title="D05 Money precision" icon="coins">
+    `"1500.50"` becomes `1500.50`. String parsers break, float parsers lose
+    precision.
   </Card>
-  <Card title="D08 · Silent auth" icon="lock">
-    An endpoint documented as public starts requiring a token. Every integrator
-    gets a 401 where there was none, against documentation that says otherwise.
+  <Card title="D08 Silent auth" icon="lock">
+    A documented-public endpoint starts returning 401.
   </Card>
-  <Card title="D10 · Webhook signature" icon="signature">
-    The signature header is renamed. Every delivery now fails verification on the
-    receiving end, and the sender sees nothing wrong.
+  <Card title="D10 Webhook signature" icon="signature">
+    Header renamed. Every delivery fails verification on the receiving end.
   </Card>
 </CardGroup>
 
 <Warning>
-  All three are **silent**. The code compiles, the tests pass, the endpoint
-  returns 200. The damage lands entirely in the partner's system.
+  All three are silent. Code compiles, tests pass, endpoint returns 200. The
+  damage lands in the partner's system.
 </Warning>
 
-## The four decoys
+## The 4 decoys
 
-Refactors that change code without changing the contract: a local rename, an
-added comment, an extracted helper, a reordered struct field.
+A local rename, an added comment, an extracted helper, a reordered field. Code
+changes that do not change the contract. A finding on any of them is a false
+positive.
 
-These are what make precision measurable. Without them, an auditor that reports
-everything scores perfectly. A finding on any of the four is a false positive.
+Without decoys, an auditor that reports everything scores perfectly.
 
-## Metric
+## Targets
 
-Primary metric is **F1 over verified drift findings**: recall alone rewards
-noise, precision alone rewards silence.
-
-Targets committed in writing before the first run, so they cannot be adjusted
-afterwards to flatter the outcome:
+Committed before the first run, so they cannot be adjusted afterwards.
 
 <CardGroup cols={4}>
   <Card title="Recall ≥ 0.80" icon="magnifying-glass" />
   <Card title="Precision ≥ 0.85" icon="crosshairs" />
-  <Card title="3/3 critical caught" icon="triangle-exclamation" />
+  <Card title="3/3 critical" icon="triangle-exclamation" />
   <Card title="4/4 decoys clean" icon="check" />
 </CardGroup>
+
+Primary metric is F1: recall alone rewards noise, precision alone rewards
+silence.

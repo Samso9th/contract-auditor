@@ -1,0 +1,82 @@
+name: Contract Auditor
+description: >-
+  Find drift between your API code, its OpenAPI spec and its published docs.
+  Every finding is proved by a generated test that runs against your handler,
+  so the report carries evidence rather than opinion.
+author: Samso9th
+branding:
+  icon: git-pull-request
+  color: purple
+
+inputs:
+  spec:
+    description: Path to the OpenAPI document your integrators build against.
+    required: true
+  source-dir:
+    description: Directory containing the API source.
+    required: false
+    default: "."
+  language:
+    description: "go, typescript, or auto to detect."
+    required: false
+    default: auto
+  strip-prefix:
+    description: 'Path prefix to strip from routes so they match the spec, e.g. "/api/v1".'
+    required: false
+    default: ""
+  api-key:
+    description: >-
+      OpenRouter (or any OpenAI-compatible) API key. Omit to run the
+      deterministic layer only — no model calls, no cost, still catches most drift.
+    required: false
+    default: ""
+  base-url:
+    description: OpenAI-compatible endpoint. Defaults to OpenRouter.
+    required: false
+    default: https://openrouter.ai/api/v1
+  model:
+    description: Model id for the judgment pass.
+    required: false
+    default: z-ai/glm-5.3-flash
+  workers:
+    description: Concurrent model calls.
+    required: false
+    default: "8"
+  fail-on:
+    description: >-
+      Lowest severity that fails the job — critical, high, medium, low, or none.
+      Start at none to adopt in warn mode; tighten once the backlog is clear.
+    required: false
+    default: high
+  webhook-url:
+    description: POST the full report here (Postgres sink, Slack relay, Telegram bot).
+    required: false
+    default: ""
+  webhook-secret:
+    description: Sent as X-Auditor-Token so your receiver can authenticate the POST.
+    required: false
+    default: ""
+  sarif-path:
+    description: Where to write SARIF for upload to code scanning.
+    required: false
+    default: contract-audit.sarif
+  summary-path:
+    description: Where to write the Markdown summary.
+    required: false
+    default: contract-audit.md
+
+outputs:
+  findings:
+    description: Total findings.
+  critical:
+    description: Findings at critical severity.
+  high:
+    description: Findings at high severity.
+  sarif:
+    description: Path to the SARIF file.
+  summary:
+    description: Path to the Markdown summary.
+
+runs:
+  using: docker
+  image: docker://ghcr.io/samso9th/contract-auditor:v1

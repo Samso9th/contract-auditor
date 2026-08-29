@@ -13,19 +13,26 @@
     "groups": [
       {
         "group": "Getting started",
-        "pages": ["introduction", "quickstart"]
+        "pages": [
+          "introduction",
+          "quickstart",
+          "status"
+        ]
       },
       {
         "group": "How it works",
-        "pages": ["how-it-works", "verification-gate", "drift-catalogue"]
+        "pages": [
+          "how-it-works",
+          "verification-gate",
+          "drift-catalogue"
+        ]
       },
       {
-        "group": "Operating it",
-        "pages": ["notifications", "cli"]
-      },
-      {
-        "group": "Design notes",
-        "pages": ["self-improvement", "field-notes", "status"]
+        "group": "Reference",
+        "pages": [
+          "notifications",
+          "cli"
+        ]
       }
     ]
   },

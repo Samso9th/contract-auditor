@@ -86,7 +86,7 @@ def agent_pass(api, spec, table, known, model, pool):
             for key in keys}
 
     claims, usage = [], {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "calls": 0}
-    errors = []
+    errors, unread = [], []
     for job in futures.as_completed(jobs):
         found, used = job.result()
         claims.extend(found)
@@ -94,7 +94,10 @@ def agent_pass(api, spec, table, known, model, pool):
             usage[field] += used.get(field, 0)
         if used.get("error"):
             errors.append(f"{jobs[job][1]} {jobs[job][0]}: {used['error']}")
+        if used.get("unread_endpoint"):
+            unread.append(used["unread_endpoint"])
     usage["errors"] = errors
+    usage["unread_endpoints"] = unread
     return claims, usage
 
 
@@ -154,6 +157,7 @@ def audit_one(case_dir, model, pool, strip_prefix):
                 for d in dropped
             ],
             "agent_errors": usage["errors"],
+            "unread_endpoints": usage["unread_endpoints"],
         },
     }
 

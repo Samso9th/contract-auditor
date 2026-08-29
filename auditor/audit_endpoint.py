@@ -33,7 +33,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 
-from llm import chat, DEFAULT_MODEL, LLMError  # noqa: E402
+from llm import chat, DEFAULT_MODEL, DEFAULT_MAX_TOKENS, LLMError  # noqa: E402
 from routes import extract  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 
@@ -213,19 +213,36 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL):
     prompt = build_prompt(path, method, facts, spec[key], source,
                           [f for f in known if f["path"] == path and f["method"] == method.lower()])
 
-    try:
-        reply = chat(model, SYSTEM, prompt)
-    except LLMError as exc:
-        usage["error"] = str(exc)
-        return [], usage
+    # An unparseable reply is indistinguishable from "no drift here": both yield
+    # zero claims. That makes a transport-level failure look like a clean
+    # endpoint, which is the one wrong answer this tool must never give. Retry
+    # once with a larger budget, then record the failure loudly.
+    reply = None
+    for attempt in range(2):
+        try:
+            reply = chat(model, SYSTEM, prompt,
+                         max_tokens=DEFAULT_MAX_TOKENS * (attempt + 1))
+        except LLMError as exc:
+            usage["error"] = str(exc)
+            return [], usage
 
-    usage.update(cost_usd=reply.cost_usd, input_tokens=reply.input_tokens,
-                 output_tokens=reply.output_tokens, elapsed=reply.elapsed, calls=1)
-    if reply.truncated and reply.json is None:
-        usage["error"] = "reply truncated before any content"
-        return [], usage
-    if reply.json is None:
-        usage["error"] = "reply was not JSON"
+        usage["calls"] += 1
+        usage["cost_usd"] += reply.cost_usd
+        usage["input_tokens"] += reply.input_tokens
+        usage["output_tokens"] += reply.output_tokens
+        usage["elapsed"] += reply.elapsed
+
+        if reply.json is not None:
+            break
+        usage["retried"] = True
+
+    if reply is None or reply.json is None:
+        usage["error"] = ("reply truncated before any content"
+                          if reply is not None and reply.truncated
+                          else "reply was not JSON after retry")
+        # An endpoint the agent could not read is not an endpoint with no drift.
+        # Surfaced so a run with unread endpoints cannot be mistaken for a clean one.
+        usage["unread_endpoint"] = f"{method.upper()} {path}"
         return [], usage
 
     # Anchor every agent claim to the handler it actually read.

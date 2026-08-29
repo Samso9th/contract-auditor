@@ -3,44 +3,26 @@ title: "The verification gate"
 description: "A claim is confirmed only if the test asserting the spec fails."
 ---
 
-## The rule
-
 <Card icon="shield-check">
   **A claim is CONFIRMED only if the test asserting the documented contract
   FAILS.**
 
-  If the test passes, the spec is being honoured and the claim was wrong. The
-  finding is dropped, no matter how confident its author was.
+  If the test passes, the spec is being honoured and the claim was wrong.
 </Card>
-
-This is the only component that can tell a real drift from a plausible sentence
-about one, so every finding that reaches the report passes through it.
-
-## Why it exists
-
-A model reading handler code fails in a specific way: it produces findings that
-are confident, plausible, well-argued and wrong. Those are more expensive than no
-findings at all, because each one costs a reviewer the time to disprove it. Past
-roughly 0.85 precision a reviewer starts double-checking everything, at which
-point the tool has moved the work rather than removed it.
-
-Requiring executable proof converts the output from opinion into evidence.
 
 ## How a claim is judged
 
 <Steps>
   <Step title="Synthesise a request">
-    A plausible request for the endpoint, using the spec's schema. Field names
-    matter: a BVN that is not 11 digits gets rejected by validation before the
-    response shape is ever reached, and the test would prove nothing.
+    Built from the spec's schema. Field names matter: a BVN that is not 11 digits
+    gets rejected by validation before the response shape is reached.
   </Step>
   <Step title="Generate a Go test asserting the documented behaviour">
-    Not the observed behaviour, but the **documented** one. The test encodes the
-    promise, then runs it against the real handler through `httptest`.
+    Not the observed behaviour. The test encodes the promise, then runs it
+    against the real handler through `httptest`.
   </Step>
-  <Step title="Run it and read the outcome">
-    Failure means code and contract disagree: the claim stands. Success means the
-    contract is honoured: the claim is refuted and discarded.
+  <Step title="Run it">
+    Failure means code and contract disagree.
   </Step>
 </Steps>
 
@@ -48,31 +30,24 @@ Requiring executable proof converts the output from opinion into evidence.
 
 | Verdict | Meaning | Reaches the report |
 |---|---|---|
-| `confirmed` | the test failed: real drift | Yes |
-| `refuted` | the test passed: the claim was wrong | No |
-| `unsupported` | the claim kind is not executable | No, reported as unverifiable |
+| `confirmed` | the test failed, real drift | Yes |
+| `refuted` | the test passed, claim was wrong | No |
+| `unsupported` | claim kind is not executable | No |
 | `error` | the test did not build or run | No |
 
-<Note>
-  A claim kind absent from the executable set is reported as **unsupported**
-  rather than waved through. Silently trusting an unverifiable claim is exactly
-  the failure this component exists to prevent.
-</Note>
+An unsupported claim is reported as unverifiable rather than waved through.
 
 ## Executable claim kinds
 
-- `response_field_mismatch`
-- `response_type_mismatch`
-- `status_code_mismatch`
-- `response_header_mismatch`
-- `auth_mismatch`
+`response_field_mismatch` · `response_type_mismatch` · `status_code_mismatch` ·
+`response_header_mismatch` · `auth_mismatch`
 
-## No model is involved
-
-The gate takes a claim from anywhere (a deterministic rule, an agent, a human)
-and judges it identically. That independence is what lets the same gate score the
-baseline and the agent without favouring either.
+## Run it on one case
 
 ```bash
 python3 auditor/verify.py eval/cases/D01
 ```
+
+No model is involved. A claim from a rule, an agent or a human is judged
+identically, which is what lets the same gate score the baseline and the agent
+without favouring either.

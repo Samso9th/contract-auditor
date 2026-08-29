@@ -1,47 +1,25 @@
 ---
 title: "Notifications"
-description: "Push verified drift to Slack or Telegram the moment CI finds it."
+description: "Push verified drift to Slack or Telegram from CI."
 ---
 
-A report nobody opens is the same as no report. `auditor/notify.py` pushes
-verified findings to a team channel as soon as CI produces them, so the cost of a
-broken contract lands on the person who can still fix it cheaply.
+```bash
+python3 auditor/notify.py --run reports/runs/agent --min-severity high
+```
 
 ## Three rules
 
-<AccordionGroup>
-  <Accordion title="Only verified findings are sent" icon="shield-check">
-    If the run went through the [verification gate](/verification-gate), anything
-    with a verdict other than `confirmed` stays out of the alert. Pushing a
-    plausible-but-wrong claim into a team channel is how a tool gets muted, and
-    a muted tool has negative value, because it still costs attention and returns
-    nothing.
+| Rule | Effect |
+|---|---|
+| Only verified findings are sent | Anything the gate did not confirm stays out |
+| Silence is the default | A clean run sends nothing. `--notify-empty` opts in |
+| Alerts are capped | Worst 10 findings, then "+37 more". Slack allows 50 blocks, Telegram 4096 chars |
 
-    Runs that never went through the gate are still sendable, but the message
-    says so rather than implying a guarantee it cannot make.
-  </Accordion>
-  <Accordion title="Silence is the default" icon="volume-xmark">
-    A clean run sends nothing. Alerts that fire on every build stop being read
-    within a week. `--notify-empty` exists for the one case where a green
-    heartbeat is genuinely wanted.
-  </Accordion>
-  <Accordion title="The alert is capped and links out" icon="scissors">
-    Slack renders at most 50 blocks and Telegram truncates at 4096 characters. A
-    real repository can produce far more findings than that, so the message
-    carries the worst ten and says how many more are in the report. Losing the
-    tail of a message silently is a worse failure than saying "+37 more".
-  </Accordion>
-</AccordionGroup>
-
-## Configure a channel
-
-Credentials come from `.env` or the environment. Wire either or both; a channel
-with no credentials is skipped rather than treated as an error.
+## Configure
 
 <Tabs>
   <Tab title="Slack">
-    Create an [Incoming Webhook](https://api.slack.com/messaging/webhooks) for
-    the channel you want, then:
+    Create an [Incoming Webhook](https://api.slack.com/messaging/webhooks), then:
 
     ```bash
     echo 'SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T00/B00/xxxx' >> .env
@@ -58,62 +36,34 @@ with no credentials is skipped rather than treated as an error.
   </Tab>
 </Tabs>
 
-## Preview before you wire anything
+Wire either or both. An unconfigured channel is skipped, not an error.
+
+## Preview without sending
 
 ```bash
 python3 auditor/notify.py --run reports/runs/agent --dry-run
 ```
 
-`--dry-run` prints the exact Slack and Telegram payloads without sending, and
-works with no credentials configured at all.
+Prints the exact payloads. Works with no credentials configured.
 
-## Send
-
-```bash
-python3 auditor/notify.py \
-  --run reports/runs/agent \
-  --min-severity high \
-  --report-url "$CI_JOB_URL"
-```
-
-## Block a merge on critical drift
+## Block a merge
 
 ```bash
 python3 auditor/notify.py --run reports/runs/agent --fail-on critical
 ```
 
-Exits `2` when any finding is at or above the given level, so a CI job fails.
-Send failures exit `1`, which lets a pipeline tell "the API is broken" apart from
-"Slack is down".
+Exits `2` when a finding is at or above the given level. Send failures exit `1`,
+so CI can tell "API is broken" from "Slack is down".
 
 ## Options
 
-<ParamField path="--run" default="reports/runs/agent">
-  Run directory, or a single findings JSON file.
-</ParamField>
-<ParamField path="--min-severity" default="high">
-  One of `critical`, `high`, `medium`, `low`. Alert only at or above this level.
-</ParamField>
-<ParamField path="--title">
-  What to call this run in the alert. Defaults to the run directory name.
-</ParamField>
-<ParamField path="--report-url">
-  Link included in the alert, typically the CI run.
-</ParamField>
-<ParamField path="--unverified">
-  Send claims that did not pass the verification gate. Off by default.
-</ParamField>
-<ParamField path="--notify-empty">
-  Send an all-clear when nothing was found.
-</ParamField>
-<ParamField path="--fail-on">
-  Exit `2` if any finding is at or above this level.
-</ParamField>
-<ParamField path="--dry-run">
-  Print the payloads instead of sending them.
-</ParamField>
-
-<Note>
-  Transport is `curl`, not `urllib`, for the same measurement that forced it in
-  the model client. See [Field notes](/field-notes).
-</Note>
+| Flag | Default | Effect |
+|---|---|---|
+| `--run` | `reports/runs/agent` | Run directory or single findings file |
+| `--min-severity` | `high` | `critical`, `high`, `medium`, `low` |
+| `--title` | run directory name | Name shown in the alert |
+| `--report-url` | none | Link included in the alert |
+| `--unverified` | off | Send claims that did not pass the gate |
+| `--notify-empty` | off | Send an all-clear when nothing was found |
+| `--fail-on` | none | Exit `2` at or above this level |
+| `--dry-run` | off | Print payloads instead of sending |
