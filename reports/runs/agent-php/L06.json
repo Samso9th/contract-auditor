@@ -1,0 +1,49 @@
+{
+  "findings": [
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "request body field 'reason'",
+      "severity": "high",
+      "evidence": "Handler line: `if (empty($body['reason'])) {` followed by `return [400, $this->error('missing_reason', 'reason is required')];` \u2014 the handler rejects any request whose body omits 'reason'. The specification lists 'reason' with \"required\": false, so a valid request per the spec (containing only the required 'payoutId' and 'amount') is rejected with 400 by the handler. (verified: ASSERTION: spec does not require reason, but omitting it returned 400: {\"success\":false,\"code\":\"missing_reason\",\"message\":\"reason is required\"})",
+      "file": "app/Http/Controllers/PaymentsController.php",
+      "line": 30,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: spec does not require reason, but omitting it returned 400: {\"success\":false,\"code\":\"missing_reason\",\"message\":\"reason is required\"}"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 39.4,
+    "cost_usd": 0.005285,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 8,
+    "input_tokens": 16082,
+    "output_tokens": 8318,
+    "deterministic_claims": 0,
+    "agent_claims": 2,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 1,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "email: spec documents format \"email\", but the handler enforces no format constraint \u2014 only non-emptiness \u2014 so values tha",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "L06"
+}

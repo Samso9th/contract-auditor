@@ -1,0 +1,48 @@
+{
+  "findings": [
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "201",
+      "severity": "medium",
+      "evidence": "app/Http/Controllers/PaymentsController.php:59 createCustomer returns 200 on success; spec documents 201 (verified: ASSERTION: spec documents 201 on success; handler returned 200)",
+      "file": "app/Http/Controllers/PaymentsController.php",
+      "line": 59,
+      "rule": "R6",
+      "source": "deterministic",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: spec documents 201 on success; handler returned 200"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 128.1,
+    "cost_usd": 0.011702,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 9,
+    "input_tokens": 17766,
+    "output_tokens": 20148,
+    "deterministic_claims": 1,
+    "agent_claims": 1,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 1,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "email: spec documents format \"email\", but the handler only checks that email is non-empty and never validates the email ",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "L02"
+}

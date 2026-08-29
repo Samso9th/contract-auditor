@@ -1,0 +1,41 @@
+{
+  "findings": [
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "default_value_mismatch",
+      "detail": "perPage query parameter default",
+      "severity": "medium",
+      "evidence": "app/routes.py:31: `async def list_transactions(page: int = 1, perPage: int = 50):` \u2014 when the caller omits perPage, the route signature supplies 50, and since the route always passes perPage explicitly to handlers.list_transactions(page, perPage), the handler's internal default of 25 is never reached; the spec documents \"default\": 25 for perPage. (verified: ASSERTION: spec documents a default of 25 for perPage; handler applied 50)",
+      "file": "app/routes.py",
+      "line": 31,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "confirmed",
+      "verification": "ASSERTION: spec documents a default of 25 for perPage; handler applied 50"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 131.4,
+    "cost_usd": 0.005167,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 9,
+    "input_tokens": 11418,
+    "output_tokens": 12774,
+    "deterministic_claims": 0,
+    "agent_claims": 1,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 0,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "P08"
+}

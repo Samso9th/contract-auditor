@@ -2,11 +2,18 @@
 
 **micro1 Agentic Workflows Hackathon**
 
-An agent that finds where an HTTP API's **code**, its **OpenAPI spec**,
-and its **published documentation** disagree - and proves each finding with a test
-that fails before the fix and passes after.
+An agent that finds where an HTTP API's code, its OpenAPI spec and its published
+documentation disagree, and proves each finding with a test that fails before the
+fix and passes after.
 
 Nothing reaches the report unverified. That constraint is the whole design.
+
+<p align="center">
+  <img src="docs/assets/pr-comment.svg" alt="A pull request comment from contract-auditor listing four verified contract findings, each with the file and line it was found on, and a footer confirming every finding was proved by executing a generated test" width="880">
+</p>
+
+The findings above are real output from the evaluation in this repository, not a
+mockup. Three further claims were refuted by their own tests and never appeared.
 
 ---
 
@@ -16,7 +23,7 @@ Four languages. A language counts as supported only once it has its own fixture,
 its own injected mutations, and a scored evaluation, so these are measured rather
 than claimed. `make languages` prints the same table from the code.
 
-Everything below is the **deterministic layer alone** - no model, no API key, no
+Everything below is the deterministic layer on its own. No model, no API key, no
 cost, tenths of a second:
 
 | Language | Extraction | Verification gate | Rules settle | Precision | Recall | F1 |
@@ -28,14 +35,14 @@ cost, tenths of a second:
 
 Precision is 1.000 everywhere and every decoy stays clean. Every remaining miss,
 in every language, is one of the three kinds that need judgment rather than
-lookup - an undocumented required field, a validation bound loosened, a default
-that changed. Those are the agent's job, and Go delegates them too. It is parity
+lookup: an undocumented required field, a validation bound loosened, a default
+that changed. Those are the agent's job, and Go delegates them too. That is parity
 in kind, not a shortfall.
 
-**No adapter imports or boots the target's framework.** A Go project without its
+No adapter imports or boots the target's framework. A Go project without its
 modules downloaded, a FastAPI app without FastAPI installed, a Laravel app with
-no `vendor/` - each is still auditable, because the extractors read source and
-the gates call handlers directly. A gate that needs the target's runtime can only
+no `vendor/`: each is still auditable, because the extractors read source and the
+gates call handlers directly. A gate that needs the target's runtime can only
 verify projects that already have it.
 
 ### How a language gets more reliable
@@ -43,9 +50,9 @@ verify projects that already have it.
 Not by prompting better. TypeScript first scored **0.571** and Laravel **0.333**,
 because their extractors emitted routes and nothing else, so response shapes,
 statuses and headers fell to a model reading source approximately. Teaching each
-extractor to emit those facts - response shapes resolved across files and through
+extractor to emit those facts (response shapes resolved across files and through
 delegation, statuses read from the response call's own receiver, headers set,
-query parameters read - moved six kinds from "a model might notice" to "a parser
+query parameters read) moved six kinds from "a model might notice" to "a parser
 always notices", and took both to the numbers above.
 
 Each adapter declares what its rules settle in `DETERMINISTIC_KINDS`. That list is
@@ -93,13 +100,13 @@ report to Slack, Telegram or a Postgres sink.
 
 ## The user and the bottleneck
 
-**Who has this problem.** Backend teams that publish an HTTP API to external
+Backend teams that publish an HTTP API to external
 integrators, and the integrators downstream of them. The motivating case is
 Hyparrow, a payments API: partner fintechs build against its published
 docs, and every disagreement between those docs and the running handlers becomes
 someone else's production incident.
 
-**What the bottleneck is.** A published API has at least three descriptions of
+A published API has at least three descriptions of
 itself and no mechanism keeping them aligned:
 
 1. the handler code, which is what actually runs;
@@ -108,7 +115,7 @@ itself and no mechanism keeping them aligned:
 
 Each is edited by different people at different times. Code review catches
 whether the code is correct, not whether it still matches what was promised. So
-drift accumulates silently and surfaces at the worst possible moment - at
+drift accumulates silently and surfaces at the worst possible moment: at
 integration time, in someone else's codebase, with no error message that points
 at the real cause.
 
@@ -122,21 +129,21 @@ payments API, ~324 source files):
 | Routes carrying no `@Router` annotation | 500 of 841 (59%) | Invisible to the generated spec |
 | `@Success` annotations typed as `map[string]interface{}` | 153 of 194 (79%) | The spec documents "an object" and nothing more |
 
-The route count is measured, not estimated - produced by
+The route count is measured, not estimated. It comes from
 [auditor/tools/routes.py](auditor/tools/routes.py) walking the AST, which is
 also the first component of the auditor itself. A grep for route registrations
 returns 805 lines, but that number is both too high and too low: it counts calls
 that are not registrations, and misses the 50 routes gin registers as
 `group.GET("", handler)` where the path comes entirely from the group prefix.
-Getting from 805 to 841 is a small illustration of the whole thesis - the
-approximate answer and the correct one are not the same answer.
+Getting from 805 to 841 illustrates the whole thesis: the approximate answer and
+the correct one are not the same answer.
 
-Not all 841 routes are meant to be public - admin and internal endpoints
+Not all 841 routes are meant to be public. Admin and internal endpoints
 legitimately stay undocumented, and classifying which is part of the task. But
 no human is diffing 170 paths against 801 routes by hand, which is precisely why
 the gap has never been measured.
 
-**Why solving it is valuable.** Drift is expensive in a specific, avoidable way:
+Drift is expensive in a specific, avoidable way:
 it is cheap to fix at the commit that introduced it and expensive once a partner
 has built against the wrong contract. Catching it in CI moves the cost back to
 where it belongs.
@@ -177,7 +184,7 @@ The design choices worth defending:
 - **Deterministic work stays deterministic.** The route table comes from
   `go/ast`, not from a model reading files. Set differences between the route
   table and the spec are computed, not inferred. The agent is spent on the part
-  that genuinely needs judgment - reconciling a handler body against prose.
+  that genuinely needs judgment: reconciling a handler body against prose.
 - **The verification gate is the contribution.** An unverified claim about API
   behaviour is worth close to nothing, because the failure mode of an LLM reading
   handler code is a confident, plausible, wrong finding. Charging every claim the
@@ -197,7 +204,7 @@ The design choices worth defending:
 The motivating repository is private and its working tree contains live
 credentials, so it cannot be shipped to judges (ground rules 07 and 08). The
 evaluation therefore runs against a **synthetic Go payments API** included in
-this repo at [eval/fixture](eval/fixture) - ten endpoints, standard library
+this repo at [eval/fixture](eval/fixture): ten endpoints, standard library
 only, builds offline, with a committed OpenAPI spec that matches it exactly in
 the clean state.
 
@@ -210,8 +217,8 @@ quoted as evidence and no credentials included.
 ### The cases
 
 16 cases, exceeding the brief's target of ten: **12 injected drifts** across the
-categories that actually hurt integrators, and **4 decoys** - refactors that
-change code without changing the contract. The decoys are what make precision
+categories that actually hurt integrators, and 4 decoys: refactors that change
+code without changing the contract. The decoys are what make precision
 measurable; without them, an auditor that reports everything scores perfectly.
 
 | ID | Severity | Drift |
@@ -240,8 +247,8 @@ breaks the build tests nothing.
 
 ### Metrics
 
-Primary metric is **F1 over verified drift findings** - recall alone rewards
-noise, precision alone rewards silence.
+Primary metric is F1 over verified drift findings. Recall alone rewards noise,
+precision alone rewards silence.
 
 | METRIC | SIMPLE BASELINE | AGENT SOLUTION | CHANGE |
 |---|---|---|---|
@@ -265,7 +272,7 @@ Cost is worth reading carefully. The agent costs 2.8x the baseline per repo and
 still lands at four cents. Latency is the real price: the agent made 159 model
 calls against the baseline's 16.
 
-**Target committed before the first run.** A result is only useful to the
+A result is only useful to the
 intended user if it is worth reading: **recall ≥ 0.80, precision ≥ 0.85, every
 critical drift caught, and all 4 decoys clean.** Below roughly 0.85 precision a
 reviewer starts double-checking every finding, at which point the tool has moved
@@ -274,7 +281,7 @@ the work rather than removed it.
 All four met: recall 1.00, precision 1.00, 5/5 critical, 4/4 decoys. The bar was
 written down before any run so it could not be adjusted to flatter the outcome.
 
-**Where the gain comes from.** The deterministic layer alone scores F1 0.889 at
+The gain comes from one place. The deterministic layer alone scores F1 0.889 at
 precision 1.0 for nothing: no model, no key, 0.2 seconds. The agent's whole
 contribution is the last 0.20 of recall: D06, D09 and D11, the three drifts that
 need judgment rather than lookup.
@@ -348,8 +355,8 @@ its output on those prompts from >8000 tokens (truncating, timing out) to under
 
 But prompt work has a ceiling, and it is not a guarantee. What changed the
 outcome was charging every claim the price of a test that executes the real
-handler: **the agent's raw precision — 0.50 on the shipped run, 0.23 on the
-earlier one — became 1.00 on both, with recall going up rather than down.** Two
+handler. The agent's raw precision was 0.50 on the shipped run and 0.23 on the
+earlier one; both became 1.00, with recall going up rather than down. Two
 runs whose raw noise differed threefold produced byte-identical reports. The
 agent became *more* useful once it was allowed to be wrong, because being wrong
 stopped being expensive, and it stopped mattering how wrong it was on any given

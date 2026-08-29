@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="560" viewBox="0 0 920 560" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <clipPath id="round"><rect x="0" y="0" width="920" height="560" rx="10"/></clipPath>
+  </defs>
+  <g clip-path="url(#round)">
+    <rect width="920" height="560" fill="#0d1117"/>
+
+    <!-- comment card -->
+    <rect x="24" y="24" width="872" height="512" rx="8" fill="#0d1117" stroke="#30363d"/>
+    <rect x="24" y="24" width="872" height="44" rx="8" fill="#161b22"/>
+    <rect x="24" y="56" width="872" height="12" fill="#161b22"/>
+    <line x1="24" y1="68" x2="896" y2="68" stroke="#30363d"/>
+
+    <!-- avatar -->
+    <circle cx="52" cy="46" r="12" fill="#8957e5"/>
+    <text x="52" y="51" fill="#ffffff" font-size="12" font-weight="600" text-anchor="middle">CA</text>
+
+    <text x="74" y="51" fill="#e6edf3" font-size="13" font-weight="600">contract-auditor</text>
+    <rect x="184" y="37" width="26" height="18" rx="9" fill="#21262d" stroke="#30363d"/>
+    <text x="197" y="50" fill="#8b949e" font-size="10" text-anchor="middle">bot</text>
+    <text x="222" y="51" fill="#8b949e" font-size="12">commented on #128</text>
+
+    <!-- heading -->
+    <text x="48" y="100" fill="#e6edf3" font-size="16" font-weight="600">Contract audit</text>
+    <text x="48" y="124" fill="#8b949e" font-size="12.5">15 findings across 170 documented endpoints ·
+      <tspan fill="#f85149" font-weight="600">5 critical</tspan> ·
+      <tspan fill="#d29922" font-weight="600">7 high</tspan> ·
+      <tspan fill="#8b949e">3 medium</tspan>
+    </text>
+
+    <!-- table header -->
+    <line x1="48" y1="140" x2="872" y2="140" stroke="#30363d"/>
+    <text x="48"  y="160" fill="#8b949e" font-size="11" font-weight="600">SEVERITY</text>
+    <text x="140" y="160" fill="#8b949e" font-size="11" font-weight="600">ENDPOINT</text>
+    <text x="330" y="160" fill="#8b949e" font-size="11" font-weight="600">EVIDENCE</text>
+    <line x1="48" y1="170" x2="872" y2="170" stroke="#21262d"/>
+
+    <!-- row 1 -->
+    <rect x="48" y="180" width="56" height="17" rx="8" fill="#3d1418" stroke="#6e2731"/>
+    <text x="76" y="192" fill="#ff7b72" font-size="9.5" font-weight="600" text-anchor="middle">CRITICAL</text>
+    <text x="140" y="192" fill="#79c0ff" font-size="11.5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">GET /balance</text>
+    <text x="330" y="192" fill="#c9d1d9" font-size="11.5">spec declares <tspan font-family="ui-monospace, Menlo, monospace" fill="#a5d6ff">available</tspan> as string; response carries number</text>
+    <text x="330" y="207" fill="#6e7681" font-size="10.5" font-family="ui-monospace, Menlo, monospace">handlers/types.go:27</text>
+
+    <!-- row 2 -->
+    <rect x="48" y="228" width="56" height="17" rx="8" fill="#3d1418" stroke="#6e2731"/>
+    <text x="76" y="240" fill="#ff7b72" font-size="9.5" font-weight="600" text-anchor="middle">CRITICAL</text>
+    <text x="140" y="240" fill="#79c0ff" font-size="11.5" font-family="ui-monospace, Menlo, monospace">GET /banks</text>
+    <text x="330" y="240" fill="#c9d1d9" font-size="11.5">spec documents this endpoint as public; unauthenticated</text>
+    <text x="330" y="255" fill="#c9d1d9" font-size="11.5">request returned 401</text>
+    <text x="330" y="270" fill="#6e7681" font-size="10.5" font-family="ui-monospace, Menlo, monospace">handlers/misc.go:44</text>
+
+    <!-- row 3 -->
+    <rect x="48" y="291" width="56" height="17" rx="8" fill="#3d1418" stroke="#6e2731"/>
+    <text x="76" y="303" fill="#ff7b72" font-size="9.5" font-weight="600" text-anchor="middle">CRITICAL</text>
+    <text x="140" y="303" fill="#79c0ff" font-size="11.5" font-family="ui-monospace, Menlo, monospace">POST /webhooks/test</text>
+    <text x="330" y="303" fill="#c9d1d9" font-size="11.5">documentation names header <tspan font-family="ui-monospace, Menlo, monospace" fill="#a5d6ff">X-Signature</tspan>; response</text>
+    <text x="330" y="318" fill="#c9d1d9" font-size="11.5">sent <tspan font-family="ui-monospace, Menlo, monospace" fill="#a5d6ff">X-Fixture-Signature</tspan></text>
+    <text x="330" y="333" fill="#6e7681" font-size="10.5" font-family="ui-monospace, Menlo, monospace">handlers/misc.go:59</text>
+
+    <!-- row 4 -->
+    <rect x="48" y="354" width="36" height="17" rx="8" fill="#3a2d0b" stroke="#7d5e18"/>
+    <text x="66" y="366" fill="#e3b341" font-size="9.5" font-weight="600" text-anchor="middle">HIGH</text>
+    <text x="140" y="366" fill="#79c0ff" font-size="11.5" font-family="ui-monospace, Menlo, monospace">POST /payouts</text>
+    <text x="330" y="366" fill="#c9d1d9" font-size="11.5">spec documents field <tspan font-family="ui-monospace, Menlo, monospace" fill="#a5d6ff">fee</tspan>; response carries <tspan font-family="ui-monospace, Menlo, monospace" fill="#a5d6ff">feeAmount</tspan></text>
+    <text x="330" y="381" fill="#6e7681" font-size="10.5" font-family="ui-monospace, Menlo, monospace">handlers/types.go:15</text>
+
+    <line x1="48" y1="404" x2="872" y2="404" stroke="#21262d"/>
+
+    <!-- verification footer -->
+    <rect x="48" y="420" width="824" height="58" rx="6" fill="#0c2d1a" stroke="#238636" stroke-opacity="0.5"/>
+    <path d="M68 445 l5 5 l10 -11" stroke="#3fb950" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="94" y="443" fill="#3fb950" font-size="12.5" font-weight="600">All 15 findings confirmed by execution.</text>
+    <text x="94" y="461" fill="#8b949e" font-size="11.5">Each generated a test asserting what the spec promises and ran it against the handler.</text>
+    <text x="94" y="472" fill="#6e7681" font-size="10.5">3 further claims were refuted by their own tests and never reached this comment.</text>
+
+    <!-- meta -->
+    <text x="48" y="506" fill="#6e7681" font-size="11">go · 159 model calls · $0.07 · 17m</text>
+    <text x="872" y="506" fill="#6e7681" font-size="11" text-anchor="end">contract-auditor v0.1.2</text>
+  </g>
+</svg>
