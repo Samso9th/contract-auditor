@@ -37,11 +37,11 @@ scorer, so baseline and agent stay directly comparable.
    registration - 50 real routes on the target repo. Neither was visible without
    a case whose answer was known in advance.
 
-2. **`tools/spec.py` - spec index.** Load OpenAPI into a lookup of
+2. **`tools/spec.py` - spec index. ✅ Built.** Load OpenAPI into a lookup of
    `(path, method) → {params, request schema, responses, security}`. Also
    deterministic.
 
-3. **`tools/diff.py` - set difference.** Routes in code but not spec, and the
+3. **`tools/diff.py` - deterministic rules. ✅ Built — nine rules, not just set difference.** Routes in code but not spec, and the
    reverse. This alone should catch D03 and D04 with no model involved, and that
    is the point: it establishes how much of the problem needs an agent at all.
 
@@ -49,7 +49,7 @@ scorer, so baseline and agent stay directly comparable.
    handler body, its annotation, its spec entry and any prose, emit candidate
    findings. This is where judgment is actually required.
 
-5. **`verify.py` - the verification gate.** For each claim, write a Go test that
+5. **`verify.py` - the verification gate. ✅ Built, 29/29 checks.** For each claim, write a Go test that
    asserts the claimed behaviour, run it against the mutated fixture, and keep
    the finding only if the test *fails* in the way the claim predicts. A claim
    whose test passes was wrong. This is the component the project stands on.
@@ -67,3 +67,28 @@ scorer, so baseline and agent stay directly comparable.
 Build 1–3 first and score them. If deterministic diffing alone scores well on
 D03/D04, that is the honest baseline the agent has to beat on the other ten,
 and it belongs in the changelog as its own row.
+
+---
+
+## Status
+
+Built and verified, no model required:
+
+| Component | Verification |
+|---|---|
+| `tools/routes.py` + `goroutes/` | `test_routes.py` — 30/30 |
+| `tools/spec.py`, `tools/diff.py` | `test_diff.py` — 27/27 |
+| `verify.py` | `test_verify.py` — 29/29 |
+| `run_deterministic.py` | F1 0.889, precision 1.0, 4/4 decoys, $0.00, 0.2s |
+
+Remaining — `audit_endpoint.py`, `reconcile.py`, `skills/fintech.md`, the
+allowlist, `run.py` and `baseline/run.py` — all call a model, so they need
+`ANTHROPIC_API_KEY` and the `anthropic` SDK, neither of which is present in this
+environment. They are deliberately not written yet: this project's standard is
+that nothing counts as built until it is verified, and unrunnable code cannot be.
+
+The agent layer now has a narrow, well-defined job. The deterministic layer
+already catches 12 of 15 drifts at precision 1.0. What is left is D06
+(undocumented required field), D09 (default-value drift) and D11 (validation
+loosened) — the three needing judgment rather than lookup — and the agent must
+take them without lowering precision. Its claims go through the same gate.

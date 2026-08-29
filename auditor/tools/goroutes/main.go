@@ -105,6 +105,8 @@ func main() {
 
 	docs := collectHandlerDocs(fset, files, *dir)
 	routes := collectRoutes(fset, files, *dir)
+	structs := collectStructs(fset, files, *dir)
+	facts := collectHandlerFacts(fset, files, *dir)
 
 	// Attach each handler's annotation to the route that registers it.
 	claimed := map[string]bool{}
@@ -139,11 +141,13 @@ func main() {
 	})
 
 	out := map[string]any{
-		"dir":                    *dir,
-		"strip_prefix":           *stripPrefix,
-		"routes":                 routes,
-		"annotations_unrouted":   orphaned,
-		"route_count":            len(routes),
+		"dir":                       *dir,
+		"strip_prefix":              *stripPrefix,
+		"routes":                    routes,
+		"annotations_unrouted":      orphaned,
+		"structs":                   structs,
+		"handlers":                  facts,
+		"route_count":               len(routes),
 		"routes_without_annotation": countMissing(routes),
 	}
 	enc := json.NewEncoder(os.Stdout)
@@ -191,11 +195,15 @@ func parseDir(fset *token.FileSet, dir string) (map[string]*ast.File, error) {
 
 func collectHandlerDocs(fset *token.FileSet, files map[string]*ast.File, root string) map[string]handlerDoc {
 	docs := map[string]handlerDoc{}
-	for path, file := range files {
+	for _, path := range sortedPaths(files) {
+		file := files[path]
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Doc == nil {
 				continue
+			}
+			if _, clash := docs[fn.Name.Name]; clash {
+				continue // first in sorted order wins, deterministically
 			}
 			docs[fn.Name.Name] = handlerDoc{
 				name: fn.Name.Name,

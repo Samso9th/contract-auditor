@@ -17,6 +17,18 @@ routes: ## Print the route table for the clean fixture
 
 test-tools: cases ## Verify the auditor's deterministic tools
 	@python3 auditor/tools/test_routes.py
+	@echo
+	@python3 auditor/tools/test_diff.py
+	@echo
+	@python3 auditor/test_verify.py
+
+deterministic: cases ## Run the no-model layer over every case and score it
+	@python3 auditor/run_deterministic.py
+	@echo
+	@cd eval && python3 score.py --run ../reports/runs/deterministic --markdown
+
+verify: deterministic ## Put every deterministic finding through the verification gate
+	@for c in eval/cases/D*; do python3 auditor/verify.py $$c; echo; done
 
 score: ## Score both runs side by side
 	@cd eval && python3 score.py --run ../reports/runs/baseline --markdown

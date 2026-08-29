@@ -5,11 +5,28 @@
       "id": "D01",
       "category": "response-field-rename",
       "severity": "high",
-      "description": "Payout fee field renamed in code; spec still advertises 'fee'. A partner reading fee off the response gets undefined.",
+      "description": "Payout fee field renamed in code; spec still advertises 'fee'. A partner reading fee off the response gets undefined. PayoutResponse is returned by two endpoints, so the drift lands on both.",
       "edits": [
-        {"file": "handlers/types.go", "find": "\tFee       string `json:\"fee\"`", "replace": "\tFee       string `json:\"feeAmount\"`"}
+        {
+          "file": "handlers/types.go",
+          "find": "\tFee       string `json:\"fee\"`",
+          "replace": "\tFee       string `json:\"feeAmount\"`"
+        }
       ],
-      "expect": [{"path": "/payouts", "method": "post", "kind": "response_field_mismatch", "detail": "fee"}]
+      "expect": [
+        {
+          "path": "/payouts",
+          "method": "post",
+          "kind": "response_field_mismatch",
+          "detail": "fee"
+        },
+        {
+          "path": "/payouts/{id}",
+          "method": "get",
+          "kind": "response_field_mismatch",
+          "detail": "fee"
+        }
+      ]
     },
     {
       "id": "D02",
@@ -17,9 +34,20 @@
       "severity": "medium",
       "description": "Customer creation returns 200 in code but spec documents 201. Clients branching on status break.",
       "edits": [
-        {"file": "handlers/accounts.go", "find": "\twriteJSON(w, http.StatusCreated, CustomerResponse{", "replace": "\twriteJSON(w, http.StatusOK, CustomerResponse{"}
+        {
+          "file": "handlers/accounts.go",
+          "find": "\twriteJSON(w, http.StatusCreated, CustomerResponse{",
+          "replace": "\twriteJSON(w, http.StatusOK, CustomerResponse{"
+        }
       ],
-      "expect": [{"path": "/customers", "method": "post", "kind": "status_code_mismatch", "detail": "201"}]
+      "expect": [
+        {
+          "path": "/customers",
+          "method": "post",
+          "kind": "status_code_mismatch",
+          "detail": "201"
+        }
+      ]
     },
     {
       "id": "D03",
@@ -27,10 +55,25 @@
       "severity": "high",
       "description": "A payout cancellation endpoint exists in code and is entirely absent from the published spec.",
       "edits": [
-        {"file": "handlers/routes.go", "find": "\tmux.HandleFunc(\"GET /v1/payouts/{id}\", GetPayout)", "replace": "\tmux.HandleFunc(\"GET /v1/payouts/{id}\", GetPayout)\n\tmux.HandleFunc(\"POST /v1/payouts/{id}/cancel\", CancelPayout)"},
-        {"file": "handlers/payouts.go", "find": "// CreateRefund godoc", "replace": "// CancelPayout cancels a pending payout.\nfunc CancelPayout(w http.ResponseWriter, r *http.Request) {\n\twriteJSON(w, http.StatusOK, PayoutResponse{ID: r.PathValue(\"id\"), Status: \"cancelled\"})\n}\n\n// CreateRefund godoc"}
+        {
+          "file": "handlers/routes.go",
+          "find": "\tmux.HandleFunc(\"GET /v1/payouts/{id}\", GetPayout)",
+          "replace": "\tmux.HandleFunc(\"GET /v1/payouts/{id}\", GetPayout)\n\tmux.HandleFunc(\"POST /v1/payouts/{id}/cancel\", CancelPayout)"
+        },
+        {
+          "file": "handlers/payouts.go",
+          "find": "// CreateRefund godoc",
+          "replace": "// CancelPayout cancels a pending payout.\nfunc CancelPayout(w http.ResponseWriter, r *http.Request) {\n\twriteJSON(w, http.StatusOK, PayoutResponse{ID: r.PathValue(\"id\"), Status: \"cancelled\"})\n}\n\n// CreateRefund godoc"
+        }
       ],
-      "expect": [{"path": "/payouts/{id}/cancel", "method": "post", "kind": "route_missing_from_spec", "detail": ""}]
+      "expect": [
+        {
+          "path": "/payouts/{id}/cancel",
+          "method": "post",
+          "kind": "route_missing_from_spec",
+          "detail": ""
+        }
+      ]
     },
     {
       "id": "D04",
@@ -38,21 +81,57 @@
       "severity": "high",
       "description": "Spec documents GET /banks but the route is no longer registered. Integrators build against an endpoint that 404s.",
       "edits": [
-        {"file": "handlers/routes.go", "find": "\tmux.HandleFunc(\"GET /v1/banks\", ListBanks)\n", "replace": ""},
-        {"file": "handlers/misc.go", "find": "// ListBanks godoc\n// @Summary      List supported banks\n// @Description  Returns every institution that can receive a payout.\n// @Tags         Reference\n// @Produce      json\n// @Success      200  {array}  Bank\n// @Router       /banks [get]\nfunc ListBanks", "replace": "// ListBanks is no longer routed.\nfunc ListBanks"}
+        {
+          "file": "handlers/routes.go",
+          "find": "\tmux.HandleFunc(\"GET /v1/banks\", ListBanks)\n",
+          "replace": ""
+        },
+        {
+          "file": "handlers/misc.go",
+          "find": "// ListBanks godoc\n// @Summary      List supported banks\n// @Description  Returns every institution that can receive a payout.\n// @Tags         Reference\n// @Produce      json\n// @Success      200  {array}  Bank\n// @Router       /banks [get]\nfunc ListBanks",
+          "replace": "// ListBanks is no longer routed.\nfunc ListBanks"
+        }
       ],
-      "expect": [{"path": "/banks", "method": "get", "kind": "route_missing_from_code", "detail": ""}]
+      "expect": [
+        {
+          "path": "/banks",
+          "method": "get",
+          "kind": "route_missing_from_code",
+          "detail": ""
+        }
+      ]
     },
     {
       "id": "D05",
       "category": "money-type-change",
       "severity": "critical",
-      "description": "Balance switched from decimal string to float64. Spec still says string. Float money loses precision and the type change silently breaks parsers.",
+      "description": "Balance switched from decimal string to float64 on both money fields. Spec still says string. Float money loses precision and the type change silently breaks parsers.",
       "edits": [
-        {"file": "handlers/types.go", "find": "\tAvailable string `json:\"available\"`\n\tLedger    string `json:\"ledger\"`", "replace": "\tAvailable float64 `json:\"available\"`\n\tLedger    float64 `json:\"ledger\"`"},
-        {"file": "handlers/accounts.go", "find": "\t\tAvailable: \"2450000\",\n\t\tLedger:    \"2500000\",", "replace": "\t\tAvailable: 2450000,\n\t\tLedger:    2500000,"}
+        {
+          "file": "handlers/types.go",
+          "find": "\tAvailable string `json:\"available\"`\n\tLedger    string `json:\"ledger\"`",
+          "replace": "\tAvailable float64 `json:\"available\"`\n\tLedger    float64 `json:\"ledger\"`"
+        },
+        {
+          "file": "handlers/accounts.go",
+          "find": "\t\tAvailable: \"2450000\",\n\t\tLedger:    \"2500000\",",
+          "replace": "\t\tAvailable: 2450000,\n\t\tLedger:    2500000,"
+        }
       ],
-      "expect": [{"path": "/balance", "method": "get", "kind": "response_type_mismatch", "detail": "available"}]
+      "expect": [
+        {
+          "path": "/balance",
+          "method": "get",
+          "kind": "response_type_mismatch",
+          "detail": "available"
+        },
+        {
+          "path": "/balance",
+          "method": "get",
+          "kind": "response_type_mismatch",
+          "detail": "ledger"
+        }
+      ]
     },
     {
       "id": "D06",
@@ -60,9 +139,20 @@
       "severity": "high",
       "description": "Refund now rejects an empty reason, but the spec does not mark reason required. Every compliant client gets a 400.",
       "edits": [
-        {"file": "handlers/payouts.go", "find": "\twriteJSON(w, http.StatusCreated, RefundResponse{", "replace": "\tif req.Reason == \"\" {\n\t\twriteError(w, http.StatusBadRequest, \"missing_reason\", \"reason is required\")\n\t\treturn\n\t}\n\twriteJSON(w, http.StatusCreated, RefundResponse{"}
+        {
+          "file": "handlers/payouts.go",
+          "find": "\twriteJSON(w, http.StatusCreated, RefundResponse{",
+          "replace": "\tif req.Reason == \"\" {\n\t\twriteError(w, http.StatusBadRequest, \"missing_reason\", \"reason is required\")\n\t\treturn\n\t}\n\twriteJSON(w, http.StatusCreated, RefundResponse{"
+        }
       ],
-      "expect": [{"path": "/refunds", "method": "post", "kind": "request_required_mismatch", "detail": "reason"}]
+      "expect": [
+        {
+          "path": "/refunds",
+          "method": "post",
+          "kind": "request_required_mismatch",
+          "detail": "reason"
+        }
+      ]
     },
     {
       "id": "D07",
@@ -70,19 +160,47 @@
       "severity": "high",
       "description": "Pagination param read as per_page in code, documented as perPage. Silently falls back to the default, so partners page through the same results forever.",
       "edits": [
-        {"file": "handlers/accounts.go", "find": "r.URL.Query().Get(\"perPage\")", "replace": "r.URL.Query().Get(\"per_page\")"}
+        {
+          "file": "handlers/accounts.go",
+          "find": "r.URL.Query().Get(\"perPage\")",
+          "replace": "r.URL.Query().Get(\"per_page\")"
+        }
       ],
-      "expect": [{"path": "/transactions", "method": "get", "kind": "request_param_mismatch", "detail": "perPage"}]
+      "expect": [
+        {
+          "path": "/transactions",
+          "method": "get",
+          "kind": "request_param_mismatch",
+          "detail": "perPage"
+        }
+      ]
     },
     {
       "id": "D08",
       "category": "auth-drift",
       "severity": "critical",
-      "description": "Bank list now requires an API key; spec documents it as public. Unauthenticated clients that worked yesterday get 401.",
+      "description": "Bank list now requires an API key; spec documents it as public. Unauthenticated clients that worked yesterday get a 401 the spec also never mentions.",
       "edits": [
-        {"file": "handlers/misc.go", "find": "func ListBanks(w http.ResponseWriter, r *http.Request) {\n\twriteJSON(w, http.StatusOK, []Bank{", "replace": "func ListBanks(w http.ResponseWriter, r *http.Request) {\n\tif r.Header.Get(\"X-Api-Key\") == \"\" {\n\t\twriteError(w, http.StatusUnauthorized, \"unauthorized\", \"api key required\")\n\t\treturn\n\t}\n\twriteJSON(w, http.StatusOK, []Bank{"}
+        {
+          "file": "handlers/misc.go",
+          "find": "func ListBanks(w http.ResponseWriter, r *http.Request) {\n\twriteJSON(w, http.StatusOK, []Bank{",
+          "replace": "func ListBanks(w http.ResponseWriter, r *http.Request) {\n\tif r.Header.Get(\"X-Api-Key\") == \"\" {\n\t\twriteError(w, http.StatusUnauthorized, \"unauthorized\", \"api key required\")\n\t\treturn\n\t}\n\twriteJSON(w, http.StatusOK, []Bank{"
+        }
       ],
-      "expect": [{"path": "/banks", "method": "get", "kind": "auth_mismatch", "detail": "ApiKeyAuth"}]
+      "expect": [
+        {
+          "path": "/banks",
+          "method": "get",
+          "kind": "auth_mismatch",
+          "detail": "ApiKeyAuth"
+        },
+        {
+          "path": "/banks",
+          "method": "get",
+          "kind": "undocumented_status",
+          "detail": "401"
+        }
+      ]
     },
     {
       "id": "D09",
@@ -90,9 +208,20 @@
       "severity": "low",
       "description": "Page size default changed to 50 in code; spec still documents 25. Partners size buffers off the documented value.",
       "edits": [
-        {"file": "handlers/accounts.go", "find": "\tif perPage < 1 {\n\t\tperPage = 25\n\t}", "replace": "\tif perPage < 1 {\n\t\tperPage = 50\n\t}"}
+        {
+          "file": "handlers/accounts.go",
+          "find": "\tif perPage < 1 {\n\t\tperPage = 25\n\t}",
+          "replace": "\tif perPage < 1 {\n\t\tperPage = 50\n\t}"
+        }
       ],
-      "expect": [{"path": "/transactions", "method": "get", "kind": "default_value_mismatch", "detail": "perPage"}]
+      "expect": [
+        {
+          "path": "/transactions",
+          "method": "get",
+          "kind": "default_value_mismatch",
+          "detail": "perPage"
+        }
+      ]
     },
     {
       "id": "D10",
@@ -100,9 +229,20 @@
       "severity": "critical",
       "description": "Webhook signature header renamed in code. Every partner verifying signatures against the documented header rejects all deliveries.",
       "edits": [
-        {"file": "handlers/misc.go", "find": "w.Header().Set(\"X-Signature\", \"sha256=deadbeef\")", "replace": "w.Header().Set(\"X-Fixture-Signature\", \"sha256=deadbeef\")"}
+        {
+          "file": "handlers/misc.go",
+          "find": "w.Header().Set(\"X-Signature\", \"sha256=deadbeef\")",
+          "replace": "w.Header().Set(\"X-Fixture-Signature\", \"sha256=deadbeef\")"
+        }
       ],
-      "expect": [{"path": "/webhooks/test", "method": "post", "kind": "response_header_mismatch", "detail": "X-Signature"}]
+      "expect": [
+        {
+          "path": "/webhooks/test",
+          "method": "post",
+          "kind": "response_header_mismatch",
+          "detail": "X-Signature"
+        }
+      ]
     },
     {
       "id": "D11",
@@ -110,9 +250,20 @@
       "severity": "medium",
       "description": "BVN length check loosened to 10 digits; spec constrains it to exactly 11.",
       "edits": [
-        {"file": "handlers/misc.go", "find": "\tif len(req.BVN) != 11 {", "replace": "\tif len(req.BVN) != 10 {"}
+        {
+          "file": "handlers/misc.go",
+          "find": "\tif len(req.BVN) != 11 {",
+          "replace": "\tif len(req.BVN) != 10 {"
+        }
       ],
-      "expect": [{"path": "/kyc/bvn", "method": "post", "kind": "validation_mismatch", "detail": "bvn"}]
+      "expect": [
+        {
+          "path": "/kyc/bvn",
+          "method": "post",
+          "kind": "validation_mismatch",
+          "detail": "bvn"
+        }
+      ]
     },
     {
       "id": "D12",
@@ -120,9 +271,20 @@
       "severity": "medium",
       "description": "Payout creation can now return 429; the spec documents only 400 and 409, so clients have no retry guidance.",
       "edits": [
-        {"file": "handlers/payouts.go", "find": "\tif req.Reference == \"\" {", "replace": "\tif r.Header.Get(\"X-Debug-Ratelimit\") == \"1\" {\n\t\twriteError(w, http.StatusTooManyRequests, \"rate_limited\", \"too many payout requests\")\n\t\treturn\n\t}\n\tif req.Reference == \"\" {"}
+        {
+          "file": "handlers/payouts.go",
+          "find": "\tif req.Reference == \"\" {",
+          "replace": "\tif r.Header.Get(\"X-Debug-Ratelimit\") == \"1\" {\n\t\twriteError(w, http.StatusTooManyRequests, \"rate_limited\", \"too many payout requests\")\n\t\treturn\n\t}\n\tif req.Reference == \"\" {"
+        }
       ],
-      "expect": [{"path": "/payouts", "method": "post", "kind": "undocumented_status", "detail": "429"}]
+      "expect": [
+        {
+          "path": "/payouts",
+          "method": "post",
+          "kind": "undocumented_status",
+          "detail": "429"
+        }
+      ]
     },
     {
       "id": "N01",
@@ -130,7 +292,11 @@
       "severity": "none",
       "description": "DECOY. Renames a local variable. No contract change; a finding here is a false positive.",
       "edits": [
-        {"file": "handlers/accounts.go", "find": "\tpage, _ := strconv.Atoi(r.URL.Query().Get(\"page\"))\n\tif page < 1 {\n\t\tpage = 1\n\t}", "replace": "\tpageNum, _ := strconv.Atoi(r.URL.Query().Get(\"page\"))\n\tif pageNum < 1 {\n\t\tpageNum = 1\n\t}\n\tpage := pageNum"}
+        {
+          "file": "handlers/accounts.go",
+          "find": "\tpage, _ := strconv.Atoi(r.URL.Query().Get(\"page\"))\n\tif page < 1 {\n\t\tpage = 1\n\t}",
+          "replace": "\tpageNum, _ := strconv.Atoi(r.URL.Query().Get(\"page\"))\n\tif pageNum < 1 {\n\t\tpageNum = 1\n\t}\n\tpage := pageNum"
+        }
       ],
       "expect": []
     },
@@ -140,7 +306,11 @@
       "severity": "none",
       "description": "DECOY. Adds an implementation comment. No contract change.",
       "edits": [
-        {"file": "handlers/payouts.go", "find": "func GetPayout(w http.ResponseWriter, r *http.Request) {", "replace": "// Lookup is stubbed; the fixture returns a fixed record.\nfunc GetPayout(w http.ResponseWriter, r *http.Request) {"}
+        {
+          "file": "handlers/payouts.go",
+          "find": "func GetPayout(w http.ResponseWriter, r *http.Request) {",
+          "replace": "// Lookup is stubbed; the fixture returns a fixed record.\nfunc GetPayout(w http.ResponseWriter, r *http.Request) {"
+        }
       ],
       "expect": []
     },
@@ -150,8 +320,16 @@
       "severity": "none",
       "description": "DECOY. Extracts a helper. Same wire behaviour, same shapes.",
       "edits": [
-        {"file": "handlers/misc.go", "find": "\tif len(req.BVN) != 11 {", "replace": "\tif !validBVN(req.BVN) {"},
-        {"file": "handlers/respond.go", "find": "func writeJSON(", "replace": "func validBVN(bvn string) bool { return len(bvn) == 11 }\n\nfunc writeJSON("}
+        {
+          "file": "handlers/misc.go",
+          "find": "\tif len(req.BVN) != 11 {",
+          "replace": "\tif !validBVN(req.BVN) {"
+        },
+        {
+          "file": "handlers/respond.go",
+          "find": "func writeJSON(",
+          "replace": "func validBVN(bvn string) bool { return len(bvn) == 11 }\n\nfunc writeJSON("
+        }
       ],
       "expect": []
     },
@@ -161,9 +339,14 @@
       "severity": "none",
       "description": "DECOY. Reorders struct fields without touching json tags. JSON output is unchanged.",
       "edits": [
-        {"file": "handlers/types.go", "find": "\tCode string `json:\"code\"`\n\tName string `json:\"name\"`\n\tSlug string `json:\"slug\"`", "replace": "\tName string `json:\"name\"`\n\tSlug string `json:\"slug\"`\n\tCode string `json:\"code\"`"}
+        {
+          "file": "handlers/types.go",
+          "find": "\tCode string `json:\"code\"`\n\tName string `json:\"name\"`\n\tSlug string `json:\"slug\"`",
+          "replace": "\tName string `json:\"name\"`\n\tSlug string `json:\"slug\"`\n\tCode string `json:\"code\"`"
+        }
       ],
       "expect": []
     }
-  ]
+  ],
+  "_ground_truth_principle": "`expect` lists EVERY drift the edit creates between code and spec, not only the one the case is named for. D01 renames a field on a struct two endpoints return, so both are expected; D05 retypes two fields; D08's auth check also introduces an undocumented 401. Enumerating only the headline drift would score a correct auditor down for being thorough. Scope limit, stated so it is not mistaken for an oversight: drift nested inside a referenced schema (D01's field also appears under TransactionsResponse.data) is out of scope for this eval - detecting it needs recursive schema resolution, which is a separate capability from contract diffing and is not claimed here."
 }

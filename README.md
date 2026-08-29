@@ -197,7 +197,8 @@ same 16 cases.
 |---|---|---|---|
 | Baseline | Single prompt with handler + spec, "find disagreements". Establishes what one competent prompt achieves before any agent design. | _pending_ | Starting point |
 | Iteration 1 | Add AST route-table extraction as a tool. Hypothesis: the model is worst at exhaustively enumerating routes, which is exactly the part a parser does perfectly. | Tool built and verified: 30/30 checks in `auditor/tools/test_routes.py`. On the real target it finds 841 routes vs 805 grep matches, recovering 50 gin group-root registrations. End-to-end score _pending_. | Kept. Two guards were needed to avoid counting `Header.Get`/`Query().Get` as routes, and the first version of those guards silently dropped every `group.GET("", h)`. Both errors were invisible without a known-answer fixture. |
-| Iteration 2 | Add the verification gate - every claim must ship a failing Go test. Hypothesis: most of the baseline's error is false positives, not misses. | _pending_ | _pending_ |
+| Iteration 1b | Extend the parser to struct shapes and handler-body facts (status codes, query keys, headers read and set), then write nine deterministic rules over them. Hypothesis: a large share of contract drift is mechanical and needs no judgment at all. | 12/15 drifts caught, **0 false positives, 4/4 decoys clean, F1 0.889, $0.00, 0.2s** across all 16 cases (`reports/runs/deterministic/`; 27/27 checks in `test_diff.py`). | Kept, and it reframes the project. The no-model layer already meets every target committed before the first run. The three it misses — D06, D09, D11 — are exactly the three that need judgment rather than lookup, so that is now the agent's job, under a precision floor of 1.0 it must not lower. |
+| Iteration 2 | Add the verification gate — every claim must ship a Go test that executes the real handler through `httptest` and asserts what the spec promises. A claim is confirmed only if that test **fails**. Hypothesis: most of the error in any claim-generating layer is false positives, not misses. | Gate built and verified: 29/29 checks in `auditor/test_verify.py`. Confirms all 7 executable true claims with evidence taken from the running handler (`spec declares "available" as string; response carries number (2.45e+06)`), refutes all 6 of the same claims against clean code, rejects fabricated field names, and refutes claims against all 3 decoys. | Kept. Building it surfaced its own worst failure: the first version generated a test asserting that the claimed field was present, so a hallucinated field name produced a failing test and a *confirmed* finding — the gate would have laundered hallucinations rather than caught them. A claim must now name a field the spec actually documents before any test is generated. |
 | Iteration 3 | Fan out per endpoint with a reconciler. Hypothesis: whole-repo context dilutes attention on any single contract. | _pending_ | _pending_ |
 | Iteration 4 | Add the fintech review skill (money types, idempotency, auth scope, webhook signing). Hypothesis: severity ranking needs domain knowledge the generic model does not apply. | _pending_ | _pending_ |
 | Final | Combine what survived | _pending_ | _pending_ |
@@ -218,8 +219,12 @@ Removed experiments belong in this table too, with what they taught.
 | [baseline/](baseline/) | The single-prompt baseline |
 | [eval/fixture/](eval/fixture/) | Synthetic Go payments API + its published spec |
 | [eval/mutations/](eval/mutations/) | The 16 mutations and their ground truth |
-| [auditor/tools/routes.py](auditor/tools/routes.py) | AST route + annotation extraction (component 1, built) |
-| [auditor/tools/goroutes/](auditor/tools/goroutes/) | The `go/ast` walker behind it |
+| [auditor/tools/routes.py](auditor/tools/routes.py) | AST route + annotation extraction (built) |
+| [auditor/tools/spec.py](auditor/tools/spec.py) | OpenAPI index with `$ref` resolution (built) |
+| [auditor/tools/diff.py](auditor/tools/diff.py) | Nine deterministic drift rules (built) |
+| [auditor/tools/goroutes/](auditor/tools/goroutes/) | The `go/ast` walker behind them |
+| [auditor/run_deterministic.py](auditor/run_deterministic.py) | Scores the no-model layer over all 16 cases |
+| [auditor/verify.py](auditor/verify.py) | The verification gate: generates and runs a Go test per claim (built) |
 | [eval/inject.py](eval/inject.py) | Builds evaluation cases, verifies each compiles |
 | [eval/score.py](eval/score.py) | Scores any run; identical for baseline and agent |
 | [eval/oracle.py](eval/oracle.py) | Emits a perfect run, to verify the scorer itself |
