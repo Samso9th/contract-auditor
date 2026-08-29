@@ -81,15 +81,44 @@ jobs:
         uses: samso9th/contract-auditor@v1
         continue-on-error: true
         with:
+          # Your OpenAPI document: the file your integrators build against.
+          # Often openapi.json, docs/openapi.json, or api/openapi.yaml.
           spec: openapi.json
+          # The directory your route registrations and handlers live in.
+          # This example is a Go layout; the table below has the other three.
           source-dir: internal
-          strip-prefix: /api/v1
+          # The path prefix your code registers but your spec leaves out.
+          # Check your spec's servers[].url if you are unsure.
+          strip-prefix: /v1
+          # Warn only, to start. Tighten once the first backlog is cleared.
           fail-on: none
       - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: ${{ steps.audit.outputs.sarif }}
 ```
+
+Those three inputs are the ones that differ from project to project, and a first
+run that goes wrong almost always goes wrong on one of them. What to put depends
+on the language:
+
+| Your project | `source-dir` | `strip-prefix` | Detected by |
+|---|---|---|---|
+| **Go** (net/http, gin, chi, echo) | `internal`, `cmd`, or the module root | `/v1` | `go.mod`, or any `.go` file |
+| **TypeScript** (Express) | `src` | `/api/v1` | `package.json`, or any `.ts` file |
+| **Python** (FastAPI, Flask) | the package your app lives in, commonly `app` | `/api/v1` | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` |
+| **PHP** (Laravel) | the project root, so both `routes/api.php` and `app/Http/Controllers` are readable | `/api` | `artisan`, `composer.json`, `routes/api.php` |
+
+You do not have to set `language`: it is detected from the markers in the last
+column. Set it explicitly only in a polyglot repository, where the first marker
+found wins and may not be the one you meant.
+
+`strip-prefix` is the one worth checking twice. It is whatever your code
+registers that your spec's paths do not repeat. If the code says
+`Route::prefix('v1')` or `router.post("/v1/payouts", ...)` while the spec
+documents `/payouts`, the prefix is `/v1`. Your spec's `servers[].url` usually
+spells it out. Get it wrong and the first run reports that *every* route is
+missing from the spec, which is the symptom to recognise.
 
 Anything found then shows up as a note attached to the exact line of code, right
 where the change is being reviewed.
