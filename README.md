@@ -59,7 +59,7 @@ The tool never runs or installs your application. It only reads the source code.
 So a project whose dependencies are not installed can still be checked, which
 matters because that is the normal state of a fresh checkout.
 
-## Use it in your CI
+## Usage
 
 This runs automatically on every proposed change to your code. The smallest
 useful setup needs no account and no password: the no-AI part costs nothing and
@@ -76,7 +76,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: audit
         uses: samso9th/contract-auditor@v1
         continue-on-error: true
@@ -85,7 +85,7 @@ jobs:
           source-dir: internal
           strip-prefix: /api/v1
           fail-on: none
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: ${{ steps.audit.outputs.sarif }}

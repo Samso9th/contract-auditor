@@ -25,7 +25,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - id: audit
         uses: samso9th/contract-auditor@v1
@@ -36,7 +36,7 @@ jobs:
           strip-prefix: /api/v1
           fail-on: none
 
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: ${{ steps.audit.outputs.sarif }}
@@ -106,7 +106,7 @@ storage to set up for any of them. The files are uploaded as a GitHub Actions
 artifact, which needs no bucket, no account and no credentials.
 
 ```yaml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: contract-audit-brief
