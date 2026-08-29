@@ -315,8 +315,15 @@ def main():
     started = time.time()
 
     for case_dir in selected:
+        case_rows = []
         result = audit_one(case_dir, args.model, pool, args.strip_prefix, args.language,
-                           memory, ledger_rows, run_id)
+                           memory, case_rows, run_id)
+        # Flushed per case, not at the end of the run. A run that dies on case
+        # nine must not take the labelled data from cases one to eight with it -
+        # that data cost model calls and gate runs to produce, and is the one
+        # thing here that cannot be reconstructed afterwards.
+        ledger.record(case_rows, args.ledger)
+        ledger_rows.extend(case_rows)
         result["case"] = case_dir.name
         with open(out / f"{case_dir.name}.json", "w") as f:
             json.dump(result, f, indent=2)
@@ -335,7 +342,6 @@ def main():
             log(f"      ! {error}")
 
     pool.shutdown()
-    ledger.record(ledger_rows, args.ledger)
     log(f"\n{len(selected)} cases, {total_calls} model calls, "
         f"${total_cost:.4f}, {time.time() - started:.0f}s total")
     log(f"written to {out}")

@@ -1,0 +1,50 @@
+{
+  "findings": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "route_missing_from_code",
+      "detail": "",
+      "severity": "high",
+      "evidence": "spec documents GET /banks but no route registers it (/Users/samsonite/Documents/Sam/micro1/eval/cases/D04/spec/openapi.json)",
+      "file": "",
+      "line": 0,
+      "rule": "R2",
+      "source": "deterministic",
+      "verdict": "unsupported",
+      "verification": "route_missing_from_code cannot be settled by executing the handler; it needs review rather than a test",
+      "priority": 1.5
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 55.0,
+    "cost_usd": 0.003549,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 9,
+    "input_tokens": 9153,
+    "output_tokens": 9761,
+    "deterministic_claims": 1,
+    "agent_claims": 0,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 0,
+      "unsupported": 1,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": [],
+    "memory": {
+      "enabled": true,
+      "ledger_claims": 26,
+      "endpoints_with_recall": 8,
+      "explored_without_memory": [
+        "POST /payouts"
+      ],
+      "rules_active": 1
+    }
+  },
+  "case": "D04"
+}

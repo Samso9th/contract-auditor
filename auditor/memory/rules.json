@@ -1,4 +1,20 @@
 {
   "_comment": "Learned from the claim ledger, not hand-written. A rule adjusts priors - ranking and prompt warnings - and never suppresses a claim: the verification gate still decides. `support` is how many dismissals produced it, `contradicted` how many later confirmations argue against it, and a rule whose contradictions reach half its support is demoted automatically. Regenerate with `python3 auditor/memory/rules.py --promote`.",
-  "rules": []
+  "rules": [
+    {
+      "id": "validation_mismatch|/customers",
+      "rule": "the emptiness constraint under /customers/* is enforced more tightly on purpose",
+      "kind": "validation_mismatch",
+      "namespace": "/customers",
+      "support": 9,
+      "contradicted": 0,
+      "status": "active",
+      "source": "learned",
+      "first_seen": "2026-08-29",
+      "last_seen": "2026-08-29",
+      "endpoints": [
+        "POST /customers"
+      ]
+    }
+  ]
 }
