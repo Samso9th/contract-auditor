@@ -66,26 +66,26 @@ where it belongs.
 
 ```
                     ┌─────────────────────────────────────┐
-                    │ deterministic pre-pass               │
-   Go source ──────►│  • AST route table extraction        │
-   OpenAPI spec ───►│  • spec path/schema index            │
-   Docs (.mdx) ────►│  • set difference: code △ spec       │
+                    │ deterministic pre-pass              │
+   Go source ──────►│  • AST route table extraction       │
+   OpenAPI spec ───►│  • spec path/schema index           │
+   Docs (.mdx) ────►│  • set difference: code △ spec      │
                     └──────────────┬──────────────────────┘
                                    │ candidate surface + verified deltas
                     ┌──────────────▼──────────────────────┐
-                    │ per-endpoint auditor agents (fan-out)│
-                    │  handler body vs annotation vs prose │
+                    │per-endpoint auditor agents (fan-out)│
+                    │ handler body vs annotation vs prose │
                     └──────────────┬──────────────────────┘
                                    │ claims
                     ┌──────────────▼──────────────────────┐
-                    │ VERIFICATION GATE                    │
-                    │  write a Go test asserting the claim │
-                    │  run it. Test passes ⇒ claim is      │
-                    │  wrong ⇒ discard the finding.        │
+                    │ VERIFICATION GATE                   │
+                    │ write a Go test asserting the claim │
+                    │ run it. Test passes ⇒ claim is      │
+                    │ wrong ⇒ discard the finding.        │
                     └──────────────┬──────────────────────┘
                                    │ survivors only
                     ┌──────────────▼──────────────────────┐
-                    │ reconciler: dedupe, rank, allowlist  │
+                    │ reconciler: dedupe, rank, allowlist │
                     └──────────────┬──────────────────────┘
                                    ▼
                     report + failing tests + spec patch
