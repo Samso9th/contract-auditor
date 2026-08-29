@@ -1,0 +1,27 @@
+# Build context hygiene. The Dockerfile copies specific directories rather than
+# `.`, so nothing here is strictly load-bearing today — but a build context that
+# contains secrets is one careless `COPY . .` away from baking them into a
+# published image, and this image is published publicly.
+.env
+.env.*
+**/.env
+**/.env.*
+
+.git
+.github
+reports/
+eval/cases/
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+**/dist/
+**/.DS_Store
+
+# The extractor binary is rebuilt inside the image for the target architecture;
+# a host-built arm64 binary would silently break an amd64 image.
+auditor/tools/goroutes/goroutes
+eval/fixture/fixture
+
+*.pdf
+ddocs/
+docs/

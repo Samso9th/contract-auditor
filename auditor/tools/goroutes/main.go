@@ -217,7 +217,10 @@ func collectHandlerDocs(fset *token.FileSet, files map[string]*ast.File, root st
 }
 
 func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string) []Route {
-	var routes []Route
+	// Initialised, not nil: a nil slice marshals to JSON `null`, and a consumer
+	// that expects a list then fails with a type error instead of reporting that
+	// no routes were found. Same trap as the orphaned-annotations slice.
+	routes := []Route{}
 
 	paths := make([]string, 0, len(files))
 	for p := range files {

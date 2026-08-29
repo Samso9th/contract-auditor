@@ -35,9 +35,8 @@ fail() { printf '::error::%s\n' "$*" >&2; exit 1; }
 
 mkdir -p "$OUT_DIR"
 
-DETECT_ARGS=()
-[ "$LANGUAGE" != "auto" ] && DETECT_ARGS+=(--language "$LANGUAGE")
-[ -n "$STRIP_PREFIX" ] && DETECT_ARGS+=(--strip-prefix "$STRIP_PREFIX")
+LANG_ARG=()
+[ "$LANGUAGE" != "auto" ] && LANG_ARG=(--language "$LANGUAGE")
 
 log "::group::Contract audit"
 log "source     $SOURCE_DIR"
@@ -51,11 +50,12 @@ log "model      $MODEL"
 if [ -z "${OPENROUTER_API_KEY:-}" ]; then
   log "no api-key supplied — running the deterministic layer only (no model calls)"
   python3 "$AUDITOR/auditor/tools/diff.py" "$SOURCE_DIR" "$SPEC" \
-      ${STRIP_PREFIX:+--strip-prefix "$STRIP_PREFIX"} --json > "$OUT_DIR/report.json"
+      ${STRIP_PREFIX:+--strip-prefix "$STRIP_PREFIX"} "${LANG_ARG[@]}" \
+      --json > "$OUT_DIR/report.json"
 else
   python3 "$AUDITOR/auditor/run.py" --repo "$SOURCE_DIR" --spec "$SPEC" \
       --model "$MODEL" --workers "$WORKERS" \
-      ${STRIP_PREFIX:+--strip-prefix "$STRIP_PREFIX"} \
+      ${STRIP_PREFIX:+--strip-prefix "$STRIP_PREFIX"} "${LANG_ARG[@]}" \
       --out "$OUT_DIR"
 fi
 log "::endgroup::"

@@ -25,8 +25,29 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from routes import extract, RouteExtractionError  # noqa: E402
+from routes import extract as go_extract, RouteExtractionError  # noqa: E402
 from spec import load as load_spec, SpecError  # noqa: E402
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+
+def extract(source_dir, strip_prefix="", language=None):
+    """Route table for a project in any supported language.
+
+    Falls back to the Go extractor when the adapter layer is unavailable, so
+    this module keeps working standalone.
+    """
+    try:
+        import languages
+    except ImportError:
+        return go_extract(source_dir, strip_prefix=strip_prefix)
+
+    adapter = languages.get(language) if language else languages.detect(source_dir)
+    if adapter is None:
+        raise RouteExtractionError(
+            f"could not identify the language of {source_dir}. "
+            f"Pass one explicitly: {', '.join(languages.names())}")
+    return adapter.extract(source_dir, strip_prefix=strip_prefix)
 
 SEVERITY = {
     "route_missing_from_spec": "high",
@@ -111,14 +132,30 @@ def wire_fields(struct):
     return {f["json_name"]: f for f in struct["fields"] if f["json_name"] and not f["skipped"]}
 
 
-def audit(source_dir, spec_path, strip_prefix=""):
-    """Run every deterministic rule. Returns a list of findings."""
-    table = extract(source_dir, strip_prefix=strip_prefix)
+def audit(source_dir, spec_path, strip_prefix="", language=None):
+    """Run every deterministic rule. Returns a list of findings.
+
+    A language whose adapter supplies no handler facts - TypeScript today - gets
+    the route-existence rules and nothing more. The body rules skip rather than
+    guess, so the findings that do appear are as trustworthy as they are in Go.
+    """
+    table = extract(source_dir, strip_prefix=strip_prefix, language=language)
     spec = load_spec(spec_path)
 
-    structs = table["structs"]
-    handlers = table["handlers"]
-    routes = {(r["path"], r["method"].lower()): r for r in table["routes"]}
+    structs = table.get("structs") or {}
+    handlers = table.get("handlers") or {}
+    extracted = table.get("routes") or []
+
+    # No routes at all is never a clean bill of health - it means the source
+    # directory, language or layout is wrong. Saying so beats reporting that
+    # every documented endpoint is missing from the code.
+    if not extracted:
+        raise RouteExtractionError(
+            f"no routes found in {source_dir}. Check that --source-dir points at "
+            f"the directory containing your route registrations, and that the "
+            f"language was detected correctly.")
+
+    routes = {(r["path"], r["method"].lower()): r for r in extracted}
     auth_headers = auth_header_names(spec)
 
     findings = []
@@ -290,11 +327,12 @@ def main():
     parser.add_argument("source", help="directory of Go source")
     parser.add_argument("spec", help="path to openapi.json")
     parser.add_argument("--strip-prefix", default="")
+    parser.add_argument("--language", default=None, help="go or typescript; detected when omitted")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     try:
-        findings = audit(args.source, args.spec, args.strip_prefix)
+        findings = audit(args.source, args.spec, args.strip_prefix, args.language)
     except (RouteExtractionError, SpecError) as exc:
         sys.exit(f"error: {exc}")
 

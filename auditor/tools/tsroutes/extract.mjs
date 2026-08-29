@@ -29,14 +29,41 @@ const STRIP = argOf("--strip-prefix", "");
 // then from this tool's own install. Parsing TypeScript with anything less than
 // a real parser is how a route table quietly goes wrong.
 function loadTypeScript() {
-  const candidates = [ROOT, path.dirname(ROOT), process.cwd(), path.dirname(new URL(import.meta.url).pathname)];
+  const here = path.dirname(new URL(import.meta.url).pathname);
+  const candidates = [ROOT, path.dirname(ROOT), path.dirname(path.dirname(ROOT)), process.cwd(), here];
   for (const base of candidates) {
     try {
       return createRequire(path.join(base, "noop.js"))("typescript");
     } catch { /* try the next one */ }
   }
   try { return createRequire(import.meta.url)("typescript"); } catch { /* fall through */ }
-  console.error("typescript not resolvable. Install it in the target project or alongside this tool.");
+
+  // Global install, which is how the container ships it. NODE_PATH is honoured
+  // by CommonJS resolution but not reliably across every Node version and
+  // install layout, so the global root is tried explicitly rather than assumed -
+  // a container that cannot parse TypeScript would otherwise fail at audit time
+  // with a message that points nowhere useful.
+  const globalRoots = [
+    process.env.NODE_PATH,
+    "/usr/local/lib/node_modules",
+    "/usr/lib/node_modules",
+    "/opt/homebrew/lib/node_modules",
+  ].filter(Boolean).flatMap((entry) => entry.split(path.delimiter));
+
+  for (const root of globalRoots) {
+    for (const candidate of [path.join(root, "typescript"),
+                             path.join(root, "typescript", "lib", "typescript.js")]) {
+      try {
+        if (fs.existsSync(candidate)) return createRequire(path.join(root, "noop.js"))(candidate);
+      } catch { /* try the next one */ }
+    }
+  }
+
+  console.error(
+    "typescript could not be resolved. Install it in the target project " +
+    "(npm i -D typescript) or globally (npm i -g typescript). Searched: " +
+    candidates.concat(globalRoots).join(", ")
+  );
   process.exit(2);
 }
 const ts = loadTypeScript();

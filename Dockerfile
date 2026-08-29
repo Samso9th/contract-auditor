@@ -32,14 +32,22 @@ ENV PYTHONUNBUFFERED=1 \
     NODE_PATH=/usr/local/lib/node_modules
 
 WORKDIR /opt/auditor
+# Only what the audit path needs. `eval/` and `baseline/` exist for this
+# project's own evaluation and would be dead weight in every consumer's pull.
 COPY auditor/ ./auditor/
-COPY baseline/ ./baseline/
-COPY eval/ ./eval/
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
-# Prebuild the Go route extractor so the first audit does not pay for it.
-RUN cd auditor/tools/goroutes && go build -o goroutes . && ./goroutes -dir . >/dev/null 2>&1 || true
+# Prebuild the route extractor so the first audit does not pay for it, and fail
+# the build if it does not compile. The previous `|| true` here would have
+# produced an image that looked fine and failed at audit time instead.
+RUN cd auditor/tools/goroutes && go build -o goroutes . && ./goroutes -dir . > /dev/null
+
+# Prove the TypeScript extractor can resolve its parser inside the image. A
+# container that cannot parse TypeScript should fail here, loudly, not on a
+# user's first pull request.
+RUN node --check auditor/tools/tsroutes/extract.mjs \
+    && node -e "require('typescript'); console.log('typescript resolvable')"
 
 # GitHub Actions mounts the checkout at /github/workspace and runs there.
 WORKDIR /github/workspace

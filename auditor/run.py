@@ -30,7 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 from audit_endpoint import audit_endpoint  # noqa: E402
 from diff import audit as deterministic_audit  # noqa: E402
 from llm import DEFAULT_MODEL  # noqa: E402
-from routes import extract  # noqa: E402
+from diff import extract  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 from verify import verify_claim  # noqa: E402
 
@@ -123,13 +123,14 @@ def verify_all(case_dir, spec, claims):
     return kept, dropped, stats
 
 
-def audit_one(case_dir, model, pool, strip_prefix):
+def audit_one(case_dir, model, pool, strip_prefix, language=None):
     api, spec_path = case_paths(case_dir)
     spec = load_spec(spec_path)
-    table = extract(api, strip_prefix=strip_prefix)
+    table = extract(api, strip_prefix=strip_prefix, language=language)
     started = time.time()
 
-    mechanical = deterministic_audit(api, spec_path, strip_prefix=strip_prefix)
+    mechanical = deterministic_audit(api, spec_path, strip_prefix=strip_prefix,
+                                     language=language)
     judged, usage = agent_pass(api, spec, table, mechanical, model, pool)
 
     accepted = load_allowlist()
@@ -171,6 +172,8 @@ def main():
     parser.add_argument("--spec", help="openapi.json, with --repo")
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--strip-prefix", default="/v1")
+    parser.add_argument("--language", default=None,
+                        help="go or typescript; detected when omitted")
     parser.add_argument("--workers", type=int, default=8,
                         help="concurrent model calls (default 8)")
     parser.add_argument("--only", help="comma-separated case ids")
@@ -185,8 +188,9 @@ def main():
             sys.exit("--repo requires --spec")
         api = pathlib.Path(args.repo).resolve()
         spec = load_spec(args.spec)
-        table = extract(api, strip_prefix=args.strip_prefix)
-        mechanical = deterministic_audit(api, args.spec, strip_prefix=args.strip_prefix)
+        table = extract(api, strip_prefix=args.strip_prefix, language=args.language)
+        mechanical = deterministic_audit(api, args.spec, strip_prefix=args.strip_prefix,
+                                         language=args.language)
         log(f"deterministic: {len(mechanical)} finding(s)")
         judged, usage = agent_pass(api, spec, table, mechanical, args.model, pool)
         log(f"agent: {len(judged)} claim(s), {usage['calls']} calls, ${usage['cost_usd']:.4f}")
@@ -210,7 +214,7 @@ def main():
     started = time.time()
 
     for case_dir in selected:
-        result = audit_one(case_dir, args.model, pool, args.strip_prefix)
+        result = audit_one(case_dir, args.model, pool, args.strip_prefix, args.language)
         result["case"] = case_dir.name
         with open(out / f"{case_dir.name}.json", "w") as f:
             json.dump(result, f, indent=2)
