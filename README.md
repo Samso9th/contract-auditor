@@ -61,8 +61,9 @@ matters because that is the normal state of a fresh checkout.
 
 ## Use it in your CI
 
-Packaged as a GitHub Action. The minimum setup needs no API key and no secret,
-the deterministic layer costs nothing and catches most drift on its own.
+This runs automatically on every proposed change to your code. The smallest
+useful setup needs no account and no password: the no-AI part costs nothing and
+catches most problems by itself.
 
 ```yaml
 name: Contract audit
@@ -90,9 +91,9 @@ jobs:
           sarif_file: ${{ steps.audit.outputs.sarif }}
 ```
 
-Findings then appear as annotations on the exact lines of the pull request diff.
-Add `api-key` to enable the judgment pass, and `webhook-url` to POST the full
-report to Slack, Telegram or a Postgres sink.
+Anything found then shows up as a note attached to the exact line of code, right
+where the change is being reviewed. Adding `api-key` turns on the AI stage.
+Adding `webhook-url` sends the full report to Slack, Telegram, or a database.
 
 **Full setup, every input, and troubleshooting: [docs/site/github-actions.mdx](docs/site/github-actions.mdx)**, published at the docs site.
 
@@ -146,160 +147,164 @@ belongs.
 
 ---
 
-## What the agent does
+## How it works
+
+Three stages. Each hands on only what it is sure of.
 
 ```
-                    ┌─────────────────────────────────────┐
-                    │ deterministic pre-pass              │
-   Go source ──────►│  • AST route table extraction       │
-   OpenAPI spec ───►│  • spec path/schema index           │
-   Docs (.mdx) ────►│  • set difference: code △ spec      │
-                    └──────────────┬──────────────────────┘
-                                   │ candidate surface + verified deltas
-                    ┌──────────────▼──────────────────────┐
-                    │per-endpoint auditor agents (fan-out)│
-                    │ handler body vs annotation vs prose │
-                    └──────────────┬──────────────────────┘
-                                   │ claims
-                    ┌──────────────▼──────────────────────┐
-                    │ VERIFICATION GATE                   │
-                    │ write a Go test asserting the claim │
-                    │ run it. Test passes ⇒ claim is      │
-                    │ wrong ⇒ discard the finding.        │
-                    └──────────────┬──────────────────────┘
-                                   │ survivors only
-                    ┌──────────────▼──────────────────────┐
-                    │ reconciler: dedupe, rank, allowlist │
-                    └──────────────┬──────────────────────┘
-                                   ▼
-                    report + failing tests + spec patch
+   your code ─────┐
+                  │   1. READ AND COMPARE   (no AI, free, instant)
+   the published ─┼──►    Read both. List every disagreement that can
+   document       │       be settled just by looking.
+                  │
+   the written ───┘
+   guide                         │
+                                 ▼
+                     2. ASK THE AI   (one question per request type)
+                        Only about what looking cannot settle, and
+                        told what stage 1 already found.
+                                 │
+                                 ▼
+                     3. PROVE IT   (the part that matters)
+                        Write a small test for every finding, from
+                        either stage. Run it. If it passes, the
+                        complaint was wrong. Throw it away.
+                                 │
+                                 ▼
+                        report, with proof attached
 ```
 
-The design choices worth defending:
+Why it is built this way:
 
-- **Deterministic work stays deterministic.** The route table comes from
-  `go/ast`, not from a model reading files. Set differences between the route
-  table and the spec are computed, not inferred. The agent is spent on the part
-  that genuinely needs judgment: reconciling a handler body against prose.
-- **The verification gate is the contribution.** An unverified claim about API
-  behaviour is worth close to nothing, because the failure mode of an LLM reading
-  handler code is a confident, plausible, wrong finding. Charging every claim the
-  price of a failing test converts the report from opinion into evidence.
-- **Fan-out is per endpoint, not per file.** Endpoints are the unit the contract
-  is expressed in, and they fit in a context window with room for the schema and
-  the prose.
-- **Memory is an allowlist.** Intentional divergence gets recorded once and stops
-  being re-reported, so repeat runs stay signal.
+**Do the certain work first, and do it without AI.** Listing which requests a
+piece of software answers is something a program can do exactly, every time.
+Using AI for it would be slower, cost money, and occasionally be wrong. The AI is
+saved for what genuinely needs judgement, like reading code and deciding whether
+it matches a sentence in a guide.
+
+**Every complaint has to be proved.** This is what makes the tool worth trusting.
+AI writes fluently, and a wrong answer looks exactly like a right one, so nothing
+is believed for sounding convincing. Each complaint has to survive a real test run
+against the real code. About half of what the AI suggested did not survive, and
+was discarded before anyone saw it.
+
+**Ask about one request at a time.** Handing over a whole codebase and asking
+"what is wrong here" gets vague answers. One request, with its documentation
+beside it, gets specific ones.
+
+**Remember what was already settled.** Some differences are deliberate. Those get
+recorded once and stop being raised, so the report stays worth reading instead of
+becoming a list people learn to scroll past.
 
 ---
 
-## Evaluation
+## Does it actually work?
 
-### Two targets, and why
+### What it was tested against
 
-The motivating repository is private and its working tree contains live
-credentials, so it cannot be shipped to judges (ground rules 07 and 08). The
-evaluation therefore runs against a **synthetic Go payments API** included in
-this repo at [eval/fixture](eval/fixture): ten endpoints, standard library
-only, builds offline, with a committed OpenAPI spec that matches it exactly in
-the clean state.
+The payments company's real codebase is private and its working files contain
+live passwords, so it cannot be handed to judges. Instead this repository
+contains a small working payments service written for the purpose: eight
+endpoints, no outside dependencies, runs offline, with a published document that
+matches it exactly.
 
-Drift is then **injected**, so the ground truth is known exactly rather than
-argued about. This is what makes the numbers below checkable by anyone.
+Faults are then deliberately introduced, one per test case. Because we broke it
+on purpose, we know precisely what a correct answer looks like, which is what
+makes every number below checkable by anyone who clones this.
 
-The private repository is reported separately as a case study, with findings
-quoted as evidence and no credentials included.
+The real company codebase is reported separately as a case study, with findings
+quoted and no passwords included.
 
-### The cases
+### The test cases
 
-16 cases, exceeding the brief's target of ten: **12 injected drifts** across the
-categories that actually hurt integrators, and 4 decoys: refactors that change
-code without changing the contract. The decoys are what make precision
-measurable; without them, an auditor that reports everything scores perfectly.
+16 cases. Twelve contain a real fault of the kind that hurts outside developers.
+The other four contain a change that looks like a fault but is not: a variable
+renamed, a comment added, a function split in two, fields reordered. The
+behaviour is identical.
 
-| ID | Severity | Drift |
+Those four are the important ones. Without them, a tool that complains about
+everything would score perfectly.
+
+| ID | Severity | What was broken |
 |---|---|---|
-| D01 | high | Response field renamed in code, spec unchanged |
-| D02 | medium | Handler returns 200, spec documents 201 |
-| D03 | high | Endpoint exists in code, absent from spec |
-| D04 | high | Spec documents an endpoint that is no longer routed |
-| D05 | **critical** | Money field changed from decimal string to `float64` |
-| D06 | high | Code requires a field the spec marks optional |
-| D07 | high | Query param read as `per_page`, documented as `perPage` |
-| D08 | **critical** | Endpoint now requires auth, documented as public |
-| D09 | low | Pagination default changed, docs stale |
-| D10 | **critical** | Webhook signature header renamed |
-| D11 | medium | Validation loosened below the documented constraint |
-| D12 | medium | New 429 response undocumented |
-| N01–N04 | decoy | Local rename, added comment, extracted helper, field reorder |
+| D01 | high | A field was renamed in the code, the document still promises the old name |
+| D02 | medium | The code reports a different success signal than documented |
+| D03 | high | A request exists in the code that the document never mentions |
+| D04 | high | The document promises a request the code no longer answers |
+| D05 | **critical** | A money amount changed from exact text to a rounded number |
+| D06 | high | The code demands a field the document says is optional |
+| D07 | high | A setting is read under a different name than documented |
+| D08 | **critical** | A request now requires a password; the document says it is open to all |
+| D09 | low | A default value changed and the document was not updated |
+| D10 | **critical** | The security stamp on outgoing messages was renamed |
+| D11 | medium | A rule was relaxed below what the document promises |
+| D12 | medium | A new failure response was added and never documented |
+| N01–N04 | not a fault | Rename, comment, refactor, reorder. Behaviour unchanged |
 
-D05, D08 and D10 are the challenging cases the brief asks for. Each is silent:
-the code compiles, tests pass, and the endpoint returns 200. The damage lands in
-the partner's system: precision loss on money, a 401 where there was none, and
-signature verification rejecting every delivery.
+D05, D08 and D10 are the hardest three, and all three are silent. The code builds,
+the existing tests pass, and the request still succeeds. The damage lands in
+someone else's system: money quietly losing accuracy, a login demanded where none
+was before, and every outgoing security stamp being rejected because it arrives
+under a different name.
 
-Every mutation is verified to compile before it becomes a case. A mutation that
-breaks the build tests nothing.
+Every introduced fault is checked to make sure the software still builds before it
+counts as a test case. A fault that breaks the build tests nothing.
 
-### Metrics
+### The results
 
-Primary metric is F1 over verified drift findings. Recall alone rewards noise,
-precision alone rewards silence.
+Compared against the obvious simple approach: hand the whole codebase and the
+whole document to an AI in one go and ask it to find the disagreements. Same AI,
+same test cases, same scoring.
 
-| METRIC | SIMPLE BASELINE | AGENT SOLUTION | CHANGE |
+| | Simple approach | This tool | Change |
 |---|---|---|---|
-| **F1 (primary)** | 0.231 | **1.000** | **+0.769** |
-| Recall (drifts caught / 15) | 0.400 (6) | **1.000** (15) | +0.600 |
-| Precision | 0.162 | **1.000** | +0.838 |
-| False positives | 31 | **0** | −31 |
-| Critical drifts caught (/5) | 2 | **5** | +3 |
-| Decoys left clean (/4) | 4 | 4 | n/a |
-| Cost per repo (USD) | $0.0160 | $0.0441 | +$0.0281 |
-| Human minutes per repo | 0 | 0 | n/a |
+| **Overall score** | 0.219 | **1.000** | **+0.781** |
+| Real faults found, of 15 | 15 | **15** | same |
+| Of what it reported, how much was real | 12% | **100%** | +88 points |
+| False alarms | 107 | **0** | −107 |
+| Correct code wrongly flagged, of 4 | 4 | **0** | −4 |
+| Serious faults found, of 5 | 5 | **5** | same |
+| Cost per run | $0.166 | **$0.070** | −$0.096 |
+| Human time | none | none | same |
 
-The baseline is not merely worse, it is differently wrong. It reported **31 false
-positives against 6 true findings**: five spurious findings on D02 alone, twelve
-on D05, so a reviewer would have to check 37 findings to reach 6 real ones. It
-also missed every drift requiring cross-file reasoning: the renamed field (D01),
-the unregistered route (D04), the auth change (D08). Its 4/4 on decoys is not
-discrimination; it invented findings on the drift cases instead.
+The simple approach is not blind. It found every one of the 15 real faults. It
+also reported 107 things that were not there, and complained about all four
+pieces of correct code. Reading its output means checking 122 complaints to find
+15 real ones, and being told four healthy things are broken.
 
-Cost is worth reading carefully. The agent costs 2.8x the baseline per repo and
-still lands at four cents. Latency is the real price: the agent made 159 model
-calls against the baseline's 16.
+That is worse than useless, because a reviewer who checks ten false alarms in a
+row stops reading the eleventh. Finding everything is not the hard part. Not
+crying wolf is the hard part, and that is what the proving step buys.
 
-A result is only useful to the
-intended user if it is worth reading: **recall ≥ 0.80, precision ≥ 0.85, every
-critical drift caught, and all 4 decoys clean.** Below roughly 0.85 precision a
-reviewer starts double-checking every finding, at which point the tool has moved
-the work rather than removed it.
+It also costs less than half as much, because asking about one request at a time
+is cheaper than repeatedly handing over an entire codebase.
 
-All four met: recall 1.00, precision 1.00, 5/5 critical, 4/4 decoys. The bar was
-written down before any run so it could not be adjusted to flatter the outcome.
+**What we said "good" meant, before running anything.** Written down in advance so
+it could not be adjusted afterwards to flatter the result: at least 80% of real
+faults found, at least 85% of reports being real, every serious fault caught, and
+no complaints about the four healthy pieces of code. All four were met.
 
-The gain comes from one place. The deterministic layer alone scores F1 0.889 at
-precision 1.0 for nothing: no model, no key, 0.2 seconds. The agent's whole
-contribution is the last 0.20 of recall: D06, D09 and D11, the three drifts that
-need judgment rather than lookup.
-
-### Baseline
-
-One direct prompt: the handler file, the spec, and "find every place these
-disagree." No tools, no verification, no fan-out. Defined in
-[baseline/prompt.md](baseline/prompt.md), scored by the same scorer over the
-same 16 cases.
+The AI is not doing most of the work here, and that is worth being honest about.
+The no-AI stage alone scores 0.889 for free. The AI earns its place on three
+faults out of fifteen, the three that need judgement rather than lookup, and only
+because every one of its suggestions has to survive a real test before anyone
+sees it.
 
 ---
 
-## Improvement changelog
+## What we tried, in order
 
-Every row is a real scored run over the same 16 cases with the same scorer.
-Evidence links to `reports/runs/`. Experiments that were removed are here too,
-with what they taught.
+This is the build history: every idea, what it scored, and what we decided. It is
+the most technical part of this document, and it is here because the honest
+version of "did this work" is a list of things that did and did not.
+
+Every row is a real scored run over the same 16 test cases with the same scoring.
+The evidence links to saved output in `reports/runs/`. Ideas we abandoned are
+here too, with what they taught us.
 
 | STAGE | WHAT WAS TRIED AND WHY | EVIDENCE | DECISION / LEARNING |
 |---|---|---|---|
-| Baseline | Single prompt per case: the whole Go package, the whole spec, "find every place these disagree". No tools, no verification. Establishes what one competent prompt achieves before any agent design. | **6 true findings against 31 false positives. Precision 0.162, recall 0.400, F1 0.231**, $0.016 (`reports/runs/baseline/`). | Starting point, and a sobering one. It is not merely worse; it is differently wrong. Twelve spurious findings on D05 alone, and it missed every drift needing cross-file reasoning (D01 renamed field, D04 unregistered route, D08 auth change). A reviewer would check 37 findings to reach 6 real ones. |
+| Baseline | Hand the whole codebase and the whole document to the AI in one go and ask it to find every disagreement. No tools, no proving step. Establishes what one good prompt achieves before building anything. | **All 15 real faults found, alongside 107 false alarms. 12% of what it reported was real. All 4 healthy files wrongly flagged. F1 0.219**, $0.166 (`reports/runs/baseline/`). | Sobering, and not in the way we expected. It is not blind: it finds everything. It is indiscriminate. A reviewer would check 122 complaints to reach 15 real ones, and be told four healthy things were broken. Finding faults is not the hard part. Not crying wolf is. |
 | Iteration 1 | Add AST route-table extraction as a tool. Hypothesis: the model is worst at exhaustively enumerating routes, which is exactly the part a parser does perfectly. | Tool built and verified: 30/30 checks in `auditor/tools/test_routes.py`. On the real target it finds 841 routes vs 805 grep matches, recovering 50 gin group-root registrations. Route extraction is exact on the fixture and stable across runs. | Kept. Two guards were needed to avoid counting `Header.Get`/`Query().Get` as routes, and the first version of those guards silently dropped every `group.GET("", h)`. Both errors were invisible without a known-answer fixture. |
 | Iteration 1b | Extend the parser to struct shapes and handler-body facts (status codes, query keys, headers read and set), then write nine deterministic rules over them. Hypothesis: a large share of contract drift is mechanical and needs no judgment at all. | 12/15 drifts caught, **0 false positives, 4/4 decoys clean, F1 0.889, $0.00, 0.2s** across all 16 cases (`reports/runs/deterministic/`; 27/27 checks in `test_diff.py`). | Kept, and it reframes the project. The no-model layer already meets every target committed before the first run. The three it misses (D06, D09, D11) are exactly the three that need judgment rather than lookup, so that is now the agent's job, under a precision floor of 1.0 it must not lower. |
 | Iteration 2 | Add the verification gate: every claim must ship a Go test that executes the real handler through `httptest` and asserts what the spec promises. A claim is confirmed only if that test **fails**. Hypothesis: most of the error in any claim-generating layer is false positives, not misses. | Gate built and verified: 29/29 checks in `auditor/test_verify.py`. Confirms all 7 executable true claims with evidence taken from the running handler (`spec declares "available" as string; response carries number (2.45e+06)`), refutes all 6 of the same claims against clean code, rejects fabricated field names, and refutes claims against all 3 decoys. | Kept. Building it surfaced its own worst failure: the first version generated a test asserting that the claimed field was present, so a hallucinated field name produced a failing test and a *confirmed* finding; the gate would have laundered hallucinations rather than caught them. A claim must now name a field the spec actually documents before any test is generated. |
@@ -307,63 +312,64 @@ with what they taught.
 | Iteration 3 | Fan out per endpoint with the agent restricted to the three kinds the rules cannot settle, and told what they already found. Hypothesis: whole-repo context dilutes attention, and an unconstrained vocabulary invites restating mechanical findings. | Agent recovered all three judgment drifts (D06, D09, D11) that the deterministic layer misses. Combined: **precision 1.0, recall 1.0, F1 1.0, 4/4 decoys clean, $0.0441, 26 min, 159 model calls** (`reports/runs/agent/`). | Kept. One endpoint per call, plus handing the agent the deterministic findings, produced no duplicate reports across 16 cases. |
 | Iteration 4 | Extend the verification gate to execute the three judgment kinds, rather than letting them through unverified because no parser could check them. | In the shipped run (`reports/runs/agent/`) the agent proposed **6 claims of which 3 were false**; the gate refuted all 3, confirmed the 3 true ones, and refuted **0 of the 12 deterministic claims**. An earlier identical run proposed **13 claims of which 10 were false**. Both scored F1 1.000. | Kept, and it is the load-bearing result, for a reason the two runs make clearer than either does alone. The count of *true* claims was stable at 3; the count of *false* ones moved from 3 to 10 with no change to prompt, model or cases. Ungated, that variance would have put final precision somewhere between 0.60 and 0.83 depending on the day. Gated, both runs produced the identical report. The gate does not only raise precision, it removes the variance. |
 | Iteration 5 *(removed)* | Add a fintech review skill (money types, idempotency, auth scope, webhook signing) to improve severity ranking. | Not built. Severity was already assigned per rule, with money-field name hints escalating a type mismatch to critical in `diff.py`. D05 and D08 both surfaced as critical without it, and the run had zero severity complaints to fix. | **Removed before building.** The hypothesis assumed a problem the measurement did not show. A skill file nothing loads is a component added for the look of the architecture, and the brief is explicit that purposeful choices matter more than the number of components. Recorded here because deciding *not* to build something on evidence is the same skill as building it. |
-| Final | Deterministic rules → constrained per-endpoint agent → verification gate over every claim, whatever produced it. | **Precision 1.000, recall 1.000, F1 1.000, 15/15 drifts, 0 false positives, 4/4 decoys clean, 5/5 critical drifts, 159 model calls, $0.0704, 17 min** (`reports/runs/agent/`). Against the baseline: **F1 0.231 → 1.000**. Reproduced: two independent full runs, days apart in development and differing in agent noise, both scored F1 1.000. | The gate is the main contribution. Everything else is ordinary engineering; the gate is what makes it safe to let a model guess at all. |
+| Final | Deterministic rules → constrained per-endpoint agent → verification gate over every claim, whatever produced it. | **Precision 1.000, recall 1.000, F1 1.000, 15/15 drifts, 0 false positives, 4/4 decoys clean, 5/5 critical drifts, 159 model calls, $0.0704, 17 min** (`reports/runs/agent/`). Against the baseline: **F1 0.219 → 1.000**, with false alarms going from 107 to 0. Reproduced: two independent full runs, days apart in development and differing in agent noise, both scored F1 1.000. | The gate is the main contribution. Everything else is ordinary engineering; the gate is what makes it safe to let a model guess at all. |
 
 Removed experiments belong in this table too, with what they taught.
 
-**Main failure mode: an agent's confident wrong answer is indistinguishable from its right one, and so is a broken run.**
+### The main thing that goes wrong
 
-Measured, not asserted. Across 16 cases the per-endpoint agent produced 6 claims
-and **3 of them were false**. Every one was fluent, specific, and cited a
-plausible line. Nothing in the text separated them from the 3 that were true.
+**When an AI is wrong, it looks exactly the same as when it is right. So does a
+broken run.**
 
-An earlier run of the same code over the same cases produced **13 claims, 10 of
-them false**. The number of *true* claims did not move; it was 3 both times,
-because there are 3 judgment drifts to find. What moved was the noise, by more
-than a factor of three, with no change to the prompt, the model, or the inputs.
-You cannot tune against that. There is no prompt that fixes a number which
-varies this much between identical runs.
+Measured, not guessed. Across the 16 test cases the AI made 6 suggestions and 3
+of them were false. Every one was fluent, specific, and pointed at a real line of
+code. Nothing in the writing separated the wrong ones from the right ones.
 
-The same shape appeared three more times, and each was invisible until something
-executed it:
+An earlier run of identical code over identical cases made 13 suggestions, 10 of
+them false. The number of *correct* suggestions did not move: 3 both times,
+because there are 3 such faults to find. What moved was the noise, by more than
+three times, with nothing changed at all. You cannot write a better prompt to fix
+a number that swings that much between identical runs.
 
-- An **unparseable model reply produced zero claims**, which is byte-identical to
-  "this endpoint is clean". A transport failure looked like a passing audit.
-- A **skipped Go test exits 0**, and an exit-code check read that as "claim
-  refuted". A true finding was silently deleted.
-- The **route extractor returned different answers on five identical runs**.
-  Go randomises map iteration, so the report changed while the code did not.
+The same shape showed up three more times while building this, and each was
+invisible until something actually ran:
 
-None of these announce themselves. All of them fail toward *looking fine*.
+- A reply the tool could not read produced zero complaints, which looks
+  identical to "this part is fine". A network failure looked like a clean report.
+- A test that was skipped rather than run exits successfully, and a check on that
+  exit code read it as "the complaint was wrong". A true finding was deleted.
+- The code-reading step gave different answers on five identical runs, because of
+  an ordering quirk in the language it was written in. The report changed while
+  the code did not.
 
-**Hot take: stop trying to make the agent right, and build the thing that can
-prove it wrong.**
+None of these announce themselves. All of them fail in the direction of looking
+fine.
 
-The instinct on seeing precision like that is to fix the model: better prompt, better
-model, more context. We did tune the prompt, and it mattered in one specific way
-worth naming: when the spec index dropped `minLength`/`maxLength`, the model was
-shown `bvn: {"type": "string"}` for a field constrained to exactly 11 characters
-and produced a confident finding against code that was honouring the spec
-exactly. **Starving a reader of context does not make it cautious; it makes it
-reason in circles and then be confidently wrong.** Restoring the constraints cut
-its output on those prompts from >8000 tokens (truncating, timing out) to under
-1900, and the false positive disappeared.
+### What we would tell someone building something similar
 
-But prompt work has a ceiling, and it is not a guarantee. What changed the
-outcome was charging every claim the price of a test that executes the real
-handler. The agent's raw precision was 0.50 on the shipped run and 0.23 on the
-earlier one; both became 1.00, with recall going up rather than down. Two
-runs whose raw noise differed threefold produced byte-identical reports. The
-agent became *more* useful once it was allowed to be wrong, because being wrong
-stopped being expensive, and it stopped mattering how wrong it was on any given
-day.
+**Stop trying to make the AI right. Build the thing that can prove it wrong.**
 
-That inverts the usual build order. The deterministic layer alone scores F1 0.889
-for zero cost: most of this problem never needed an agent. The agent earns its
-place on exactly three of fifteen drifts, and only because a gate stands between
-its guesses and the report. **Build the refutation mechanism first; it tells you
-how much agent you actually need, and it is the only thing that makes the answer
-trustworthy when you do.**
+The instinct on seeing half the AI's answers be wrong is to fix the AI: a better
+prompt, a better model, more context. We did improve the prompt, and it mattered
+in one specific way. When we accidentally hid part of the documentation from it,
+it produced a confident complaint about code that was behaving perfectly.
+Starving it of context did not make it cautious. It made it reason in circles and
+then be confidently wrong.
+
+But prompt work has a ceiling and it is never a guarantee. What actually changed
+the outcome was making every single complaint pay for itself with a test that
+runs against the real code. The AI's raw accuracy was 50% on one run and 23% on
+another. Both became 100% after the proving step, and it found *more*, not less.
+Two runs whose raw noise differed threefold produced identical reports.
+
+The AI became more useful once it was allowed to be wrong, because being wrong
+stopped mattering.
+
+That reverses the order most people build in. The no-AI part alone scores 0.889
+for nothing. The AI earns its keep on 3 faults out of 15, and only because
+something stands between its guesses and the report. Build the thing that can
+prove it wrong first. It tells you how much AI you actually need, and it is the
+only reason to trust the answer when you do.
 
 ---
 
