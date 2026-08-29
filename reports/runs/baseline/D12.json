@@ -1,0 +1,52 @@
+{
+  "case": "D12",
+  "findings": [
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "undocumented_status",
+      "detail": "Handler returns 429 (code \"rate_limited\") when the X-Debug-Ratelimit request header is \"1\", but the spec only documents ",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:31-33",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "Spec marks PayoutRequest fields accountNumber, bankCode, amount and currency as required, but the handler only validates",
+      "severity": "high",
+      "evidence": "handlers/payouts.go:35-38",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "Spec marks RefundRequest fields payoutId and amount as required, but the handler performs no field validation and return",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:89-94",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "Handler sets an X-Signature response header on the 202 response, which is not declared in the spec's 202 response header",
+      "severity": "low",
+      "evidence": "handlers/misc.go:60",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 254.0,
+    "cost_usd": 0.004004,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7514,
+    "output_tokens": 13762,
+    "parsed": true,
+    "truncated": false
+  }
+}

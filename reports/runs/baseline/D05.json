@@ -1,0 +1,88 @@
+{
+  "case": "D05",
+  "findings": [
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "available: handler serializes float64 (JSON number, e.g. 2450000) but spec declares type string",
+      "severity": "high",
+      "evidence": "handlers/types.go:27 (Available float64 `json:\"available\"`, written at handlers/accounts.go:19) vs spec BalanceResponse.available {\"type\": \"string\"}",
+      "source": "baseline"
+    },
+    {
+      "path": "/balance",
+      "method": "get",
+      "kind": "response_type_mismatch",
+      "detail": "ledger: handler serializes float64 (JSON number, e.g. 2500000) but spec declares type string",
+      "severity": "high",
+      "evidence": "handlers/types.go:28 (Ledger float64 `json:\"ledger\"`, written at handlers/accounts.go:20) vs spec BalanceResponse.ledger {\"type\": \"string\"}",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "X-Signature: handler sets an X-Signature response header that is not declared in the 202 response of the spec",
+      "severity": "medium",
+      "evidence": "handlers/misc.go:60 \u2014 w.Header().Set(\"X-Signature\", \"sha256=deadbeef\"); spec /webhooks/test 202 response defines no headers",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "accountNumber, bankCode, amount, currency: spec marks them required in PayoutRequest, but the handler only rejects a mis",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:31-34 (only req.Reference is validated) vs spec components.schemas.PayoutRequest.required = [accountNumber, bankCode, amount, currency, reference]",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "payoutId, amount: spec marks them required in RefundRequest, but the handler performs no field validation \u2014 requests omi",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:85-91 (CreateRefund decodes the body with no validation) vs spec components.schemas.RefundRequest.required = [payoutId, amount]",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "409: spec documents 409 (duplicate reference) but no code path in CreatePayout can ever return 409",
+      "severity": "low",
+      "evidence": "handlers/payouts.go:21-44 \u2014 CreatePayout only writes 201 or 400",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "422: spec documents 422 (refund not permitted) but no code path in CreateRefund can ever return 422",
+      "severity": "low",
+      "evidence": "handlers/payouts.go:85-97 \u2014 CreateRefund only writes 201 or 400",
+      "source": "baseline"
+    },
+    {
+      "path": "/customers/{id}",
+      "method": "get",
+      "kind": "status_code_mismatch",
+      "detail": "404: spec documents 404 for unknown customer IDs but GetCustomer unconditionally returns 200",
+      "severity": "low",
+      "evidence": "handlers/accounts.go:97-107 \u2014 GetCustomer has no 404 branch and always calls writeJSON(w, http.StatusOK, ...)",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 196.4,
+    "cost_usd": 0.013216,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7419,
+    "output_tokens": 24209,
+    "parsed": true,
+    "truncated": false
+  }
+}

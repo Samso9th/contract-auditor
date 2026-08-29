@@ -12,7 +12,7 @@ an unfair advantage, it is the hypothesis.
 ## Prompt
 
 ```
-You are reviewing a Go HTTP API for contract drift.
+You are reviewing an HTTP API for contract drift.
 
 Below are the API's Go source files and its published OpenAPI specification.
 The specification is what external partners integrate against. Find every place

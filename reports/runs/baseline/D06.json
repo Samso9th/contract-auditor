@@ -1,0 +1,34 @@
+{
+  "case": "D06",
+  "findings": [
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "reason",
+      "severity": "high",
+      "evidence": "handlers/payouts.go:91-93 \u2014 CreateRefund rejects the request with 400 missing_reason when reason is empty, but the spec's RefundRequest schema lists only [payoutId, amount] as required, so spec-compliant clients omitting reason will be rejected",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "X-Signature",
+      "severity": "low",
+      "evidence": "handlers/misc.go:60 \u2014 TestWebhook sets an X-Signature response header (sha256=deadbeef) on the API response, but the spec's 202 response for this operation documents no response headers",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 188.6,
+    "cost_usd": 0.011176,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7446,
+    "output_tokens": 20212,
+    "parsed": true,
+    "truncated": false
+  }
+}

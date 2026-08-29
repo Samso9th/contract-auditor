@@ -35,9 +35,9 @@ KINDS = [
     "auth_mismatch", "validation_mismatch", "default_value_mismatch",
 ]
 
-SYSTEM = "You review Go HTTP APIs for contract drift. You reply with JSON only."
+SYSTEM = "You review HTTP APIs for contract drift. You reply with JSON only."
 
-TEMPLATE = """You are reviewing a Go HTTP API for contract drift.
+TEMPLATE = """You are reviewing an HTTP API for contract drift.
 
 Below are the API's Go source files and its published OpenAPI specification. The
 specification is what external partners integrate against. Find every place where

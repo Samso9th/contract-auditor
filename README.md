@@ -2,13 +2,42 @@
 
 **micro1 Agentic Workflows Hackathon**
 
-An agent that finds where a Go HTTP API's **code**, its **generated OpenAPI spec**,
+An agent that finds where an HTTP API's **code**, its **OpenAPI spec**,
 and its **published documentation** disagree - and proves each finding with a test
 that fails before the fix and passes after.
 
 Nothing reaches the report unverified. That constraint is the whole design.
 
 ---
+
+## Language support
+
+Three languages, at different levels of maturity. A language counts as supported
+only once it has its own fixture, its own injected mutations, and a scored
+evaluation, so these numbers are measured rather than claimed. `make languages`
+prints the same table from the code.
+
+| Language | Extraction | Verification gate | Rules settle | Scored F1 |
+|---|---|---|---|---|
+| **Go** | `go/ast` | `httptest` | 9 kinds | **1.000** |
+| **Python** (FastAPI, Flask) | `ast`, no install needed | direct call, framework stubbed | 3 kinds | _pending_ |
+| **TypeScript** (Express) | TypeScript compiler API | mock request/response | 2 kinds | **0.571** |
+
+Precision is 1.000 on every language measured so far, and every decoy stays
+clean: the verification gate behaves identically whatever produced the claim.
+Recall is what differs, and the reason is worth stating plainly.
+
+**Go reaches 1.000 because a parser reads struct tags exactly.** Its extractor
+emits response shapes and handler-body facts, so nine kinds of drift are settled
+mechanically. TypeScript's extractor emits routes only, so the same kinds fall to
+the agent, which reads source *approximately* — it caught 4 of 10 injected
+drifts, missing exactly the response-shape and header cases a parser would have
+found. The gate confirmed those same drifts when handed them directly, so the gap
+is recall, not verification.
+
+The path to parity is not a better prompt. It is extending the TypeScript and
+Python extractors to emit response shapes the way `facts.go` does, moving those
+kinds from the agent back to the rules.
 
 ## Use it in your CI
 
