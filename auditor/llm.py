@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Provider-neutral model client — component 5 of the auditor.
+"""Provider-neutral model client: component 5 of the auditor.
 
 Talks to any OpenAI-compatible chat-completions endpoint. Configured for
 OpenRouter, which reaches Anthropic, Z.AI, Moonshot, DeepSeek and the rest

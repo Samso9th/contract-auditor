@@ -1,8 +1,9 @@
 name: Contract Auditor
+# Marketplace hard-limits this to 125 characters and shows it verbatim on the
+# listing card, so it is written to fit rather than truncated by GitHub.
 description: >-
-  Find drift between your API code, its OpenAPI spec and its published docs.
-  Every finding is proved by a generated test that runs against your handler,
-  so the report carries evidence rather than opinion.
+  Finds where your API code, OpenAPI spec and docs disagree. Every finding ships
+  with a test that proves it.
 author: Samso9th
 branding:
   icon: git-pull-request
@@ -27,7 +28,7 @@ inputs:
   api-key:
     description: >-
       OpenRouter (or any OpenAI-compatible) API key. Omit to run the
-      deterministic layer only — no model calls, no cost, still catches most drift.
+      deterministic layer only: no model calls, no cost, still catches most drift.
     required: false
     default: ""
   base-url:
@@ -44,7 +45,7 @@ inputs:
     default: "8"
   fail-on:
     description: >-
-      Lowest severity that fails the job — critical, high, medium, low, or none.
+      Lowest severity that fails the job: critical, high, medium, low, or none.
       Start at none to adopt in warn mode; tighten once the backlog is clear.
     required: false
     default: high

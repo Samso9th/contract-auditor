@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report emitters — SARIF, webhook, Markdown, and the exit-code policy.
+"""Report emitters: SARIF, webhook, Markdown, and the exit-code policy.
 
 Findings are only useful where the reader already is. Three channels, in
 descending order of how little the consumer has to set up:
@@ -88,7 +88,7 @@ def parse_location(finding, repo_root=""):
 
 
 def to_sarif(findings, tool_version="0.1.0", repo_subdir=""):
-    """SARIF 2.1.0 — the format GitHub code scanning ingests."""
+    """SARIF 2.1.0, the format GitHub code scanning ingests."""
     kinds = sorted({f.get("kind", "unknown") for f in findings}) or list(RULE_HELP)
     rules = [{
         "id": kind,
@@ -154,7 +154,7 @@ def to_markdown(findings, meta, title="Contract audit"):
                          sorted(counts, key=lambda x: SEVERITY_ORDER.get(x, 9)))
 
     lines = [f"## {title}", "",
-             f"{len(findings)} finding(s) — {summary}", "",
+             f"{len(findings)} finding(s): {summary}", "",
              "| Severity | Endpoint | Kind | Evidence |", "|---|---|---|---|"]
     for finding in findings[:50]:
         evidence = (finding.get("evidence", "") or "").replace("|", "\\|")[:160]

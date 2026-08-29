@@ -1,10 +1,10 @@
-# Contract auditor — the image GitHub Actions pulls.
+# Contract auditor: the image GitHub Actions pulls.
 #
 # Base is the full Debian Go image rather than Alpine on purpose. The
 # verification gate runs `go test` inside the *consumer's* repository, and a
 # musl base breaks any project that builds with cgo. A larger image that runs
 # every caller's tests correctly beats a small one that silently fails on some
-# of them — this tool exists to not be quietly wrong.
+# of them; this tool exists to not be quietly wrong.
 FROM golang:1.24-bookworm
 
 # `image.source` is what links the published package to the repository, and the
@@ -13,7 +13,7 @@ FROM golang:1.24-bookworm
 # a hand-built image links correctly as well, instead of landing unlinked and
 # private for reasons that are tedious to work out after the fact.
 LABEL org.opencontainers.image.title="contract-auditor" \
-      org.opencontainers.image.description="Finds drift between API code, its OpenAPI spec, and its published docs — and proves each finding with a test." \
+      org.opencontainers.image.description="Finds drift between API code, its OpenAPI spec, and its published docs, and proves each finding with a test." \
       org.opencontainers.image.source="https://github.com/samso9th/contract-auditor" \
       org.opencontainers.image.licenses="MIT"
 

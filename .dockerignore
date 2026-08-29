@@ -1,5 +1,5 @@
 # Build context hygiene. The Dockerfile copies specific directories rather than
-# `.`, so nothing here is strictly load-bearing today — but a build context that
+# `.`, so nothing here is strictly load-bearing today, but a build context that
 # contains secrets is one careless `COPY . .` away from baking them into a
 # published image, and this image is published publicly.
 .env

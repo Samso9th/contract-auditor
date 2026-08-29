@@ -44,7 +44,7 @@ scorer, so baseline and agent stay directly comparable.
    `(path, method) → {params, request schema, responses, security}`. Also
    deterministic.
 
-3. **`tools/diff.py` - deterministic rules. ✅ Built — nine rules, not just set difference.** Routes in code but not spec, and the
+3. **`tools/diff.py` - deterministic rules. ✅ Built: nine rules, not just set difference.** Routes in code but not spec, and the
    reverse. This alone should catch D03 and D04 with no model involved, and that
    is the point: it establishes how much of the problem needs an agent at all.
 
@@ -52,15 +52,15 @@ scorer, so baseline and agent stay directly comparable.
    handler body, its annotation, its spec entry and any prose, emit candidate
    findings. This is where judgment is actually required.
 
-5. **`verify.py` - the verification gate. ✅ Built, 38/38 checks — it also executes the three judgment kinds.** For each claim, write a Go test that
+5. **`verify.py` - the verification gate. ✅ Built, 38/38 checks; it also executes the three judgment kinds.** For each claim, write a Go test that
    asserts the claimed behaviour, run it against the mutated fixture, and keep
    the finding only if the test *fails* in the way the claim predicts. A claim
    whose test passes was wrong. This is the component the project stands on.
 
-6. **Merge, rank, allowlist. ✅ Built into `run.py`** rather than as a separate module — the merge is a concatenation and a filter, and a file that thin does not earn its own import. Original note: collapse duplicate findings across
+6. **Merge, rank, allowlist. ✅ Built into `run.py`** rather than as a separate module: the merge is a concatenation and a filter, and a file that thin does not earn its own import. Original note: collapse duplicate findings across
    endpoints, rank by severity, apply the allowlist.
 
-7. **`skills/fintech.md` — domain rules. ⬜ Not built, and possibly not needed.** Severity is already assigned by rule, with money-field name hints escalating a type mismatch to critical in `diff.py`. Adding a skill file that nothing loads would be decoration. Build it only if measurement shows severity ranking is actually wrong. Original note: money as decimal never float,
+7. **`skills/fintech.md`: domain rules. ⬜ Not built, and possibly not needed.** Severity is already assigned by rule, with money-field name hints escalating a type mismatch to critical in `diff.py`. Adding a skill file that nothing loads would be decoration. Build it only if measurement shows severity ranking is actually wrong. Original note: money as decimal never float,
    idempotency on money-moving endpoints, auth scope claims matching middleware,
    webhook signature headers. Feeds severity ranking.
 
@@ -79,20 +79,20 @@ Built and verified, no model required:
 
 | Component | Verification |
 |---|---|
-| `tools/routes.py` + `goroutes/` | `test_routes.py` — 30/30 |
-| `tools/spec.py`, `tools/diff.py` | `test_diff.py` — 27/27 |
-| `verify.py` | `test_verify.py` — 38/38 |
+| `tools/routes.py` + `goroutes/` | `test_routes.py`, 30/30 |
+| `tools/spec.py`, `tools/diff.py` | `test_diff.py`, 27/27 |
+| `verify.py` | `test_verify.py`, 38/38 |
 | `run_deterministic.py` | F1 0.889, precision 1.0, 4/4 decoys, $0.00, 0.2s |
-| `llm.py` | `test_llm.py` — 20/20 |
+| `llm.py` | `test_llm.py`, 20/20 |
 | `audit_endpoint.py` + `run.py` | scored end to end over all 16 cases |
 | `baseline/run.py` | scored over the same 16 cases |
 
-Model calls go through [`llm.py`](llm.py) to any OpenAI-compatible endpoint —
+Model calls go through [`llm.py`](llm.py) to any OpenAI-compatible endpoint,
 OpenRouter by default, so the harness is not tied to a vendor and a judge can run
 it with whatever key they hold. No provider SDK is imported anywhere.
 
 The agent layer has a narrow job by construction. The deterministic layer catches
 12 of 15 drifts at precision 1.0, so what remains is D06 (undocumented required
-field), D09 (default-value drift) and D11 (validation loosened) — the three that
+field), D09 (default-value drift) and D11 (validation loosened): the three that
 need judgment rather than lookup. Its claims go through the same gate as every
 other claim, which is what lets the agent be allowed to guess at all.

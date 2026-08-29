@@ -1,6 +1,6 @@
 // Shared shapes for the fixture API. Plain JS with JSDoc rather than TypeScript
 // so the fixture runs under `node --test` with no build step and no dependency
-// on a compiler being present — the same reason the Go fixture uses only the
+// on a compiler being present, the same reason the Go fixture uses only the
 // standard library.
 
 /** @typedef {{accountNumber:string, bankCode:string, amount:string, currency:string, reference:string, narration?:string}} PayoutRequest */

@@ -57,7 +57,7 @@ def main():
             }, f, indent=2)
             f.write("\n")
 
-        kinds = ", ".join(sorted({f["kind"] for f in findings})) or "—"
+        kinds = ", ".join(sorted({f["kind"] for f in findings})) or "none"
         print(f"  {case_dir.name}  {len(findings)} finding(s)  {kinds}")
         total += len(findings)
 

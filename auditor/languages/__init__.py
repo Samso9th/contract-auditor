@@ -3,7 +3,7 @@
 Most of this auditor never knew what language it was reading. The spec index,
 the drift rules, the per-endpoint agent, the scorer and the reporters all work on
 two neutral structures: a route table and an OpenAPI document. Only two things
-were ever Go-specific — extracting the route table from source, and generating a
+were ever Go-specific: extracting the route table from source, and generating a
 test that executes one endpoint.
 
 An adapter supplies exactly those two things:
@@ -18,7 +18,7 @@ An adapter supplies exactly those two things:
 
 A language counts as supported only when it has its own fixture, its own
 injected mutations, and a passing evaluation. Shipping a parser and calling that
-support would be claiming a contract we had not verified — the exact failure this
+support would be claiming a contract we had not verified, the exact failure this
 tool exists to catch.
 """
 

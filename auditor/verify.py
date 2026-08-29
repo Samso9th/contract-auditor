@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The verification gate — component 4 of the auditor.
+"""The verification gate: component 4 of the auditor.
 
 A claim about API behaviour is worth nothing until something executes it. This
 module takes a claim, generates a Go test that asserts the *documented* contract,
@@ -9,13 +9,13 @@ The rule is one line, and it is the whole project:
 
     a claim is CONFIRMED only if the test asserting the spec FAILS.
 
-If the test passes, the spec is being honoured and the claim was wrong — the
+If the test passes, the spec is being honoured and the claim was wrong; the
 finding is dropped, no matter how confident its author was. This is the only
 component that can tell a real drift from a plausible sentence about one, so
 every finding that reaches the report passes through here.
 
-No model is involved. The claim can come from anywhere — a deterministic rule,
-an agent, a human — and is judged the same way.
+No model is involved. The claim can come from anywhere (a deterministic rule,
+an agent, a human) and is judged the same way.
 
     from auditor.verify import verify_claim
     result = verify_claim(case_dir, claim, spec)

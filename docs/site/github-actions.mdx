@@ -85,7 +85,7 @@ documented.
 ```
 
 Add `OPENROUTER_API_KEY` under **Settings → Secrets and variables → Actions**.
-Any OpenAI-compatible endpoint works — set `base-url` to point elsewhere.
+Any OpenAI-compatible endpoint works; set `base-url` to point elsewhere.
 
 <Note>
 Every claim, from the rules and the model alike, is executed against your handler
@@ -102,19 +102,19 @@ repository audit is a fraction of that.
 
 | Input | Default | Notes |
 |---|---|---|
-| `spec` | — | **Required.** Path to your OpenAPI document. |
+| `spec` | n/a | **Required.** Path to your OpenAPI document. |
 | `source-dir` | `.` | Directory containing the API source. |
 | `language` | `auto` | `go`, `typescript`, or detect. |
-| `strip-prefix` | — | Prefix to strip so routes match spec paths. |
-| `api-key` | — | Omit for deterministic-only: no cost, no secret. |
+| `strip-prefix` | n/a | Prefix to strip so routes match spec paths. |
+| `api-key` | n/a | Omit for deterministic-only: no cost, no secret. |
 | `base-url` | OpenRouter | Any OpenAI-compatible endpoint. |
 | `model` | `z-ai/glm-5.3-flash` | Model id for the judgment pass. |
 | `workers` | `8` | Concurrent model calls. Raise to shorten wall clock. |
 | `fail-on` | `high` | `critical`, `high`, `medium`, `low`, `none`. |
-| `webhook-url` | — | Full JSON report POSTed to a data sink. |
-| `webhook-secret` | — | Sent as `X-Auditor-Token`. |
-| `slack-webhook-url` | — | Formatted Slack message, verified findings only. |
-| `telegram-bot-token` | — | With `telegram-chat-id`. |
+| `webhook-url` | n/a | Full JSON report POSTed to a data sink. |
+| `webhook-secret` | n/a | Sent as `X-Auditor-Token`. |
+| `slack-webhook-url` | n/a | Formatted Slack message, verified findings only. |
+| `telegram-bot-token` | n/a | With `telegram-chat-id`. |
 | `notify-min-severity` | `high` | Lowest severity worth interrupting a human for. |
 
 **Outputs:** `findings`, `critical`, `high`, `sarif`, `summary`.
@@ -190,7 +190,7 @@ Two different jobs, deliberately separate.
   </Step>
   <Step title="Clear the backlog">
     Fix what is real. Record intentional divergence in
-    `auditor/memory/allowlist.json` — each entry needs a reason and a date, so the
+    `auditor/memory/allowlist.json`. Each entry needs a reason and a date, so the
     allowlist does not become a place findings go to be forgotten.
   </Step>
   <Step title="Tighten">
@@ -235,7 +235,7 @@ on:
   </Accordion>
   <Accordion title="Findings show verdict: error">
     The gate could not compile or run its generated test, usually a Go toolchain
-    mismatch — the image pins Go 1.24. These findings are **kept and flagged,
+    mismatch: the image pins Go 1.24. These findings are **kept and flagged,
     never silently dropped**, because an infrastructure failure must never look
     like a clean bill of health. Deterministic findings are unaffected; they
     execute nothing.

@@ -12,7 +12,7 @@ Nothing reaches the report unverified. That constraint is the whole design.
 
 ## Use it in your CI
 
-Packaged as a GitHub Action. The minimum setup needs no API key and no secret —
+Packaged as a GitHub Action. The minimum setup needs no API key and no secret,
 the deterministic layer costs nothing and catches most drift on its own.
 
 ```yaml
@@ -45,7 +45,7 @@ Findings then appear as annotations on the exact lines of the pull request diff.
 Add `api-key` to enable the judgment pass, and `webhook-url` to POST the full
 report to Slack, Telegram or a Postgres sink.
 
-**Full setup, every input, and troubleshooting: [docs/site/github-actions.mdx](docs/site/github-actions.mdx)** — published at the docs site.
+**Full setup, every input, and troubleshooting: [docs/site/github-actions.mdx](docs/site/github-actions.mdx)**, published at the docs site.
 
 
 ## The user and the bottleneck
@@ -207,13 +207,13 @@ noise, precision alone rewards silence.
 | Precision | 0.162 | **1.000** | +0.838 |
 | False positives | 31 | **0** | −31 |
 | Critical drifts caught (/5) | 2 | **5** | +3 |
-| Decoys left clean (/4) | 4 | 4 | — |
+| Decoys left clean (/4) | 4 | 4 | n/a |
 | Cost per repo (USD) | $0.0160 | $0.0441 | +$0.0281 |
-| Human minutes per repo | 0 | 0 | — |
+| Human minutes per repo | 0 | 0 | n/a |
 
 The baseline is not merely worse, it is differently wrong. It reported **31 false
-positives against 6 true findings** — five spurious findings on D02 alone, twelve
-on D05 — so a reviewer would have to check 37 findings to reach 6 real ones. It
+positives against 6 true findings**: five spurious findings on D02 alone, twelve
+on D05, so a reviewer would have to check 37 findings to reach 6 real ones. It
 also missed every drift requiring cross-file reasoning: the renamed field (D01),
 the unregistered route (D04), the auth change (D08). Its 4/4 on decoys is not
 discrimination; it invented findings on the drift cases instead.
@@ -232,7 +232,7 @@ All four met: recall 1.00, precision 1.00, 5/5 critical, 4/4 decoys. The bar was
 written down before any run so it could not be adjusted to flatter the outcome.
 
 **Where the gain comes from.** The deterministic layer alone scores F1 0.889 at
-precision 1.0 for nothing — no model, no key, 0.2 seconds. The agent's whole
+precision 1.0 for nothing: no model, no key, 0.2 seconds. The agent's whole
 contribution is the last 0.20 of recall: D06, D09 and D11, the three drifts that
 need judgment rather than lookup.
 
@@ -253,24 +253,30 @@ with what they taught.
 
 | STAGE | WHAT WAS TRIED AND WHY | EVIDENCE | DECISION / LEARNING |
 |---|---|---|---|
-| Baseline | Single prompt per case: the whole Go package, the whole spec, "find every place these disagree". No tools, no verification. Establishes what one competent prompt achieves before any agent design. | **6 true findings against 31 false positives. Precision 0.162, recall 0.400, F1 0.231**, $0.016 (`reports/runs/baseline/`). | Starting point, and a sobering one. It is not merely worse — it is differently wrong. Twelve spurious findings on D05 alone, and it missed every drift needing cross-file reasoning (D01 renamed field, D04 unregistered route, D08 auth change). A reviewer would check 37 findings to reach 6 real ones. |
+| Baseline | Single prompt per case: the whole Go package, the whole spec, "find every place these disagree". No tools, no verification. Establishes what one competent prompt achieves before any agent design. | **6 true findings against 31 false positives. Precision 0.162, recall 0.400, F1 0.231**, $0.016 (`reports/runs/baseline/`). | Starting point, and a sobering one. It is not merely worse; it is differently wrong. Twelve spurious findings on D05 alone, and it missed every drift needing cross-file reasoning (D01 renamed field, D04 unregistered route, D08 auth change). A reviewer would check 37 findings to reach 6 real ones. |
 | Iteration 1 | Add AST route-table extraction as a tool. Hypothesis: the model is worst at exhaustively enumerating routes, which is exactly the part a parser does perfectly. | Tool built and verified: 30/30 checks in `auditor/tools/test_routes.py`. On the real target it finds 841 routes vs 805 grep matches, recovering 50 gin group-root registrations. Route extraction is exact on the fixture and stable across runs. | Kept. Two guards were needed to avoid counting `Header.Get`/`Query().Get` as routes, and the first version of those guards silently dropped every `group.GET("", h)`. Both errors were invisible without a known-answer fixture. |
-| Iteration 1b | Extend the parser to struct shapes and handler-body facts (status codes, query keys, headers read and set), then write nine deterministic rules over them. Hypothesis: a large share of contract drift is mechanical and needs no judgment at all. | 12/15 drifts caught, **0 false positives, 4/4 decoys clean, F1 0.889, $0.00, 0.2s** across all 16 cases (`reports/runs/deterministic/`; 27/27 checks in `test_diff.py`). | Kept, and it reframes the project. The no-model layer already meets every target committed before the first run. The three it misses — D06, D09, D11 — are exactly the three that need judgment rather than lookup, so that is now the agent's job, under a precision floor of 1.0 it must not lower. |
-| Iteration 2 | Add the verification gate — every claim must ship a Go test that executes the real handler through `httptest` and asserts what the spec promises. A claim is confirmed only if that test **fails**. Hypothesis: most of the error in any claim-generating layer is false positives, not misses. | Gate built and verified: 29/29 checks in `auditor/test_verify.py`. Confirms all 7 executable true claims with evidence taken from the running handler (`spec declares "available" as string; response carries number (2.45e+06)`), refutes all 6 of the same claims against clean code, rejects fabricated field names, and refutes claims against all 3 decoys. | Kept. Building it surfaced its own worst failure: the first version generated a test asserting that the claimed field was present, so a hallucinated field name produced a failing test and a *confirmed* finding — the gate would have laundered hallucinations rather than caught them. A claim must now name a field the spec actually documents before any test is generated. |
-| Iteration 2b | Route model calls through OpenRouter behind a provider-neutral client rather than binding to one vendor SDK. Hypothesis: vendor choice is a cost lever, not an architectural one, and judges should be able to run this with whatever key they hold. | Client built and verified: 20/20 in `auditor/test_llm.py`, live half costing $0.000508. Benchmarked on one identical prompt: `z-ai/glm-5.3-flash` $0.000046, `moonshotai/kimi-k2.7-code` $0.000118, `moonshotai/kimi-k3` $0.002428 — a 53x spread for the same answer. | Kept, default `glm-5.3-flash`. Three things only measurement would have shown: GLM 5.3 Flash is a reasoning model whose reasoning cannot be disabled (`reasoning:{enabled:false}` → 400) and which returns empty content if `max_tokens` only fits the answer; `kimi-k2.7-code` prefixes its JSON with a space; and Kimi K3, despite the name suggesting an upgrade, costs more per token than Claude Sonnet 5 and was dropped. |
-| Iteration 3 | Fan out per endpoint with the agent restricted to the three kinds the rules cannot settle, and told what they already found. Hypothesis: whole-repo context dilutes attention, and an unconstrained vocabulary invites restating mechanical findings. | Agent recovered all three judgment drifts — D06, D09, D11 — that the deterministic layer misses. Combined: **precision 1.0, recall 1.0, F1 1.0, 4/4 decoys clean, $0.0441, 26 min, 159 model calls** (`reports/runs/agent/`). | Kept. One endpoint per call, plus handing the agent the deterministic findings, produced no duplicate reports across 16 cases. |
-| Iteration 4 | Extend the verification gate to execute the three judgment kinds, rather than letting them through unverified because no parser could check them. | **The agent's raw precision was 0.23 — 10 of its 13 claims were false.** The gate refuted all 10 and confirmed all 3 true ones, and refuted 0 of the 12 deterministic claims. | Kept, and it is the load-bearing result. Ungated, the agent would have taken precision from 1.00 to 0.60 and made the report not worth reading. Gated, it adds 0.20 recall at no precision cost. The lesson is not that the model is bad — it is that a claim-generating layer is only as good as what can refute it. |
-| Iteration 5 *(removed)* | Add a fintech review skill (money types, idempotency, auth scope, webhook signing) to improve severity ranking. | Not built. Severity was already assigned per rule, with money-field name hints escalating a type mismatch to critical in `diff.py` — D05 and D08 both surfaced as critical without it, and the run had zero severity complaints to fix. | **Removed before building.** The hypothesis assumed a problem the measurement did not show. A skill file nothing loads is a component added for the look of the architecture, and the brief is explicit that purposeful choices matter more than the number of components. Recorded here because deciding *not* to build something on evidence is the same skill as building it. |
-| Final | Deterministic rules → constrained per-endpoint agent → verification gate over every claim, whatever produced it. | **Precision 1.000, recall 1.000, F1 1.000, 15/15 drifts, 0 false positives, 4/4 decoys clean, 5/5 critical drifts, $0.0441, 159 model calls** (`reports/runs/agent/`). Against the baseline: **F1 0.231 → 1.000**. | The gate is the main contribution. Everything else is ordinary engineering; the gate is what makes it safe to let a model guess at all. |
+| Iteration 1b | Extend the parser to struct shapes and handler-body facts (status codes, query keys, headers read and set), then write nine deterministic rules over them. Hypothesis: a large share of contract drift is mechanical and needs no judgment at all. | 12/15 drifts caught, **0 false positives, 4/4 decoys clean, F1 0.889, $0.00, 0.2s** across all 16 cases (`reports/runs/deterministic/`; 27/27 checks in `test_diff.py`). | Kept, and it reframes the project. The no-model layer already meets every target committed before the first run. The three it misses (D06, D09, D11) are exactly the three that need judgment rather than lookup, so that is now the agent's job, under a precision floor of 1.0 it must not lower. |
+| Iteration 2 | Add the verification gate: every claim must ship a Go test that executes the real handler through `httptest` and asserts what the spec promises. A claim is confirmed only if that test **fails**. Hypothesis: most of the error in any claim-generating layer is false positives, not misses. | Gate built and verified: 29/29 checks in `auditor/test_verify.py`. Confirms all 7 executable true claims with evidence taken from the running handler (`spec declares "available" as string; response carries number (2.45e+06)`), refutes all 6 of the same claims against clean code, rejects fabricated field names, and refutes claims against all 3 decoys. | Kept. Building it surfaced its own worst failure: the first version generated a test asserting that the claimed field was present, so a hallucinated field name produced a failing test and a *confirmed* finding; the gate would have laundered hallucinations rather than caught them. A claim must now name a field the spec actually documents before any test is generated. |
+| Iteration 2b | Route model calls through OpenRouter behind a provider-neutral client rather than binding to one vendor SDK. Hypothesis: vendor choice is a cost lever, not an architectural one, and judges should be able to run this with whatever key they hold. | Client built and verified: 20/20 in `auditor/test_llm.py`, live half costing $0.000508. Benchmarked on one identical prompt: `z-ai/glm-5.3-flash` $0.000046, `moonshotai/kimi-k2.7-code` $0.000118, `moonshotai/kimi-k3` $0.002428, a 53x spread for the same answer. | Kept, default `glm-5.3-flash`. Three things only measurement would have shown: GLM 5.3 Flash is a reasoning model whose reasoning cannot be disabled (`reasoning:{enabled:false}` → 400) and which returns empty content if `max_tokens` only fits the answer; `kimi-k2.7-code` prefixes its JSON with a space; and Kimi K3, despite the name suggesting an upgrade, costs more per token than Claude Sonnet 5 and was dropped. |
+| Iteration 3 | Fan out per endpoint with the agent restricted to the three kinds the rules cannot settle, and told what they already found. Hypothesis: whole-repo context dilutes attention, and an unconstrained vocabulary invites restating mechanical findings. | Agent recovered all three judgment drifts (D06, D09, D11) that the deterministic layer misses. Combined: **precision 1.0, recall 1.0, F1 1.0, 4/4 decoys clean, $0.0441, 26 min, 159 model calls** (`reports/runs/agent/`). | Kept. One endpoint per call, plus handing the agent the deterministic findings, produced no duplicate reports across 16 cases. |
+| Iteration 4 | Extend the verification gate to execute the three judgment kinds, rather than letting them through unverified because no parser could check them. | In the shipped run (`reports/runs/agent/`) the agent proposed **6 claims of which 3 were false**; the gate refuted all 3, confirmed the 3 true ones, and refuted **0 of the 12 deterministic claims**. An earlier identical run proposed **13 claims of which 10 were false**. Both scored F1 1.000. | Kept, and it is the load-bearing result, for a reason the two runs make clearer than either does alone. The count of *true* claims was stable at 3; the count of *false* ones moved from 3 to 10 with no change to prompt, model or cases. Ungated, that variance would have put final precision somewhere between 0.60 and 0.83 depending on the day. Gated, both runs produced the identical report. The gate does not only raise precision, it removes the variance. |
+| Iteration 5 *(removed)* | Add a fintech review skill (money types, idempotency, auth scope, webhook signing) to improve severity ranking. | Not built. Severity was already assigned per rule, with money-field name hints escalating a type mismatch to critical in `diff.py`. D05 and D08 both surfaced as critical without it, and the run had zero severity complaints to fix. | **Removed before building.** The hypothesis assumed a problem the measurement did not show. A skill file nothing loads is a component added for the look of the architecture, and the brief is explicit that purposeful choices matter more than the number of components. Recorded here because deciding *not* to build something on evidence is the same skill as building it. |
+| Final | Deterministic rules → constrained per-endpoint agent → verification gate over every claim, whatever produced it. | **Precision 1.000, recall 1.000, F1 1.000, 15/15 drifts, 0 false positives, 4/4 decoys clean, 5/5 critical drifts, 159 model calls, $0.0704, 17 min** (`reports/runs/agent/`). Against the baseline: **F1 0.231 → 1.000**. Reproduced: two independent full runs, days apart in development and differing in agent noise, both scored F1 1.000. | The gate is the main contribution. Everything else is ordinary engineering; the gate is what makes it safe to let a model guess at all. |
 
 Removed experiments belong in this table too, with what they taught.
 
 **Main failure mode: an agent's confident wrong answer is indistinguishable from its right one, and so is a broken run.**
 
-Measured, not asserted: of the 13 claims the per-endpoint agent produced across
-16 cases, **10 were false — a raw precision of 0.23**. Every one was fluent,
-specific, and cited a plausible line. Nothing in the text separated them from
-the 3 that were true.
+Measured, not asserted. Across 16 cases the per-endpoint agent produced 6 claims
+and **3 of them were false**. Every one was fluent, specific, and cited a
+plausible line. Nothing in the text separated them from the 3 that were true.
+
+An earlier run of the same code over the same cases produced **13 claims, 10 of
+them false**. The number of *true* claims did not move; it was 3 both times,
+because there are 3 judgment drifts to find. What moved was the noise, by more
+than a factor of three, with no change to the prompt, the model, or the inputs.
+You cannot tune against that. There is no prompt that fixes a number which
+varies this much between identical runs.
 
 The same shape appeared three more times, and each was invisible until something
 executed it:
@@ -279,32 +285,35 @@ executed it:
   "this endpoint is clean". A transport failure looked like a passing audit.
 - A **skipped Go test exits 0**, and an exit-code check read that as "claim
   refuted". A true finding was silently deleted.
-- The **route extractor returned different answers on five identical runs** —
-  Go randomises map iteration — so the report changed while the code did not.
+- The **route extractor returned different answers on five identical runs**.
+  Go randomises map iteration, so the report changed while the code did not.
 
 None of these announce themselves. All of them fail toward *looking fine*.
 
 **Hot take: stop trying to make the agent right, and build the thing that can
 prove it wrong.**
 
-The instinct on seeing 0.23 precision is to fix the model — better prompt, better
+The instinct on seeing precision like that is to fix the model: better prompt, better
 model, more context. We did tune the prompt, and it mattered in one specific way
 worth naming: when the spec index dropped `minLength`/`maxLength`, the model was
 shown `bvn: {"type": "string"}` for a field constrained to exactly 11 characters
 and produced a confident finding against code that was honouring the spec
-exactly. **Starving a reader of context does not make it cautious — it makes it
+exactly. **Starving a reader of context does not make it cautious; it makes it
 reason in circles and then be confidently wrong.** Restoring the constraints cut
 its output on those prompts from >8000 tokens (truncating, timing out) to under
 1900, and the false positive disappeared.
 
 But prompt work has a ceiling, and it is not a guarantee. What changed the
 outcome was charging every claim the price of a test that executes the real
-handler: **precision 0.23 → 1.00, with recall going up, not down.** The agent
-became *more* useful once it was allowed to be wrong, because being wrong stopped
-being expensive.
+handler: **the agent's raw precision — 0.50 on the shipped run, 0.23 on the
+earlier one — became 1.00 on both, with recall going up rather than down.** Two
+runs whose raw noise differed threefold produced byte-identical reports. The
+agent became *more* useful once it was allowed to be wrong, because being wrong
+stopped being expensive, and it stopped mattering how wrong it was on any given
+day.
 
 That inverts the usual build order. The deterministic layer alone scores F1 0.889
-for zero cost — most of this problem never needed an agent. The agent earns its
+for zero cost: most of this problem never needed an agent. The agent earns its
 place on exactly three of fifteen drifts, and only because a gate stands between
 its guesses and the report. **Build the refutation mechanism first; it tells you
 how much agent you actually need, and it is the only thing that makes the answer
@@ -319,7 +328,7 @@ trustworthy when you do.**
 | [auditor/](auditor/) | The agent: tools, prompts, orchestration |
 | [auditor/notify.py](auditor/notify.py) | Slack/Telegram alerting, gated on verification |
 | [ddocs/](ddocs/) | Plain-language overview, self-improvement note, GHCR publishing guide |
-| [docs/site/](docs/site/) | Public documentation site — quickstart, CI setup, how it works |
+| [docs/site/](docs/site/) | Public documentation site: quickstart, CI setup, how it works |
 | [baseline/](baseline/) | The single-prompt baseline |
 | [eval/fixture/](eval/fixture/) | Synthetic Go payments API + its published spec |
 | [eval/mutations/](eval/mutations/) | The 16 mutations and their ground truth |

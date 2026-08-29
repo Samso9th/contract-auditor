@@ -1,7 +1,0 @@
-{
-  "id": "TN03",
-  "category": "decoy-field-reorder",
-  "severity": "none",
-  "description": "DECOY. Reorders response fields. Same JSON keys, same values.",
-  "expect": []
-}

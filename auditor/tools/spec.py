@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OpenAPI index — component 2 of the auditor.
+"""OpenAPI index: component 2 of the auditor.
 
 Loads a spec into the same `(path, method)` shape the route table uses, with
 `$ref` resolved, so the two can be compared directly. Deterministic; no model.
@@ -238,7 +238,7 @@ def load(path):
     except json.JSONDecodeError as exc:
         raise SpecError(f"{path} is not valid JSON: {exc}") from exc
     if "paths" not in document:
-        raise SpecError(f"{path} has no `paths` — not an OpenAPI document?")
+        raise SpecError(f"{path} has no `paths`; not an OpenAPI document?")
     return Spec(document, source=str(path))
 
 
@@ -261,10 +261,10 @@ def main():
     print(f"{len(spec)} operations in {args.spec}\n")
     print(f"{'METHOD':<7} {'PATH':<24} {'2XX':<6} {'AUTH':<12} {'PARAMS':<7} RESPONSE")
     for (path, method), op in sorted(spec.items()):
-        success = ",".join(spec.success_codes((path, method))) or "—"
+        success = ",".join(spec.success_codes((path, method))) or "none"
         auth = ",".join(op["security"]) if op["security"] else "public"
         body = op["responses"].get(success.split(",")[0], {})
-        shape = body.get("schema_name") or "—"
+        shape = body.get("schema_name") or "none"
         if body.get("is_array"):
             shape += "[]"
         print(f"{method.upper():<7} {path:<24} {success:<6} {auth:<12} "

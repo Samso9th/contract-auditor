@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build agent trajectories from a scored run — hackathon deliverable 04.
+"""Build agent trajectories from a scored run: hackathon deliverable 04.
 
 A trajectory has to be followable from the agent's instructions to its final
 result: what it did, how its tools responded, what feedback shaped the next step,
@@ -40,13 +40,13 @@ def render(case_id, payload, truth):
     dropped = meta.get("dropped_by_gate", [])
 
     lines = [
-        f"# Trajectory — {case_id}",
+        f"# Trajectory: {case_id}",
         "",
-        f"**Injected drift:** {truth.get('description', '(decoy — no drift injected)')}",
+        f"**Injected drift:** {truth.get('description', '(decoy, no drift injected)')}",
         f"**Severity:** {truth.get('severity', 'none')}  ·  "
         f"**Expected findings:** {len(truth.get('expect', []))}",
         "",
-        "## 1. Deterministic pass — parsing, no model",
+        "## 1. Deterministic pass: parsing, no model",
         "",
     ]
 
@@ -63,11 +63,11 @@ def render(case_id, payload, truth):
     else:
         lines += ["No mechanical drift. Route table matches the spec, response shapes "
                   "agree, status codes and headers line up.", "",
-                  "This is the case the deterministic layer cannot settle — it is why "
+                  "This is the case the deterministic layer cannot settle; it is why "
                   "the agent exists.", ""]
 
     lines += [
-        "## 2. Agent pass — one call per endpoint",
+        "## 2. Agent pass: one call per endpoint",
         "",
         f"The agent was given each endpoint's handler source, the spec's promises for it, "
         f"and the deterministic findings above so it would not restate them. It may only "
@@ -92,7 +92,7 @@ def render(case_id, payload, truth):
             lines.append(f"- {e}")
         lines.append("")
 
-    lines += ["## 3. Verification gate — every claim executed", "",
+    lines += ["## 3. Verification gate: every claim executed", "",
               "Each claim, from either layer, generated a Go test asserting what the "
               "*spec* promises, run against the real handler through `httptest`. "
               "A claim whose test **passes** is refuted and dropped.", "",
@@ -107,14 +107,14 @@ def render(case_id, payload, truth):
                   "mechanism working:", ""]
         for d in dropped:
             lines.append(f"- `{d['method'].upper()} {d['path']}` → **{d['kind']}** "
-                         f"— proposed by *{d.get('source','?')}*, refuted")
+                         f"(proposed by *{d.get('source','?')}*, refuted)")
         lines.append("")
 
     lines += ["## 4. Result", ""]
     if kept:
         for f in kept:
             lines.append(f"- **{f.get('severity','')}** `{f['method'].upper()} {f['path']}` "
-                         f"— {f['kind']}")
+                         f"({f['kind']})")
             if f.get("verification"):
                 lines.append(f"  - gate: {f['verification'][:200]}")
         lines.append("")
@@ -122,8 +122,8 @@ def render(case_id, payload, truth):
         lines += ["No findings.", ""]
 
     expected = len(truth.get("expect", []))
-    verdict = ("correct — matches ground truth" if len(kept) == expected
-               else f"MISMATCH — {len(kept)} kept, {expected} expected")
+    verdict = ("correct: matches ground truth" if len(kept) == expected
+               else f"MISMATCH: {len(kept)} kept, {expected} expected")
     lines += [f"**Scored:** {verdict}", ""]
     return "\n".join(lines)
 
@@ -142,17 +142,32 @@ def main():
     if not entries:
         raise SystemExit(f"no run data in {args.run}")
 
+    # Which cases are worth reading is a property of the run, not a fixed list.
+    # The agent's noise moves between runs, so naming cases in prose would make
+    # this index contradict the data directly beneath it.
+    dropped_in = [cid for cid, payload, _ in entries
+                  if payload.get("meta", {}).get("verification", {}).get("refuted", 0)]
+    agent_only = [cid for cid, payload, truth in entries
+                  if truth.get("expect") and payload.get("meta", {}).get("deterministic_claims", 0) == 0]
+
+    highlights = []
+    if dropped_in:
+        highlights.append(
+            f"**{', '.join(dropped_in)}** are the cases where the gate deleted a claim: "
+            "the agent proposed something false and execution removed it before it "
+            "reached the report.")
+    if agent_only:
+        highlights.append(
+            f"**{', '.join(agent_only)}** are the drifts the deterministic rules cannot "
+            "settle at all, so they exist to be found by the agent or not at all.")
+
     index = ["# Agent trajectories", "",
              "One per evaluation case, generated from the scored run in "
              f"`{args.run}`. Each is followable from the agent's instructions to its "
-             "final result, including the claims the verification gate deleted.", "",
-             "The cases worth reading first are the ones where the gate did work:",
-             "**D06**, **D09** and **D11** are the drifts only the agent finds, and each "
-             "shows it proposing a false claim alongside the true one. **N03** and **N04** "
-             "are decoys where every agent claim was refuted — the decoy stays clean "
-             "because of verification, not because the agent was silent.", "",
-             "| case | drift | agent claims | gate dropped | kept | result |",
-             "|---|---|---|---|---|---|"]
+             "final result, including the claims the verification gate deleted.", ""]
+    index += ["Worth reading first:", ""] + [f"- {h}" for h in highlights] + [""] if highlights else []
+    index += ["| case | drift | agent claims | gate dropped | kept | result |",
+              "|---|---|---|---|---|---|"]
 
     for case_id, payload, truth in entries:
         meta = payload.get("meta", {})

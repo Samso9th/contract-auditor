@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Per-endpoint auditor agent — component 6.
+"""Per-endpoint auditor agent: component 6.
 
 Reads one endpoint's handler source against its specification and reports drift
 the deterministic rules cannot settle. Those rules already catch what is
-mechanical; this exists for the residue that needs judgment — a handler that
+mechanical; this exists for the residue that needs judgment: a handler that
 rejects a field the spec calls optional, a default that quietly changed, a
 validation bound loosened below what is documented.
 
@@ -17,7 +17,7 @@ wrong function.
 **The model proposes; it does not decide.** Every claim returned here is a
 candidate. It goes to the verification gate, and where the gate can execute it,
 a claim that fails to reproduce is dropped. This module's job is recall within a
-strict vocabulary — precision is enforced downstream.
+strict vocabulary; precision is enforced downstream.
 
     from auditor.audit_endpoint import audit_endpoint
     claims = audit_endpoint(api_dir, spec, ("/refunds", "post"), table, known=[])
@@ -34,16 +34,34 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 
 from llm import chat, DEFAULT_MODEL, DEFAULT_MAX_TOKENS, LLMError  # noqa: E402
-from routes import extract  # noqa: E402
+from diff import extract  # noqa: E402
+import languages  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 
 # The kinds this layer may report. Deliberately excludes everything the
 # deterministic rules own: route existence, response shapes, status codes, query
 # parameter names, auth and response headers are all settled by parsing, and
 # inviting the model to re-report them only creates duplicates and disagreement.
+ALL_KINDS = {
+    "response_field_mismatch":
+        "the response body omits a field the specification promises, or carries one it does not document",
+    "response_type_mismatch":
+        "a response field's JSON type differs from the documented type",
+    "response_header_mismatch":
+        "a response header the documentation names is not the header the handler sets",
+    "request_param_mismatch":
+        "the handler reads a query parameter under a different name than the one documented",
+    "status_code_mismatch":
+        "the handler's success status differs from the documented one",
+    "undocumented_status":
+        "the handler can return a status the specification does not document",
+    "auth_mismatch":
+        "the handler enforces authentication on an endpoint the specification documents as public",
+}
+
 JUDGMENT_KINDS = {
     "request_required_mismatch":
-        "the handler rejects a request that the specification says is valid — it "
+        "the handler rejects a request that the specification says is valid. It "
         "enforces a field, header or condition the spec does not mark as required",
     "default_value_mismatch":
         "the handler applies a different default from the one the spec documents "
@@ -77,7 +95,7 @@ Function `{handler}` at {file}:{start}-{end}
 
 {spec_json}
 
-# Already reported by static analysis — do NOT repeat these
+# Already reported by static analysis. Do NOT repeat these
 
 {known}
 
@@ -101,7 +119,7 @@ For each finding give:
 
 Report a finding only when the handler line and the specification directly
 contradict each other. If the handler does something the spec is simply silent
-about, that is not drift of these kinds — omit it.
+about, that is not drift of these kinds: omit it.
 
 Reply with JSON only:
 
@@ -120,11 +138,17 @@ def handler_source(api_dir, facts):
     return "\n".join(lines[start:end])
 
 
-def spec_summary(operation):
-    """The parts of the operation a judgment-kind finding could contradict.
-    Response bodies are omitted on purpose — they belong to the deterministic
-    rules, and including them here draws the model toward out-of-scope reports."""
-    return {
+def spec_summary(operation, kinds=None):
+    """The parts of the operation a finding could contradict.
+
+    Response bodies are included only when the vocabulary allows a response-shaped
+    finding. For Go they are omitted - the deterministic rules own them, and
+    showing them invites out-of-scope reports. For TypeScript, whose rules cannot
+    settle them, omitting them asks the agent about a shape it has never seen,
+    and it correctly reports nothing.
+    """
+    kinds = kinds or {}
+    summary = {
         "summary": operation["summary"],
         "description": operation["description"],
         # Every key, including validation constraints. An earlier version
@@ -137,29 +161,43 @@ def spec_summary(operation):
         "security": operation["security"],
     }
 
+    if any(k.startswith("response_") or k.endswith("_status") or k == "status_code_mismatch"
+           for k in kinds):
+        summary["responses"] = {
+            code: {
+                "description": response.get("description", ""),
+                "properties": response.get("properties", {}),
+                "headers": response.get("headers", []),
+            }
+            for code, response in operation["responses"].items()
+        }
+    return summary
 
-def build_prompt(path, method, facts, operation, source, known):
+
+def build_prompt(path, method, facts, operation, source, known, kinds=None):
     known_text = "\n".join(
         f"- {f['kind']}: {f.get('detail') or ''} ({f.get('evidence', '')[:110]})"
         for f in known
     ) or "- (nothing)"
-    kinds_text = "\n".join(f'  - "{k}" — {v}' for k, v in JUDGMENT_KINDS.items())
+    kinds = kinds or JUDGMENT_KINDS
+    kinds_text = "\n".join(f'  - "{k}": {v}' for k, v in kinds.items())
     return TEMPLATE.format(
         method=method.lower(), path=path, handler=facts["name"],
         file=facts["file"], start=facts["line"], end=facts.get("end_line", facts["line"]),
         source=source,
-        spec_json=json.dumps(spec_summary(operation), indent=2),
+        spec_json=json.dumps(spec_summary(operation, kinds), indent=2),
         known=known_text, kinds=kinds_text,
-        kind_list=json.dumps(sorted(JUDGMENT_KINDS)),
+        kind_list=json.dumps(sorted(kinds)),
     )
 
 
-def clean_claims(raw, path, method, drop_low_confidence=True, file="", line=0):
+def clean_claims(raw, path, method, drop_low_confidence=True, file="", line=0,
+                 kinds=None):
     """Keep only claims that are in vocabulary and about this endpoint.
 
     A model that invents a kind, or answers about a different endpoint, has
     drifted from the task; those replies are dropped here rather than passed on
-    to be argued with downstream. Low-confidence claims are dropped by default —
+    to be argued with downstream. Low-confidence claims are dropped by default,
     the gate cannot execute these kinds, so an unverifiable guess would reach the
     report unchallenged.
     """
@@ -168,7 +206,7 @@ def clean_claims(raw, path, method, drop_low_confidence=True, file="", line=0):
         if not isinstance(item, dict):
             continue
         kind = str(item.get("kind", "")).strip()
-        if kind not in JUDGMENT_KINDS:
+        if kind not in (kinds or JUDGMENT_KINDS):
             continue
         if str(item.get("path", "")).strip() != path:
             continue
@@ -192,7 +230,24 @@ def clean_claims(raw, path, method, drop_low_confidence=True, file="", line=0):
     return out
 
 
-def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL):
+def vocabulary(adapter=None):
+    """What this language's agent may report.
+
+    Always the three judgment kinds, plus anything the language's deterministic
+    rules cannot settle. Go's rules cover response shapes and status codes from
+    the AST, so its agent must not restate them; TypeScript's do not, so its
+    agent may. The gate verifies both the same way, which is what makes widening
+    the vocabulary safe rather than a precision risk.
+    """
+    kinds = dict(JUDGMENT_KINDS)
+    if adapter is not None:
+        settled = getattr(adapter, "DETERMINISTIC_KINDS", set())
+        kinds.update({k: v for k, v in ALL_KINDS.items() if k not in settled})
+    return kinds
+
+
+def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
+                   adapter=None):
     """Audit one endpoint. Returns (claims, usage)."""
     path, method = key
     known = known or []
@@ -202,16 +257,39 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL):
                   if r["path"] == path and r["method"].lower() == method.lower()), None)
     if route is None:
         return [], usage
-    facts = table["handlers"].get(route["handler"])
-    if not facts or facts.get("ambiguous"):
+    facts = (table.get("handlers") or {}).get(route["handler"])
+    if facts and facts.get("ambiguous"):
         return [], usage
 
-    source = handler_source(api_dir, facts)
+    if facts:
+        source = handler_source(api_dir, facts)
+        location = (facts["file"], facts["line"])
+    elif adapter is not None and hasattr(adapter, "handler_source"):
+        # Languages whose extractor emits no handler facts still have a handler;
+        # the adapter knows how to find it. Returning early here is what made the
+        # TypeScript agent silently audit nothing.
+        source, file, line = adapter.handler_source(api_dir, route, table)
+        location = (file, line)
+        # The response shape is often built in a module the handler imports.
+        # Without it the agent answers about code it cannot see, and reports a
+        # clean endpoint truthfully but uselessly.
+        if source and hasattr(adapter, "supporting_sources") and file:
+            for label, body in adapter.supporting_sources(api_dir, file):
+                source += f"\n\n// ---- imported by {file}: {label} ----\n{body}"
+    else:
+        source, location = None, (None, 0)
+
     if not source:
+        usage["error"] = f"could not locate the source of handler {route['handler']!r}"
+        usage["unread_endpoint"] = f"{method.upper()} {path}"
         return [], usage
 
-    prompt = build_prompt(path, method, facts, spec[key], source,
-                          [f for f in known if f["path"] == path and f["method"] == method.lower()])
+    kinds = vocabulary(adapter)
+    described = facts or {"name": route["handler"], "file": location[0],
+                          "line": location[1], "end_line": location[1]}
+    prompt = build_prompt(path, method, described, spec[key], source,
+                          [f for f in known if f["path"] == path and f["method"] == method.lower()],
+                          kinds)
 
     # An unparseable reply is indistinguishable from "no drift here": both yield
     # zero claims. That makes a transport-level failure look like a clean
@@ -247,7 +325,8 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL):
 
     # Anchor every agent claim to the handler it actually read.
     return clean_claims(reply.json.get("findings"), path, method,
-                        file=facts["file"], line=facts["line"]), usage
+                        file=location[0] or "", line=location[1] or 0,
+                        kinds=kinds), usage
 
 
 def main():
@@ -257,12 +336,14 @@ def main():
     parser.add_argument("--endpoint", help='e.g. "post /refunds" (default: every endpoint)')
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--strip-prefix", default="/v1")
+    parser.add_argument("--language", default=None, help="go or typescript; detected when omitted")
     args = parser.parse_args()
 
     case = pathlib.Path(args.case).resolve()
     api_dir = case / "api" if (case / "api").exists() else case
     spec = load_spec(case / "spec" / "openapi.json")
-    table = extract(api_dir, strip_prefix=args.strip_prefix)
+    adapter = languages.get(args.language) if args.language else languages.detect(api_dir)
+    table = extract(api_dir, strip_prefix=args.strip_prefix, language=args.language)
 
     if args.endpoint:
         method, path = args.endpoint.split(None, 1)
@@ -273,10 +354,11 @@ def main():
 
     total = {"cost_usd": 0.0, "calls": 0}
     for key in keys:
-        claims, usage = audit_endpoint(api_dir, spec, key, table, model=args.model)
+        claims, usage = audit_endpoint(api_dir, spec, key, table, model=args.model,
+                                       adapter=adapter)
         total["cost_usd"] += usage["cost_usd"]
         total["calls"] += usage["calls"]
-        marker = f"{len(claims)} claim(s)" if claims else "—"
+        marker = f"{len(claims)} claim(s)" if claims else "none"
         note = f"  [{usage['error']}]" if usage.get("error") else ""
         print(f"  {key[1].upper():<6} {key[0]:<24} {marker}{note}")
         for claim in claims:

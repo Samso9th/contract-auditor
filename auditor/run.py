@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The contract auditor — deterministic rules, agent, verification gate.
+"""The contract auditor: deterministic rules, agent, verification gate.
 
 Three layers, in the order that keeps the cheap and certain work ahead of the
 expensive and uncertain:
@@ -31,6 +31,7 @@ from audit_endpoint import audit_endpoint  # noqa: E402
 from diff import audit as deterministic_audit  # noqa: E402
 from llm import DEFAULT_MODEL  # noqa: E402
 from diff import extract  # noqa: E402
+import languages  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 from verify import verify_claim  # noqa: E402
 
@@ -78,11 +79,11 @@ def case_paths(case_dir):
     return api, case_dir / "spec" / "openapi.json"
 
 
-def agent_pass(api, spec, table, known, model, pool):
+def agent_pass(api, spec, table, known, model, pool, adapter=None):
     """Run the agent over every endpoint code and spec both describe."""
     keys = sorted(set(spec.keys()) &
                   {(r["path"], r["method"].lower()) for r in table["routes"]})
-    jobs = {pool.submit(audit_endpoint, api, spec, key, table, known, model): key
+    jobs = {pool.submit(audit_endpoint, api, spec, key, table, known, model, adapter): key
             for key in keys}
 
     claims, usage = [], {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "calls": 0}
@@ -101,7 +102,7 @@ def agent_pass(api, spec, table, known, model, pool):
     return claims, usage
 
 
-def verify_all(case_dir, spec, claims):
+def verify_all(case_dir, spec, claims, language=None, strip_prefix="/v1"):
     """Put every claim through the gate.
 
     Sequential by design: the gate writes a test file into the package under
@@ -109,7 +110,8 @@ def verify_all(case_dir, spec, claims):
     """
     kept, dropped, stats = [], [], {"confirmed": 0, "refuted": 0, "unsupported": 0, "error": 0}
     for claim in claims:
-        outcome = verify_claim(case_dir, claim, spec)
+        outcome = verify_claim(case_dir, claim, spec, language=language,
+                               strip_prefix=strip_prefix)
         verdict = outcome["verdict"]
         stats[verdict] = stats.get(verdict, 0) + 1
         enriched = dict(claim, verdict=verdict, verification=outcome.get("detail", ""))
@@ -118,7 +120,7 @@ def verify_all(case_dir, spec, claims):
             # evidence - appended, not substituted. Replacing the static evidence
             # threw away the file and line the finding was anchored to, which is
             # what an inline CI annotation needs.
-            enriched["evidence"] = f"{claim.get('evidence', '')} — verified: {outcome['detail']}"
+            enriched["evidence"] = f"{claim.get('evidence', '')} (verified: {outcome['detail']})"
         (kept if verdict in KEEP else dropped).append(enriched)
     return kept, dropped, stats
 
@@ -126,18 +128,19 @@ def verify_all(case_dir, spec, claims):
 def audit_one(case_dir, model, pool, strip_prefix, language=None):
     api, spec_path = case_paths(case_dir)
     spec = load_spec(spec_path)
+    adapter = languages.get(language) if language else languages.detect(api)
     table = extract(api, strip_prefix=strip_prefix, language=language)
     started = time.time()
 
     mechanical = deterministic_audit(api, spec_path, strip_prefix=strip_prefix,
                                      language=language)
-    judged, usage = agent_pass(api, spec, table, mechanical, model, pool)
+    judged, usage = agent_pass(api, spec, table, mechanical, model, pool, adapter)
 
     accepted = load_allowlist()
     claims = [c for c in mechanical + judged if not allowed(c, accepted)]
     suppressed = len(mechanical) + len(judged) - len(claims)
 
-    kept, dropped, stats = verify_all(case_dir, spec, claims)
+    kept, dropped, stats = verify_all(case_dir, spec, claims, language, strip_prefix)
 
     return {
         "findings": kept,
@@ -192,12 +195,13 @@ def main():
         mechanical = deterministic_audit(api, args.spec, strip_prefix=args.strip_prefix,
                                          language=args.language)
         log(f"deterministic: {len(mechanical)} finding(s)")
-        judged, usage = agent_pass(api, spec, table, mechanical, args.model, pool)
+        adapter = languages.get(args.language) if args.language else languages.detect(api)
+        judged, usage = agent_pass(api, spec, table, mechanical, args.model, pool, adapter)
         log(f"agent: {len(judged)} claim(s), {usage['calls']} calls, ${usage['cost_usd']:.4f}")
         with open(out / "report.json", "w") as f:
             json.dump({"findings": mechanical + judged, "meta": usage}, f, indent=2, default=str)
         log(f"\nwritten to {out / 'report.json'}")
-        log("note: findings are unverified — the gate needs a buildable package under test")
+        log("note: findings are unverified; the gate needs a buildable package under test")
         return
 
     cases = pathlib.Path(args.cases).resolve()

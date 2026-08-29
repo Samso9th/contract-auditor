@@ -29,7 +29,7 @@ NOTIFY_MIN="${INPUT_NOTIFY_MIN_SEVERITY:-high}"
 log() { printf '%s\n' "$*"; }
 fail() { printf '::error::%s\n' "$*" >&2; exit 1; }
 
-[ -n "$SPEC" ] || fail "spec input is required — the path to your OpenAPI document"
+[ -n "$SPEC" ] || fail "spec input is required: the path to your OpenAPI document"
 [ -f "$SPEC" ] || fail "spec not found at '$SPEC'"
 [ -d "$SOURCE_DIR" ] || fail "source-dir not found at '$SOURCE_DIR'"
 
@@ -44,11 +44,11 @@ log "spec       $SPEC"
 log "language   $LANGUAGE"
 log "model      $MODEL"
 
-# No key means the deterministic layer only. That is a genuinely useful mode —
-# it catches most drift, costs nothing, and needs no secret — so it runs rather
+# No key means the deterministic layer only. That is a genuinely useful mode:
+# it catches most drift, costs nothing, and needs no secret, so it runs rather
 # than failing the job.
 if [ -z "${OPENROUTER_API_KEY:-}" ]; then
-  log "no api-key supplied — running the deterministic layer only (no model calls)"
+  log "no api-key supplied, running the deterministic layer only (no model calls)"
   python3 "$AUDITOR/auditor/tools/diff.py" "$SOURCE_DIR" "$SPEC" \
       ${STRIP_PREFIX:+--strip-prefix "$STRIP_PREFIX"} "${LANG_ARG[@]}" \
       --json > "$OUT_DIR/report.json"
@@ -77,7 +77,7 @@ set -e
 if [ -n "${SLACK_WEBHOOK_URL:-}" ] || [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
   RUN_URL="${GITHUB_SERVER_URL:-}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}"
   python3 "$AUDITOR/auditor/notify.py" --run "$REPORT" \
-      --title "Contract audit — ${GITHUB_REPOSITORY:-repository}" \
+      --title "Contract audit: ${GITHUB_REPOSITORY:-repository}" \
       --min-severity "$NOTIFY_MIN" \
       ${GITHUB_RUN_ID:+--report-url "$RUN_URL"} || \
     log "::warning::notification delivery failed; the audit itself succeeded"

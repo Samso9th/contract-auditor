@@ -59,7 +59,7 @@ def offline_checks():
     # ignore a red build. Credentials are exercised by the live suite instead.
     env = load_env()
     if not (env.get("OPENROUTER_API_KEY") or env.get("OPENAI_API_KEY")):
-        print("  note   no API key configured — live checks unavailable\n")
+        print("  note   no API key configured, live checks unavailable\n")
 
 
 def live_checks():

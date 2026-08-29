@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The notification layer — how a finding reaches a human.
+"""The notification layer: how a finding reaches a human.
 
 A report nobody opens is the same as no report. This module pushes verified
 drift to Slack or Telegram the moment CI produces it, so the cost of a broken
@@ -152,7 +152,7 @@ def summary_line(findings):
 def describe(f):
     """One line per finding: what broke, where, and on what evidence."""
     method = f.get("method", "").upper()
-    head = f"{method} {f['path']} — {f['kind']}"
+    head = f"{method} {f['path']}: {f['kind']}"
     if f.get("detail"):
         head += f" ({f['detail']})"
     return head
@@ -167,7 +167,7 @@ def format_slack(findings, title, report_url=None, verified_only=True):
          "text": {"type": "plain_text", "text": f"Contract drift: {title}"}},
         {"type": "section",
          "text": {"type": "mrkdwn",
-                  "text": f"*{len(findings)} finding(s)* — {summary_line(findings)}"}},
+                  "text": f"*{len(findings)} finding(s)*: {summary_line(findings)}"}},
     ]
 
     for f in listed:
@@ -183,13 +183,13 @@ def format_slack(findings, title, report_url=None, verified_only=True):
 
     footer = ("Every finding above was proved by a test that fails against the current code."
               if verified_only else
-              ":warning: Unverified run — these claims have not been through the verification gate.")
+              ":warning: Unverified run: these claims have not been through the verification gate.")
     if report_url:
         footer += f" <{report_url}|Open the report>"
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": footer}]})
 
     return {"blocks": blocks,
-            "text": f"Contract drift: {title} — {summary_line(findings)}"}
+            "text": f"Contract drift: {title}, {summary_line(findings)}"}
 
 
 def escape_html(text):
@@ -198,7 +198,7 @@ def escape_html(text):
 
 def format_telegram(findings, title, chat_id, report_url=None, verified_only=True):
     lines = [f"<b>Contract drift: {escape_html(title)}</b>",
-             f"{len(findings)} finding(s) — {escape_html(summary_line(findings))}", ""]
+             f"{len(findings)} finding(s): {escape_html(summary_line(findings))}", ""]
 
     for f in findings[:MAX_LISTED]:
         lines.append(f"<b>{escape_html(f.get('severity', 'medium').upper())}</b> "
@@ -210,7 +210,7 @@ def format_telegram(findings, title, chat_id, report_url=None, verified_only=Tru
         lines.append(f"+{len(findings) - MAX_LISTED} more in the full report")
 
     lines.append("Every finding was proved by a failing test." if verified_only
-                 else "Unverified run — no verification gate.")
+                 else "Unverified run: no verification gate.")
     if report_url:
         lines.append(escape_html(report_url))
 
@@ -320,17 +320,17 @@ def main():
                  "TELEGRAM_BOT_TOKEN with TELEGRAM_CHAT_ID, in .env or the environment.")
 
     if not selected and not args.notify_empty:
-        print(f"notify: nothing at or above {args.min_severity} — staying quiet")
+        print(f"notify: nothing at or above {args.min_severity}, staying quiet")
         return
 
     try:
         sent = send(selected, title, env, args.report_url, verified_only, args.dry_run)
     except NotifyError as exc:
-        sys.exit(f"notify: send failed — {exc}")
+        sys.exit(f"notify: send failed: {exc}")
 
     where = ", ".join(sent) or "nowhere (no channel configured)"
     verb = "would send" if args.dry_run else "sent"
-    print(f"notify: {verb} {len(selected)} finding(s) to {where} — {summary_line(selected)}")
+    print(f"notify: {verb} {len(selected)} finding(s) to {where}: {summary_line(selected)}")
 
     if args.fail_on:
         ceiling = SEVERITY_ORDER.index(args.fail_on)

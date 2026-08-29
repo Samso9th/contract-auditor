@@ -1,4 +1,4 @@
-"""Go adapter — net/http ServeMux, gin, echo, chi.
+"""Go adapter: net/http ServeMux, gin, echo, chi.
 
 Wraps the `go/ast` extractor in tools/goroutes and generates tests that drive a
 handler through `net/http/httptest`, so the probe exercises the real handler
@@ -14,6 +14,17 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "tools"))
 
 NAME = "go"
 DEFAULT_PREFIX = "/v1"
+
+# What the deterministic rules settle for this language, and therefore what the
+# agent must not restate. The Go extractor emits struct shapes and handler-body
+# facts, so the rules cover response shapes, status codes, query parameters,
+# auth and headers without a model.
+DETERMINISTIC_KINDS = {
+    "route_missing_from_spec", "route_missing_from_code",
+    "response_field_mismatch", "response_type_mismatch", "response_header_mismatch",
+    "request_param_mismatch", "status_code_mismatch", "undocumented_status",
+    "auth_mismatch",
+}
 TEST_FILENAME = "contract_verify_test.go"
 
 

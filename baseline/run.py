@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The baseline — one direct prompt per case.
+"""The baseline: one direct prompt per case.
 
 The fair comparison point the brief asks for: a reasonable basic way to handle
 the task before any agent design. One model call per case, given the same Go
@@ -67,7 +67,7 @@ Respond with JSON only: {{"findings": [...]}}
 
 
 def gather_source(api_dir):
-    """Every non-test Go file, concatenated with its path — the whole package,
+    """Every non-test Go file, concatenated with its path: the whole package,
     which is exactly the point: the baseline gets no help locating anything."""
     parts = []
     for path in sorted(pathlib.Path(api_dir).rglob("*.go")):
@@ -79,7 +79,7 @@ def gather_source(api_dir):
 
 def normalise(findings):
     """Keep the fields the scorer matches on. A malformed entry is dropped
-    rather than repaired — inventing structure for the baseline would flatter it."""
+    rather than repaired; inventing structure for the baseline would flatter it."""
     out = []
     for item in findings if isinstance(findings, list) else []:
         if not isinstance(item, dict):

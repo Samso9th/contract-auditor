@@ -16,7 +16,7 @@ cases. The fixture uses only the Go standard library, and the harness has no pip
 dependencies.
 
 **On the HTTPS transport:** model calls shell out to `curl` rather than using
-`urllib` or `requests`. This is not a stylistic preference — on the development
+`urllib` or `requests`. This is not a stylistic preference: on the development
 machine (macOS system Python 3.9, linked against LibreSSL 2.8.3) both Python
 HTTP libraries took roughly 160 seconds for requests `curl` completed in 3–7
 seconds. Shelling out also keeps the harness dependency-free.

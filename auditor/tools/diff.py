@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic drift rules — component 3 of the auditor.
+"""Deterministic drift rules: component 3 of the auditor.
 
 Compares the AST-derived route table against the OpenAPI index and reports the
 disagreements that can be established without judgment. No model is involved,
@@ -277,7 +277,7 @@ def _operation_rules(path, method, route, operation, spec, facts, structs, auth_
                 path, method, "request_param_mismatch", unread[0],
                 f"{facts['file']}:{facts['line']} {facts['name']} reads "
                 f"{', '.join(undocumented)}; spec documents {', '.join(unread)}"
-                f" — the documented parameter is ignored",
+                f"; the documented parameter is ignored",
                 "R7"))
         elif undocumented:
             out.append(finding(
