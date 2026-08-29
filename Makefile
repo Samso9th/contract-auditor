@@ -1,4 +1,4 @@
-.PHONY: help cases baseline agent notify score clean check
+.PHONY: help cases baseline agent notify score clean check memory rules harvest self-improve
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "};{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -36,6 +36,8 @@ test-tools: cases ## Verify the auditor's deterministic tools
 	@python3 auditor/test_llm.py --offline
 	@echo
 	@python3 auditor/test_notify.py
+	@echo
+	@python3 auditor/test_memory.py
 
 deterministic: cases ## Run the no-model layer over the Go cases and score it
 	@python3 auditor/run_deterministic.py
@@ -53,6 +55,26 @@ test-llm: ## Verify the model client against the live endpoint (costs <$0.001)
 
 verify: deterministic ## Put every deterministic finding through the verification gate
 	@for c in eval/cases/D*; do python3 auditor/verify.py $$c; echo; done
+
+memory: ## Show what the ledger has learned: calibration per claim kind
+	@python3 auditor/memory/recall.py
+
+rules: ## Promote repeated dismissals into rules, and re-check the ones that exist
+	@python3 auditor/memory/rules.py --promote
+
+harvest: ## Grow the evaluation set from the last agent run (field cases and decoys)
+	@python3 eval/harvest.py --run reports/runs/agent
+	@echo
+	@python3 eval/harvest.py --list
+
+self-improve: cases ## Run the cases twice and compare: the second run reads the first run's refutations (~25 min, ~$0.15)
+	@python3 auditor/run.py --cases eval/cases --out reports/runs/memory-1
+	@echo
+	@python3 auditor/memory/rules.py --promote
+	@echo
+	@python3 auditor/run.py --cases eval/cases --out reports/runs/memory-2
+	@echo
+	@python3 eval/compare.py reports/runs/memory-1 reports/runs/memory-2
 
 notify: ## Preview the alert for the latest agent run (sends nothing)
 	@python3 auditor/notify.py --run reports/runs/agent --min-severity high --dry-run

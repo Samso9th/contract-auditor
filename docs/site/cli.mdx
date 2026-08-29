@@ -18,6 +18,10 @@ description: "Every entry point, and what it costs."
 | `make baseline` | Run the single-prompt baseline | yes | see [results](/results) |
 | `make agent` | Run the full auditor | yes | see [results](/results) |
 | `make score` | Score both runs side by side | no | none |
+| `make memory` | Show how often each claim kind has survived the gate | no | none |
+| `make rules` | Promote repeated dismissals into rules, and re-check existing ones | no | none |
+| `make harvest` | Grow the evaluation set from the last run | no | none |
+| `make self-improve` | Run the cases twice and compare the two runs | yes | ~`$0.15` |
 | `make notify` | Preview the alert for the latest run | no | none |
 | `make clean` | Remove generated cases and runs | no | none |
 
@@ -47,6 +51,33 @@ Score a run:
 ```bash
 cd eval && python3 score.py --run ../reports/runs/agent --markdown
 ```
+
+Compare two runs, which is how the learned memory is measured:
+
+```bash
+python3 eval/compare.py reports/runs/memory-1 reports/runs/memory-2
+```
+
+## Learned memory
+
+Every run appends each claim and its gate verdict to `auditor/memory/ledger.jsonl`,
+refuted claims included. Later runs read it: similar past refutations go into the
+prompt, and per-kind survival rates order the report. Memory never suppresses a
+claim - the gate still decides.
+
+```bash
+python3 auditor/memory/ledger.py --verdict refuted     # the labelled false positives
+python3 auditor/memory/recall.py                       # calibration per claim kind
+python3 auditor/memory/recall.py --endpoint "post /payouts"   # what would be recalled
+python3 auditor/memory/rules.py --promote              # shapes dismissed 3+ times
+python3 eval/harvest.py --run reports/runs/agent       # new cases from real findings
+```
+
+| Flag on `auditor/run.py` | Does |
+|---|---|
+| `--no-memory` | Audit with no learned history at all. The ledger is still written |
+| `--epsilon 0.05` | Fraction of endpoints audited with memory off, so a wrong prior keeps being tested. `0` disables it |
+| `--ledger PATH` | Where the claim ledger is appended |
 
 ## Configuration
 

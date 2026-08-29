@@ -98,7 +98,7 @@ Function `{handler}` at {file}:{start}-{end}
 # Already reported by static analysis. Do NOT repeat these
 
 {known}
-
+{memory}
 # Your task
 
 Report only drift of these kinds:
@@ -174,19 +174,25 @@ def spec_summary(operation, kinds=None):
     return summary
 
 
-def build_prompt(path, method, facts, operation, source, known, kinds=None):
+def build_prompt(path, method, facts, operation, source, known, kinds=None,
+                 recalled=""):
     known_text = "\n".join(
         f"- {f['kind']}: {f.get('detail') or ''} ({f.get('evidence', '')[:110]})"
         for f in known
     ) or "- (nothing)"
     kinds = kinds or JUDGMENT_KINDS
     kinds_text = "\n".join(f'  - "{k}": {v}' for k, v in kinds.items())
+    # Recalled negatives sit between what static analysis already found and the
+    # task, which is where a reader would want them: after the facts, before the
+    # judgment. Empty when there is no history, so a first run's prompt is byte
+    # for byte the prompt this agent has always sent.
     return TEMPLATE.format(
         method=method.lower(), path=path, handler=facts["name"],
         file=facts["file"], start=facts["line"], end=facts.get("end_line", facts["line"]),
         source=source,
         spec_json=json.dumps(spec_summary(operation, kinds), indent=2),
         known=known_text, kinds=kinds_text,
+        memory=f"\n{recalled}\n" if recalled else "",
         kind_list=json.dumps(sorted(kinds)),
     )
 
@@ -247,8 +253,14 @@ def vocabulary(adapter=None):
 
 
 def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
-                   adapter=None):
-    """Audit one endpoint. Returns (claims, usage)."""
+                   adapter=None, memory=None):
+    """Audit one endpoint. Returns (claims, usage).
+
+    `memory` is optional learned history (see auditor/memory). It can add
+    refuted precedents to the prompt and nothing else: it cannot filter a claim
+    on the way out, because the gate downstream is the only thing entitled to
+    decide that.
+    """
     path, method = key
     known = known or []
     usage = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "elapsed": 0.0, "calls": 0}
@@ -299,9 +311,12 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
     kinds = vocabulary(adapter)
     described = facts or {"name": route["handler"], "file": location[0],
                           "line": location[1], "end_line": location[1]}
+    recalled = memory.prompt_block(path, method, set(kinds)) if memory is not None else ""
+    if recalled:
+        usage["recalled"] = True
     prompt = build_prompt(path, method, described, spec[key], source,
                           [f for f in known if f["path"] == path and f["method"] == method.lower()],
-                          kinds)
+                          kinds, recalled)
 
     # An unparseable reply is indistinguishable from "no drift here": both yield
     # zero claims. That makes a transport-level failure look like a clean

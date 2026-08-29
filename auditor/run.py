@@ -34,6 +34,7 @@ from diff import extract  # noqa: E402
 import languages  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 from verify import verify_claim  # noqa: E402
+from memory import ledger, recall  # noqa: E402
 
 # Verdicts that keep a finding in the report. `unsupported` covers route
 # existence, which no request can settle but static analysis already proves;
@@ -79,15 +80,32 @@ def case_paths(case_dir):
     return api, case_dir / "spec" / "openapi.json"
 
 
-def agent_pass(api, spec, table, known, model, pool, adapter=None):
-    """Run the agent over every endpoint code and spec both describe."""
+def agent_pass(api, spec, table, known, model, pool, adapter=None, memory=None,
+               repo=""):
+    """Run the agent over every endpoint code and spec both describe.
+
+    Where `memory` is supplied, most endpoints are audited with refuted
+    precedents in the prompt. A small random sample - epsilon exploration - is
+    audited with memory switched off, so the classes memory has learned to
+    distrust keep generating evidence. Without that sample, a wrong prior can
+    never be contradicted: no claims means no counter-evidence, and the belief
+    becomes permanent.
+    """
     keys = sorted(set(spec.keys()) &
                   {(r["path"], r["method"].lower()) for r in table["routes"]})
-    jobs = {pool.submit(audit_endpoint, api, spec, key, table, known, model, adapter): key
-            for key in keys}
+
+    explored = []
+    jobs = {}
+    for key in keys:
+        endpoint_memory = memory
+        if memory is not None and memory.explore(repo, key[0], key[1]):
+            endpoint_memory = memory.without_memory()
+            explored.append(f"{key[1].upper()} {key[0]}")
+        jobs[pool.submit(audit_endpoint, api, spec, key, table, known, model,
+                         adapter, endpoint_memory)] = key
 
     claims, usage = [], {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "calls": 0}
-    errors, unread = [], []
+    errors, unread, recalled = [], [], 0
     for job in futures.as_completed(jobs):
         found, used = job.result()
         claims.extend(found)
@@ -97,8 +115,12 @@ def agent_pass(api, spec, table, known, model, pool, adapter=None):
             errors.append(f"{jobs[job][1]} {jobs[job][0]}: {used['error']}")
         if used.get("unread_endpoint"):
             unread.append(used["unread_endpoint"])
+        if used.get("recalled"):
+            recalled += 1
     usage["errors"] = errors
     usage["unread_endpoints"] = unread
+    usage["endpoints_with_recall"] = recalled
+    usage["explored_without_memory"] = sorted(explored)
     return claims, usage
 
 
@@ -111,17 +133,36 @@ def adapter_test_name(language, claim):
     return f"{claim['kind']}__{slug}{suffix}"
 
 
-def verify_all(case_dir, spec, claims, language=None, strip_prefix="/v1"):
+def verify_all(case_dir, spec, claims, language=None, strip_prefix="/v1",
+               memory=None, ledger_rows=None, repo="", run_id=""):
     """Put every claim through the gate.
 
     Sequential by design: the gate writes a test file into the package under
     audit, so two verifications in one directory would overwrite each other.
+
+    Every verdict is also written to the claim ledger, refuted ones included.
+    Those are the labelled false positives the whole self-improvement scheme
+    runs on, and they exist only at this moment: once a claim is dropped from
+    the report, reconstructing it means paying for the run again.
     """
     kept, dropped, stats = [], [], {"confirmed": 0, "refuted": 0, "unsupported": 0, "error": 0}
     for claim in claims:
         outcome = verify_claim(case_dir, claim, spec, language=language,
                                strip_prefix=strip_prefix)
+        # Calibration spends its budget here. A gate error on a kind that
+        # usually confirms is more likely to be losing a real finding than a
+        # gate error on a kind that usually refutes, so only the former is worth
+        # a second run of the test.
+        if outcome["verdict"] == "error" and memory is not None \
+                and memory.budget(claim.get("kind", ""))["gate_retries"]:
+            outcome = verify_claim(case_dir, claim, spec, language=language,
+                                   strip_prefix=strip_prefix)
         verdict = outcome["verdict"]
+        if ledger_rows is not None:
+            ledger_rows.append(ledger.entry(
+                claim, verdict, repo=repo, run_id=run_id,
+                memory="off" if memory is None else "on",
+                verification=outcome.get("detail", "")))
         stats[verdict] = stats.get(verdict, 0) + 1
         enriched = dict(claim, verdict=verdict, verification=outcome.get("detail", ""))
         # The generated test is the most useful thing a fixing agent can be
@@ -141,22 +182,32 @@ def verify_all(case_dir, spec, claims, language=None, strip_prefix="/v1"):
     return kept, dropped, stats
 
 
-def audit_one(case_dir, model, pool, strip_prefix, language=None):
+def audit_one(case_dir, model, pool, strip_prefix, language=None, memory=None,
+              ledger_rows=None, run_id=""):
     api, spec_path = case_paths(case_dir)
     spec = load_spec(spec_path)
     adapter = languages.get(language) if language else languages.detect(api)
     table = extract(api, strip_prefix=strip_prefix, language=language)
     started = time.time()
+    repo = pathlib.Path(case_dir).name
 
     mechanical = deterministic_audit(api, spec_path, strip_prefix=strip_prefix,
                                      language=language)
-    judged, usage = agent_pass(api, spec, table, mechanical, model, pool, adapter)
+    judged, usage = agent_pass(api, spec, table, mechanical, model, pool, adapter,
+                               memory, repo)
 
     accepted = load_allowlist()
     claims = [c for c in mechanical + judged if not allowed(c, accepted)]
     suppressed = len(mechanical) + len(judged) - len(claims)
 
-    kept, dropped, stats = verify_all(case_dir, spec, claims, language, strip_prefix)
+    kept, dropped, stats = verify_all(case_dir, spec, claims, language, strip_prefix,
+                                      memory, ledger_rows, repo, run_id)
+
+    # Priors reorder what survived; they never remove anything from it. The
+    # confirm rate behind each position is written into the finding so a reader
+    # can see why it ranks where it does.
+    if memory is not None:
+        kept = memory.annotate(kept)
 
     return {
         "findings": kept,
@@ -178,6 +229,13 @@ def audit_one(case_dir, model, pool, strip_prefix, language=None):
             ],
             "agent_errors": usage["errors"],
             "unread_endpoints": usage["unread_endpoints"],
+            "memory": {
+                "enabled": memory is not None,
+                "ledger_claims": len(memory.rows) if memory is not None else 0,
+                "endpoints_with_recall": usage.get("endpoints_with_recall", 0),
+                "explored_without_memory": usage.get("explored_without_memory", []),
+                "rules_active": len(memory.rules) if memory is not None else 0,
+            },
         },
     }
 
@@ -196,11 +254,25 @@ def main():
     parser.add_argument("--workers", type=int, default=8,
                         help="concurrent model calls (default 8)")
     parser.add_argument("--only", help="comma-separated case ids")
+    parser.add_argument("--no-memory", action="store_true",
+                        help="audit with no learned history at all (still writes the ledger)")
+    parser.add_argument("--epsilon", type=float, default=recall.EPSILON,
+                        help="fraction of endpoints audited with memory off (default 0.05)")
+    parser.add_argument("--ledger", default=str(ledger.LEDGER),
+                        help="where the claim ledger is appended")
     args = parser.parse_args()
 
     out = pathlib.Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     pool = futures.ThreadPoolExecutor(max_workers=args.workers)
+
+    # The ledger is written whatever happens, including under --no-memory: a run
+    # that consults nothing still produces labelled data, and that is the half of
+    # the mechanism that cannot be recovered afterwards.
+    run_id = ledger.new_run_id()
+    ledger_rows = []
+    memory = None if args.no_memory else recall.Memory.load(args.ledger,
+                                                            epsilon=args.epsilon)
 
     if args.repo:
         if not args.spec:
@@ -212,7 +284,8 @@ def main():
                                          language=args.language)
         log(f"deterministic: {len(mechanical)} finding(s)")
         adapter = languages.get(args.language) if args.language else languages.detect(api)
-        judged, usage = agent_pass(api, spec, table, mechanical, args.model, pool, adapter)
+        judged, usage = agent_pass(api, spec, table, mechanical, args.model, pool,
+                                   adapter, memory, api.name)
         log(f"agent: {len(judged)} claim(s), {usage['calls']} calls, ${usage['cost_usd']:.4f}")
         with open(out / "report.json", "w") as f:
             json.dump({"findings": mechanical + judged, "meta": usage}, f, indent=2, default=str)
@@ -229,12 +302,21 @@ def main():
         wanted = {c.strip() for c in args.only.split(",")}
         selected = [d for d in selected if d.name in wanted]
 
-    log(f"auditing {len(selected)} case(s) with {args.model}, {args.workers} workers\n")
+    log(f"auditing {len(selected)} case(s) with {args.model}, {args.workers} workers")
+    if memory is not None:
+        stats = memory.stats()
+        log(f"memory: {stats['claims']} past claim(s) over {stats['runs']} run(s), "
+            f"{stats['refuted_available']} refuted available as negatives, "
+            f"{stats['rules']} rule(s), epsilon {args.epsilon:.0%}")
+    else:
+        log("memory: disabled for this run")
+    log("")
     total_cost, total_calls, total_unread = 0.0, 0, 0
     started = time.time()
 
     for case_dir in selected:
-        result = audit_one(case_dir, args.model, pool, args.strip_prefix, args.language)
+        result = audit_one(case_dir, args.model, pool, args.strip_prefix, args.language,
+                           memory, ledger_rows, run_id)
         result["case"] = case_dir.name
         with open(out / f"{case_dir.name}.json", "w") as f:
             json.dump(result, f, indent=2)
@@ -253,9 +335,14 @@ def main():
             log(f"      ! {error}")
 
     pool.shutdown()
+    ledger.record(ledger_rows, args.ledger)
     log(f"\n{len(selected)} cases, {total_calls} model calls, "
         f"${total_cost:.4f}, {time.time() - started:.0f}s total")
     log(f"written to {out}")
+    if ledger_rows:
+        refuted = sum(1 for row in ledger_rows if row["verdict"] == "refuted")
+        log(f"ledger: +{len(ledger_rows)} claim(s) ({refuted} refuted, kept as "
+            f"negatives for the next run) -> {args.ledger}")
 
     if total_unread:
         # Stated at the end, where it cannot be missed. A run that could not read

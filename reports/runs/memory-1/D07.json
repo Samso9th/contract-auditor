@@ -1,0 +1,48 @@
+{
+  "findings": [
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "request_param_mismatch",
+      "detail": "perPage",
+      "severity": "high",
+      "evidence": "handlers/accounts.go:35 ListTransactions reads per_page; spec documents perPage; the documented parameter is ignored",
+      "file": "handlers/accounts.go",
+      "line": 35,
+      "rule": "R7",
+      "source": "deterministic",
+      "verdict": "unsupported",
+      "verification": "request_param_mismatch cannot be settled by executing the handler; it needs review rather than a test",
+      "priority": 1.5
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 33.3,
+    "cost_usd": 0.007078,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 7639,
+    "output_tokens": 13179,
+    "deterministic_claims": 1,
+    "agent_claims": 0,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 0,
+      "unsupported": 1,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": [],
+    "memory": {
+      "enabled": true,
+      "ledger_claims": 0,
+      "endpoints_with_recall": 0,
+      "explored_without_memory": [],
+      "rules_active": 0
+    }
+  },
+  "case": "D07"
+}

@@ -66,9 +66,20 @@ def suite(language):
     return SUITES[language]
 
 
-def load_mutations(language="go"):
-    with open(suite(language)["mutations"]) as f:
-        return json.load(f)["mutations"]
+def load_mutations(language="go", path=None):
+    """The authored suite, or another mutation file such as the harvested field
+    set. Field cases arrive with an empty `edits` list - a lead rather than a
+    test - and are refused here rather than built into a case that mutates
+    nothing and would then score as a decoy."""
+    with open(path or suite(language)["mutations"]) as f:
+        mutations = json.load(f)["mutations"]
+    if path:
+        unbuildable = [m["id"] for m in mutations if not m.get("edits")]
+        if unbuildable:
+            raise SystemExit(
+                f"{', '.join(unbuildable)}: no `edits`, so nothing would be mutated. "
+                f"Port the drift into the fixture first, or select buildable ids with --case.")
+    return mutations
 
 
 def apply_edits(case_dir, mutation):
@@ -156,9 +167,11 @@ def main():
     parser.add_argument("--list", action="store_true", help="list cases")
     parser.add_argument("--language", default="go", choices=sorted(SUITES),
                         help="which language suite to build (default go)")
+    parser.add_argument("--mutations", help="an alternative mutation file, e.g. "
+                                            "mutations/field.json from eval/harvest.py")
     args = parser.parse_args()
 
-    mutations = load_mutations(args.language)
+    mutations = load_mutations(args.language, args.mutations)
     CASES = suite(args.language)["cases"]
 
     if args.list:

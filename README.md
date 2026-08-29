@@ -196,6 +196,63 @@ becoming a list people learn to scroll past.
 
 ---
 
+## How it gets better the more it is used
+
+Most tools of this kind never find out whether they were right. This one does,
+on every single complaint, because each complaint is settled by a test that
+either fails or passes. That makes a run produce two things: a report, and a
+pile of marked homework.
+
+Every claim is written down with its result, including the ones thrown away -
+those are the valuable half, since a discarded complaint is a known false alarm.
+Before checking an endpoint, the tool looks up the false alarms most like the
+one it is about to consider and shows them to itself first, with the test that
+disproved each. It keeps a running score of how often each type of complaint
+turns out to be real, and uses it to order the report and decide where to spend
+effort. When the same kind of accepted difference is dismissed three times or
+more, it is written out as a rule with a count of the evidence behind it, which
+a person can read and overrule.
+
+One line governs all of it: **memory changes what the tool looks at, never what
+it is allowed to report.** History can move a finding down the page or warn the
+model that something like it was wrong before. It can never delete a complaint.
+If the test still fails, the problem is real, and last month's statistics do not
+get a vote.
+
+That rule exists because of a specific way these systems rot. Teach a tool to
+stop raising a kind of complaint, and it stops producing any evidence about that
+kind of complaint, so nothing ever contradicts the lesson and the blind spot
+becomes permanent - while the numbers look better, because the misses are no
+longer being counted. The defence is cheap: about one endpoint in twenty is
+checked with the memory switched off entirely, purely to keep testing what the
+memory has learned to doubt. A rule that starts being contradicted is demoted
+automatically.
+
+    make self-improve
+
+Runs the same set twice and prints both side by side. Findings the tool had to
+raise and then disprove should fall on the second run, because the first run's
+mistakes were shown to it. Nothing found on the first run may go missing on the
+second; the comparison says so out loud if it does.
+
+    make memory     # how often each kind of complaint has held up
+    make rules      # what has been dismissed often enough to become a rule
+    make harvest    # turn real findings into new test cases
+
+The last one matters more than it looks. Real drift found in a live repository
+becomes a new case in the evaluation set, and a false alarm that survived the
+test becomes a new decoy. A tool that improves against a frozen benchmark is
+indistinguishable from one that has learned the benchmark.
+
+One thing deliberately not done: training a model on any of this. The data is
+dozens of examples, the models are already good at the underlying reading, and a
+fine-tune would freeze the project out of model upgrades that keep arriving
+faster than any training loop here would finish. Looking things up beats training
+decisively at this size. Full reasoning in
+[ddocs/self-improvement.md](ddocs/self-improvement.md).
+
+---
+
 ## What already exists
 
 This is not an untouched problem. Plenty of tools work on part of it, and it is
@@ -206,7 +263,7 @@ worth being precise about which part, because the differences are not small.
 | [oasdiff](https://github.com/oasdiff/oasdiff), [openapi-diff](https://github.com/OpenAPITools/openapi-diff), Optic, Bump.sh | Compare two versions of the published document against each other | Both sides are the document. If the code changed and the document did not, there is nothing to notice |
 | [Dredd](https://github.com/apiaryio/dredd), [Schemathesis](https://github.com/schemathesis/schemathesis), Specmatic | Send real requests at a running copy of the software and check the replies against the document | Needs the software running, with its database and dependencies installed. A proposed change arriving as a fresh checkout has none of that |
 | [Pact](https://pact.io) | Records what each outside team actually relies on, and checks the software still honours it | Also needs the software running, and only covers what somebody already wrote a test for. Requests nobody uses yet stay invisible, and those are the ones being got wrong |
-| [PactFlow](https://pactflow.io/ai/), now a module of SmartBear's Swagger platform | The paid version of Pact. Its newest feature has an AI write the contract tests for you, from the document or from the code | It writes tests to check the software matches the document. It does not go hunting for the places where it does not, and nothing checks the tests the AI wrote. Contract testing comes as part of a per-seat platform, [from about $32 per user per month](https://swagger.io/product/pricing/) (listed as €27.90) at the time of writing, and the AI is rationed: ten credits per user per month, thirty on the dearest tier |
+| [PactFlow](https://pactflow.io/ai/), now SmartBear's Swagger platform | The paid version of Pact. Its newest feature has an AI write the contract tests for you, from the document or from the code | It writes tests to check the software matches the document. And nothing checks the tests the AI wrote. Contract testing comes as part of a per-seat platform, [from about $32 per user per month](https://swagger.io/product/pricing/) and the AI is rationed: ten credits per user per month, thirty on the dearest tier |
 | [Speakeasy](https://www.speakeasy.com/blog/openapi-spec-drift-detection), Treblle, Tusk | Watch live traffic and report requests the document never mentioned | Answers after it has shipped and somebody has already called it. Also needs code added to the running service to do the watching |
 | [go-apispec](https://github.com/antst/go-apispec), AutoOAS | Read the source code and write a fresh document describing what they found | Produces a second document rather than a comparison. This is the closest relative of our free stage, and pairing one of them with oasdiff would get near it |
 | [driftcheck](https://github.com/deichrenner/driftcheck) | Asks an AI whether a code change contradicts anything written in the docs | Nothing checks the AI. Its answer goes straight to a person, which is the exact failure this project is built to remove |
@@ -214,8 +271,8 @@ worth being precise about which part, because the differences are not small.
 Worth saying plainly next to that, since much of the list above is sold by the
 seat. The stage that finds most of the faults here uses no AI, so it costs
 nothing at all, on any number of repositories, forever. The AI stage is optional
-and billed per use through whichever provider's key you already hold: the entire
-16-case evaluation in this repository, 159 model calls, cost 7 cents. There is no
+and billed per use through whichever provider's key you already hold: *the entire
+16-case evaluation in this repository, 159 model calls, cost 7 cents.* There is no
 seat to buy, no monthly ration of runs, and no account holding your results.
 
 Two gaps are left by that list, and they are the two things this tool is.
@@ -223,7 +280,7 @@ Two gaps are left by that list, and they are the two things this tool is.
 **Nothing reads the code and the document side by side without running
 anything.** A survey of drift-detection tools published this year went looking
 and concluded the same: no tool compares a published document against source code
-without executing it. That is why the free stage here can run on a proposed
+without executing it said source code. That is why the free stage here can run on a proposed
 change, in a checkout with nothing installed, in under a second. Every tool above
 either needs two documents, or needs the software up and answering requests.
 
@@ -255,8 +312,6 @@ Faults are then deliberately introduced, one per test case. Because we broke it
 on purpose, we know precisely what a correct answer looks like, which is what
 makes every number below checkable by anyone who clones this.
 
-The real company codebase is reported separately as a case study, with findings
-quoted and no passwords included.
 
 ### The test cases
 
@@ -422,6 +477,9 @@ only reason to trust the answer when you do.
 |---|---|
 | [auditor/](auditor/) | The agent: tools, prompts, orchestration |
 | [auditor/notify.py](auditor/notify.py) | Slack/Telegram alerting, gated on verification |
+| [auditor/memory/](auditor/memory/) | The claim ledger, retrieval, calibration and learned rules (built) |
+| [eval/harvest.py](eval/harvest.py) | Grows the evaluation set from real runs: field cases and decoys |
+| [eval/compare.py](eval/compare.py) | Compares two runs, for the self-improvement demonstration |
 | [ddocs/](ddocs/) | Plain-language overview, self-improvement note, GHCR publishing guide |
 | [docs/site/](docs/site/) | Public documentation site: quickstart, CI setup, how it works |
 | [baseline/](baseline/) | The single-prompt baseline |

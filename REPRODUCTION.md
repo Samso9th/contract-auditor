@@ -116,6 +116,29 @@ between the two runs, not just F1.
 Targets committed before the first run: recall ≥ 0.80, precision ≥ 0.85, all 3
 critical drifts (D05, D08, D10) caught, all 4 decoys clean.
 
+## Reproducing the self-improvement demonstration
+
+```bash
+make self-improve
+```
+
+Runs the same 16 cases twice and prints the two runs side by side. Between them,
+every claim and its gate verdict is appended to `auditor/memory/ledger.jsonl`, so
+the second run is shown the first run's refuted claims before it audits the same
+endpoints.
+
+Runtime: ~25 minutes for both runs. Approximate cost: ~$0.15.
+
+Two things are worth checking in the output rather than taking on trust. Claims
+the gate had to refute should fall, since retrieval acts on what gets claimed.
+Recall must not fall at all: if it does, memory is suppressing real drift, and
+`compare.py` says so explicitly.
+
+To reproduce from a clean slate, delete `auditor/memory/ledger.jsonl` first - the
+first run of the pair is only cold if the ledger is empty. `--no-memory` audits
+with no learned history while still recording the run, and `--epsilon 0` turns
+off the sample of endpoints deliberately audited without memory.
+
 ## Verifying the scorer
 
 The scorer can be checked without spending a token by feeding it the ground
