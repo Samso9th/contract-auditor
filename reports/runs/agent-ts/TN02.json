@@ -1,0 +1,33 @@
+{
+  "findings": [],
+  "meta": {
+    "wall_clock_seconds": 132.6,
+    "cost_usd": 0.010899,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 10535,
+    "output_tokens": 21091,
+    "deterministic_claims": 0,
+    "agent_claims": 1,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 1,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "email format: spec documents format \"email\" for email, but the handler performs no format validation \u2014 only a presence c",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "TN02"
+}

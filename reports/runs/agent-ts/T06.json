@@ -1,0 +1,49 @@
+{
+  "findings": [
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "reason",
+      "severity": "high",
+      "evidence": "if (!req.body || !req.body.reason) { return res.status(400).json(errorResponse(\"missing_reason\", \"reason is required\")); } \u2014 the handler rejects requests without `reason`, but the specification marks `reason` as required: false (verified: {\"success\":false,\"code\":\"missing_reason\",\"message\":\"reason is required\"})",
+      "file": "src/handlers.js",
+      "line": 18,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "confirmed",
+      "verification": "{\"success\":false,\"code\":\"missing_reason\",\"message\":\"reason is required\"}"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 117.6,
+    "cost_usd": 0.005611,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 9,
+    "input_tokens": 9455,
+    "output_tokens": 13157,
+    "deterministic_claims": 0,
+    "agent_claims": 2,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 1,
+      "refuted": 1,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "email body field: the specification documents format \"email\" for email, but the handler only checks that email is presen",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "T06"
+}
