@@ -1,0 +1,79 @@
+{
+  "case": "D04",
+  "findings": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "route_missing_from_code",
+      "detail": "GET /banks is published in the spec (List supported banks) but never registered in handlers.Register; the ListBanks hand",
+      "severity": "high",
+      "evidence": "handlers/routes.go:8-18 (Register omits /banks); handlers/misc.go:37-43 (ListBanks is no longer routed)",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "Spec documents a 409 'Duplicate reference' response, but CreatePayout contains no duplicate-reference detection and can ",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:21-44 (only 201/400 paths); spec paths./payouts.post.responses.409",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "Spec marks accountNumber, bankCode, amount and currency as required in PayoutRequest, but the handler only validates 're",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:26-34 (only req.Reference is checked); spec components.schemas.PayoutRequest.required",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "Spec documents a 422 'Refund not permitted' response, but CreateRefund has no such branch and can only return 201 or 400",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:85-97 (CreateRefund); spec paths./refunds.post.responses.422",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "Spec marks payoutId and amount as required in RefundRequest, but the handler performs no field validation after decoding",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:85-97 (no validation beyond JSON parse); spec components.schemas.RefundRequest.required",
+      "source": "baseline"
+    },
+    {
+      "path": "/customers/{id}",
+      "method": "get",
+      "kind": "status_code_mismatch",
+      "detail": "Spec documents a 404 'Not found' response, but GetCustomer unconditionally returns 200 with a customer body, even for un",
+      "severity": "low",
+      "evidence": "handlers/accounts.go:97-107 (unconditional writeJSON 200); spec paths./customers/{id}.get.responses.404",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "Handler sets an X-Signature response header (sha256 HMAC) on the 202 response, but the spec's 202 response declares no r",
+      "severity": "low",
+      "evidence": "handlers/misc.go:54 (w.Header().Set(\"X-Signature\", \"sha256=deadbeef\")); spec paths./webhooks/test.post.responses.202 has no headers",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 239.5,
+    "cost_usd": 0.015543,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7348,
+    "output_tokens": 28884,
+    "parsed": true,
+    "truncated": false
+  }
+}

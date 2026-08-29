@@ -1,0 +1,63 @@
+{
+  "findings": [
+    {
+      "path": "/banks",
+      "method": "get",
+      "kind": "route_missing_from_code",
+      "detail": "",
+      "severity": "high",
+      "evidence": "spec documents GET /banks but no route registers it (/Users/samsonite/Documents/Sam/micro1/eval/cases-py/P04/spec/openapi.json)",
+      "file": "",
+      "line": 0,
+      "rule": "R2",
+      "source": "deterministic",
+      "verdict": "unsupported",
+      "verification": "route_missing_from_code cannot be settled by executing the handler; it needs review rather than a test"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_param_mismatch",
+      "detail": "Idempotency-Key is documented as a required header parameter (in: header), but the handler declares idempotency_key as a",
+      "severity": "medium",
+      "evidence": "async def create_payout(body: dict, idempotency_key: str = None): \u2014 in FastAPI a scalar parameter without Header() is read from the query string (?idempotency_key=...), while the spec documents Idempotency-Key with \"in\": \"header\", \"required\": true; a client sending the header exactly as specified still fails the headers.get(\"Idempotency-Key\") check and gets 400 missing_idempotency_key.",
+      "file": "app/routes.py",
+      "line": 11,
+      "rule": "agent",
+      "source": "agent",
+      "confidence": "high",
+      "verdict": "unsupported",
+      "verification": "request_param_mismatch cannot be settled by executing the handler; it needs review rather than a test"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 344.5,
+    "cost_usd": 0.010751,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 8,
+    "input_tokens": 14077,
+    "output_tokens": 34075,
+    "deterministic_claims": 1,
+    "agent_claims": 2,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 1,
+      "unsupported": 2,
+      "error": 0
+    },
+    "dropped_by_gate": [
+      {
+        "path": "/customers",
+        "method": "post",
+        "kind": "validation_mismatch",
+        "detail": "email format",
+        "source": "agent"
+      }
+    ],
+    "agent_errors": [],
+    "unread_endpoints": []
+  },
+  "case": "P04"
+}

@@ -1,0 +1,52 @@
+{
+  "case": "D03",
+  "findings": [
+    {
+      "path": "/payouts/{id}/cancel",
+      "method": "post",
+      "kind": "route_missing_from_spec",
+      "detail": "CancelPayout is registered as POST /v1/payouts/{id}/cancel and returns 200 with a PayoutResponse, but the published spec",
+      "severity": "high",
+      "evidence": "handlers/routes.go:11 (mux.HandleFunc(\"POST /v1/payouts/{id}/cancel\", CancelPayout)); no /payouts/{id}/cancel entry in spec paths",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "The handler sets an X-Signature response header on the 202 response, but the spec's 202 response declares no response he",
+      "severity": "medium",
+      "evidence": "handlers/misc.go:60 (w.Header().Set(\"X-Signature\", \"sha256=deadbeef\")); spec /webhooks/test 202 response has no headers section",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "PayoutRequest fields accountNumber, bankCode, amount and currency are marked required in the spec, but the handler only ",
+      "severity": "high",
+      "evidence": "handlers/payouts.go:31-34 (only req.Reference is checked); spec PayoutRequest.required = [accountNumber, bankCode, amount, currency, reference]",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "RefundRequest fields payoutId and amount are marked required in the spec, but the handler performs no field validation a",
+      "severity": "high",
+      "evidence": "handlers/payouts.go:90-95 (no validation between decode and 201 response); spec RefundRequest.required = [payoutId, amount]",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 235.6,
+    "cost_usd": 0.015243,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7486,
+    "output_tokens": 28244,
+    "parsed": true,
+    "truncated": false
+  }
+}

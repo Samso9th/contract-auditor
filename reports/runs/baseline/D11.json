@@ -1,0 +1,52 @@
+{
+  "case": "D11",
+  "findings": [
+    {
+      "path": "/kyc/bvn",
+      "method": "post",
+      "kind": "validation_mismatch",
+      "detail": "bvn length: spec constrains bvn to exactly 11 characters (minLength 11, maxLength 11), but the handler rejects unless th",
+      "severity": "high",
+      "evidence": "handlers/misc.go:25 (if len(req.BVN) != 10) vs spec components.schemas.BVNRequest.bvn minLength/maxLength 11",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "spec marks accountNumber, bankCode, amount and currency as required in PayoutRequest, but the handler only validates 're",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:26-34 (only req.Reference is checked) vs spec components.schemas.PayoutRequest.required [accountNumber, bankCode, amount, currency, reference]",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "spec marks payoutId and amount as required in RefundRequest, but the handler performs no field validation after decoding",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:85-91 (CreateRefund decodes body then writes 201 response with no validation) vs spec components.schemas.RefundRequest.required [payoutId, amount]",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "handler sets an X-Signature response header on the 202 response that is not declared in the spec's 202 response (the spe",
+      "severity": "low",
+      "evidence": "handlers/misc.go:60 (w.Header().Set(\"X-Signature\", \"sha256=deadbeef\")) vs spec /webhooks/test 202 response with no headers defined",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 153.2,
+    "cost_usd": 0.008427,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7417,
+    "output_tokens": 14953,
+    "parsed": true,
+    "truncated": false
+  }
+}

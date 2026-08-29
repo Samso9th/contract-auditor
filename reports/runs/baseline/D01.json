@@ -1,0 +1,52 @@
+{
+  "case": "D01",
+  "findings": [
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "response_field_mismatch",
+      "detail": "201 response field 'fee' (spec PayoutResponse) is serialized as 'feeAmount' by the code; partners reading 'fee' will fin",
+      "severity": "high",
+      "evidence": "handlers/types.go:20 (Fee string `json:\"feeAmount\"`) vs spec components.schemas.PayoutResponse.fee",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts/{id}",
+      "method": "get",
+      "kind": "response_field_mismatch",
+      "detail": "200 response field 'fee' (spec PayoutResponse) is serialized as 'feeAmount' by the code",
+      "severity": "high",
+      "evidence": "handlers/types.go:20 (Fee string `json:\"feeAmount\"`) vs spec components.schemas.PayoutResponse.fee",
+      "source": "baseline"
+    },
+    {
+      "path": "/transactions",
+      "method": "get",
+      "kind": "response_field_mismatch",
+      "detail": "data[] items reference PayoutResponse: spec field 'fee' is serialized as 'feeAmount' in each transaction entry",
+      "severity": "medium",
+      "evidence": "handlers/types.go:20 (PayoutResponse.Fee json tag) propagated via handlers/types.go:53 (TransactionsResponse.Data []PayoutResponse)",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "Response header 'X-Signature' is set on the 202 response but the spec's 202 response declares no headers",
+      "severity": "medium",
+      "evidence": "handlers/misc.go:60 (w.Header().Set(\"X-Signature\", ...)) vs spec /webhooks/test post responses.202 (no headers map)",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 220.2,
+    "cost_usd": 0.010044,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7418,
+    "output_tokens": 17864,
+    "parsed": true,
+    "truncated": false
+  }
+}

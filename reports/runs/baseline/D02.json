@@ -1,0 +1,52 @@
+{
+  "case": "D02",
+  "findings": [
+    {
+      "path": "/customers",
+      "method": "post",
+      "kind": "status_code_mismatch",
+      "detail": "Success status: handler returns HTTP 200 (http.StatusOK) but the spec declares 201 Created as the success response for P",
+      "severity": "high",
+      "evidence": "handlers/accounts.go:76 \u2014 writeJSON(w, http.StatusOK, CustomerResponse{...}); spec paths./customers.post.responses defines only 201 and 400, and the handler's own godoc annotation (handlers/accounts.go:62) says @Success 201",
+      "source": "baseline"
+    },
+    {
+      "path": "/webhooks/test",
+      "method": "post",
+      "kind": "response_header_mismatch",
+      "detail": "Handler sets an X-Signature response header on the 202 response, but the spec's 202 response for POST /webhooks/test dec",
+      "severity": "medium",
+      "evidence": "handlers/misc.go:60 \u2014 w.Header().Set(\"X-Signature\", \"sha256=deadbeef\"); spec paths./webhooks/test.post.responses.202 has no headers entry",
+      "source": "baseline"
+    },
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "Spec marks accountNumber, bankCode, amount and currency as required body fields in PayoutRequest, but the handler only e",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:22-34 \u2014 only Idempotency-Key header and req.Reference are validated; spec components.schemas.PayoutRequest.required = [accountNumber, bankCode, amount, currency, reference]",
+      "source": "baseline"
+    },
+    {
+      "path": "/refunds",
+      "method": "post",
+      "kind": "request_required_mismatch",
+      "detail": "Spec marks payoutId and amount as required body fields in RefundRequest, but the handler performs no field validation at",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:85-90 \u2014 only JSON decode errors are checked before returning 201; spec components.schemas.RefundRequest.required = [payoutId, amount]",
+      "source": "baseline"
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 112.9,
+    "cost_usd": 0.010854,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 1,
+    "input_tokens": 7416,
+    "output_tokens": 19485,
+    "parsed": true,
+    "truncated": false
+  }
+}
