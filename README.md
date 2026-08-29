@@ -95,10 +95,8 @@ Anything found then shows up as a note attached to the exact line of code, right
 where the change is being reviewed. Adding `api-key` turns on the AI stage.
 Adding `webhook-url` sends the full report to Slack, Telegram, or a database.
 
-**Full setup, every input, and troubleshooting: [docs/site/github-actions.mdx](docs/site/github-actions.mdx)**, published at the docs site.
 
-
-## Who this is for, and what goes wrong
+## What is the Problem and Who this is for
 
 Any company that publishes software for other developers to use, and every
 developer building against it.
@@ -195,6 +193,51 @@ beside it, gets specific ones.
 **Remember what was already settled.** Some differences are deliberate. Those get
 recorded once and stop being raised, so the report stays worth reading instead of
 becoming a list people learn to scroll past.
+
+---
+
+## What already exists
+
+This is not an untouched problem. Plenty of tools work on part of it, and it is
+worth being precise about which part, because the differences are not small.
+
+| What it is | What it does | Why it does not settle the question |
+|---|---|---|
+| [oasdiff](https://github.com/oasdiff/oasdiff), [openapi-diff](https://github.com/OpenAPITools/openapi-diff), Optic, Bump.sh | Compare two versions of the published document against each other | Both sides are the document. If the code changed and the document did not, there is nothing to notice |
+| [Dredd](https://github.com/apiaryio/dredd), [Schemathesis](https://github.com/schemathesis/schemathesis), Specmatic | Send real requests at a running copy of the software and check the replies against the document | Needs the software running, with its database and dependencies installed. A proposed change arriving as a fresh checkout has none of that |
+| [Pact](https://pact.io) | Records what each outside team actually relies on, and checks the software still honours it | Also needs the software running, and only covers what somebody already wrote a test for. Requests nobody uses yet stay invisible, and those are the ones being got wrong |
+| [PactFlow](https://pactflow.io/ai/), now a module of SmartBear's Swagger platform | The paid version of Pact. Its newest feature has an AI write the contract tests for you, from the document or from the code | It writes tests to check the software matches the document. It does not go hunting for the places where it does not, and nothing checks the tests the AI wrote. Contract testing comes as part of a per-seat platform, [from about $32 per user per month](https://swagger.io/product/pricing/) (listed as €27.90) at the time of writing, and the AI is rationed: ten credits per user per month, thirty on the dearest tier |
+| [Speakeasy](https://www.speakeasy.com/blog/openapi-spec-drift-detection), Treblle, Tusk | Watch live traffic and report requests the document never mentioned | Answers after it has shipped and somebody has already called it. Also needs code added to the running service to do the watching |
+| [go-apispec](https://github.com/antst/go-apispec), AutoOAS | Read the source code and write a fresh document describing what they found | Produces a second document rather than a comparison. This is the closest relative of our free stage, and pairing one of them with oasdiff would get near it |
+| [driftcheck](https://github.com/deichrenner/driftcheck) | Asks an AI whether a code change contradicts anything written in the docs | Nothing checks the AI. Its answer goes straight to a person, which is the exact failure this project is built to remove |
+
+Worth saying plainly next to that, since much of the list above is sold by the
+seat. The stage that finds most of the faults here uses no AI, so it costs
+nothing at all, on any number of repositories, forever. The AI stage is optional
+and billed per use through whichever provider's key you already hold: the entire
+16-case evaluation in this repository, 159 model calls, cost 7 cents. There is no
+seat to buy, no monthly ration of runs, and no account holding your results.
+
+Two gaps are left by that list, and they are the two things this tool is.
+
+**Nothing reads the code and the document side by side without running
+anything.** A survey of drift-detection tools published this year went looking
+and concluded the same: no tool compares a published document against source code
+without executing it. That is why the free stage here can run on a proposed
+change, in a checkout with nothing installed, in under a second. Every tool above
+either needs two documents, or needs the software up and answering requests.
+
+**Nothing makes its own findings pay for themselves.** Throwing out false alarms
+with a second pass is established practice in security scanning, where the same
+problem of noisy reports has been studied for years
+([LLM4PFA](https://arxiv.org/abs/2506.10322),
+[Datadog](https://www.datadoghq.com/blog/using-llms-to-filter-out-false-positives/),
+[QASecClaw](https://arxiv.org/abs/2605.01885)). But those ask a second AI whether
+the first one was right, which is a judgement about a judgement. This tool asks
+the code instead. Each complaint has to produce a test that runs against the real
+handler, and it survives only if that test fails. The finding is admitted by
+having resisted an attempt to disprove it, not by having sounded convincing to
+anything.
 
 ---
 
