@@ -25,3 +25,10 @@ eval/fixture/fixture
 *.pdf
 ddocs/
 docs/
+
+# No learned memory in the published image, ever. The ledger belongs to whoever
+# ran the audit; baking one in would impose this project's fixture statistics on
+# every repository that pulls the action.
+.contract-auditor/
+auditor/memory/*.jsonl
+auditor/memory/rules.json

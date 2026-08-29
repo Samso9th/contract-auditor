@@ -1,4 +1,4 @@
-.PHONY: help cases baseline agent notify score clean check memory rules harvest self-improve
+.PHONY: help cases baseline agent notify score clean check memory rules harvest self-improve memory-check
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "};{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -38,6 +38,8 @@ test-tools: cases ## Verify the auditor's deterministic tools
 	@python3 auditor/test_notify.py
 	@echo
 	@python3 auditor/test_memory.py
+	@echo
+	@python3 auditor/test_store.py
 
 deterministic: cases ## Run the no-model layer over the Go cases and score it
 	@python3 auditor/run_deterministic.py
@@ -56,23 +58,32 @@ test-llm: ## Verify the model client against the live endpoint (costs <$0.001)
 verify: deterministic ## Put every deterministic finding through the verification gate
 	@for c in eval/cases/D*; do python3 auditor/verify.py $$c; echo; done
 
-memory: ## Show what the ledger has learned: calibration per claim kind
-	@python3 auditor/memory/recall.py
+# The demonstration keeps its ledger in a local file store, which .gitignore
+# excludes. Memory never belongs in the repository: a committed ledger is one
+# project's statistics, and publishing it would impose them on every consumer.
+# In CI it lives wherever AUDITOR_MEMORY_URL points instead.
+DEMO_MEMORY ?= file://$(CURDIR)/.contract-auditor/ledger.jsonl
 
-rules: ## Promote repeated dismissals into rules, and re-check the ones that exist
-	@python3 auditor/memory/rules.py --promote
+memory: ## Show what the ledger has learned: calibration per claim kind
+	@python3 auditor/memory/recall.py --memory-url "$(DEMO_MEMORY)"
+
+rules: ## Show the rules the ledger supports, with the evidence count behind each
+	@python3 auditor/memory/rules.py --memory-url "$(DEMO_MEMORY)"
+
+memory-check: ## Prove the configured memory store can be written and read back
+	@python3 auditor/memory/store.py --check
 
 harvest: ## Grow the evaluation set from the last agent run (field cases and decoys)
-	@python3 eval/harvest.py --run reports/runs/agent
+	@python3 eval/harvest.py --run reports/runs/agent --memory-url "$(DEMO_MEMORY)"
 	@echo
 	@python3 eval/harvest.py --list
 
 self-improve: cases ## Run the cases twice and compare: the second run reads the first run's refutations (~25 min, ~$0.15)
-	@python3 auditor/run.py --cases eval/cases --out reports/runs/memory-1
+	@python3 auditor/run.py --cases eval/cases --out reports/runs/memory-1 --memory-url "$(DEMO_MEMORY)"
 	@echo
-	@python3 auditor/memory/rules.py --promote
+	@python3 auditor/memory/rules.py --memory-url "$(DEMO_MEMORY)"
 	@echo
-	@python3 auditor/run.py --cases eval/cases --out reports/runs/memory-2
+	@python3 auditor/run.py --cases eval/cases --out reports/runs/memory-2 --memory-url "$(DEMO_MEMORY)"
 	@echo
 	@python3 eval/compare.py reports/runs/memory-1 reports/runs/memory-2
 

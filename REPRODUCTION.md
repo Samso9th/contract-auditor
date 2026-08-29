@@ -23,8 +23,16 @@ seconds. Shelling out also keeps the harness dependency-free.
 
 **Models.** The default is `z-ai/glm-5.3-flash` ($0.075/$0.25 per 1M tokens),
 with `moonshotai/kimi-k2.7-code` available for escalation. Run `make models` to
-see the full table. Nothing is hardcoded to a vendor: point
-`OPENROUTER_BASE_URL` at any OpenAI-compatible endpoint and pass `--model`.
+see the full table. Nothing is hardcoded to a vendor or to those three: point
+`OPENROUTER_BASE_URL` at any OpenAI-compatible endpoint and pass `--model` with
+whatever id it serves, or set `AUDITOR_MODEL` in `.env` to change it once.
+
+**Reasoning.** `--reasoning off|low|medium|high` (or `AUDITOR_REASONING`) asks
+the provider for more deliberation before answering. It is slower and costs
+more output tokens on every endpoint, and it is off unless asked for: the
+numbers in [RESULTS.md](RESULTS.md) were measured with no reasoning field sent,
+so reproducing them means leaving it unset. Not every model accepts every level
+- `z-ai/glm-5.3-flash` reasons unconditionally and rejects `off` with a 400.
 
 Verify your toolchain:
 
@@ -134,10 +142,24 @@ the gate had to refute should fall, since retrieval acts on what gets claimed.
 Recall must not fall at all: if it does, memory is suppressing real drift, and
 `compare.py` says so explicitly.
 
-To reproduce from a clean slate, delete `auditor/memory/ledger.jsonl` first - the
-first run of the pair is only cold if the ledger is empty. `--no-memory` audits
-with no learned history while still recording the run, and `--epsilon 0` turns
-off the sample of endpoints deliberately audited without memory.
+The demonstration keeps its ledger in `.contract-auditor/ledger.jsonl`, which
+`.gitignore` excludes: memory never belongs in the repository, because a
+committed ledger is one project's statistics and publishing it would impose them
+on everyone who pulls the image. To reproduce from a clean slate, delete that
+file first - the first run of the pair is only cold if the ledger is empty.
+
+In CI the ledger lives wherever `AUDITOR_MEMORY_URL` points, and with no url set
+there is no memory at all:
+
+```bash
+export AUDITOR_MEMORY_URL=s3://my-bucket/contract-auditor
+export AUDITOR_MEMORY_KEY_ID=... AUDITOR_MEMORY_SECRET=...
+python3 auditor/memory/store.py --check    # writes a probe row and reads it back
+```
+
+`--no-memory` audits with no learned history while still recording the run, and
+`--epsilon 0` turns off the sample of endpoints deliberately audited without
+memory.
 
 ## Verifying the scorer
 

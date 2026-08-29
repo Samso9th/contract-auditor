@@ -33,7 +33,8 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 
-from llm import chat, DEFAULT_MODEL, DEFAULT_MAX_TOKENS, LLMError  # noqa: E402
+from llm import (chat, DEFAULT_MODEL, DEFAULT_MAX_TOKENS, DEFAULT_REASONING,
+                 REASONING_LEVELS, LLMError)  # noqa: E402
 from diff import extract  # noqa: E402
 import languages  # noqa: E402
 from spec import load as load_spec  # noqa: E402
@@ -253,8 +254,12 @@ def vocabulary(adapter=None):
 
 
 def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
-                   adapter=None, memory=None):
+                   adapter=None, memory=None, reasoning=None):
     """Audit one endpoint. Returns (claims, usage).
+
+    `model` and `reasoning` are whatever the caller chose; neither is fixed
+    here. A reasoning level costs output tokens and wall-clock on every
+    endpoint, which is why it is off unless asked for.
 
     `memory` is optional learned history (see auditor/memory). It can add
     refuted precedents to the prompt and nothing else: it cannot filter a claim
@@ -326,7 +331,8 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
     for attempt in range(2):
         try:
             reply = chat(model, SYSTEM, prompt,
-                         max_tokens=DEFAULT_MAX_TOKENS * (attempt + 1))
+                         max_tokens=DEFAULT_MAX_TOKENS * (attempt + 1),
+                         reasoning=reasoning)
         except LLMError as exc:
             # Any failure to read an endpoint marks it unread, not just an
             # unparseable reply. A DNS failure or a rate limit produces zero
@@ -366,7 +372,11 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("case", help="case directory, or eval/fixture for the clean baseline")
     parser.add_argument("--endpoint", help='e.g. "post /refunds" (default: every endpoint)')
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model", default=DEFAULT_MODEL,
+                        help="any model id the endpoint serves "
+                             f"(default {DEFAULT_MODEL}, set by AUDITOR_MODEL)")
+    parser.add_argument("--reasoning", choices=REASONING_LEVELS, default=DEFAULT_REASONING,
+                        help="how much deliberation to ask for; slower and dearer")
     parser.add_argument("--strip-prefix", default="/v1")
     parser.add_argument("--language", default=None, help="go or typescript; detected when omitted")
     args = parser.parse_args()
@@ -387,7 +397,7 @@ def main():
     total = {"cost_usd": 0.0, "calls": 0}
     for key in keys:
         claims, usage = audit_endpoint(api_dir, spec, key, table, model=args.model,
-                                       adapter=adapter)
+                                       adapter=adapter, reasoning=args.reasoning)
         total["cost_usd"] += usage["cost_usd"]
         total["calls"] += usage["calls"]
         marker = f"{len(claims)} claim(s)" if claims else "none"

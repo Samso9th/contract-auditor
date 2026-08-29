@@ -1,13 +1,13 @@
 {
   "findings": [],
   "meta": {
-    "wall_clock_seconds": 62.9,
-    "cost_usd": 0.003115,
+    "wall_clock_seconds": 81.0,
+    "cost_usd": 0.00387,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
     "model_calls": 10,
-    "input_tokens": 10048,
-    "output_tokens": 7754,
+    "input_tokens": 10109,
+    "output_tokens": 11788,
     "deterministic_claims": 0,
     "agent_claims": 0,
     "suppressed_by_allowlist": 0,

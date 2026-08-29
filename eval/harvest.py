@@ -36,6 +36,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent / "auditor" / "memory"))
 
 import ledger as ledger_mod  # noqa: E402
+import store as store_mod  # noqa: E402
 
 FIELD = ROOT / "mutations" / "field.json"
 DEFAULT_CASES = ROOT / "cases"
@@ -173,7 +174,8 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run", help="run directory to harvest false positives from")
     parser.add_argument("--cases", default=str(DEFAULT_CASES))
-    parser.add_argument("--ledger", default=str(ledger_mod.LEDGER))
+    parser.add_argument("--memory-url", default="",
+                        help="overrides AUDITOR_MEMORY_URL; file:///path for local")
     parser.add_argument("--field", default=str(FIELD))
     parser.add_argument("--list", action="store_true", help="show the field set and stop")
     args = parser.parse_args()
@@ -190,7 +192,13 @@ def main():
                   f"{entry['description'][:80]}")
         return
 
-    rows = ledger_mod.read(args.ledger)
+    store = store_mod.open_store(args.memory_url)
+    rows = []
+    for line in store.load():
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
     false_positives = survived_false_positives(args.run, args.cases) if args.run else []
     entries = harvest(rows, false_positives, truth_keys(args.cases), existing)
     save(entries, args.field)

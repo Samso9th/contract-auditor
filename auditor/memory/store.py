@@ -37,6 +37,7 @@ their findings.
 from __future__ import annotations
 
 import argparse
+import binascii
 import datetime
 import hashlib
 import hmac
@@ -70,6 +71,35 @@ class StoreError(RuntimeError):
     pass
 
 
+class staged:
+    """A payload on disk, so a multipart upload can declare its length.
+
+    `curl -F file=@-` reads stdin, and because it cannot know the size in
+    advance it falls back to chunked transfer encoding. Cloudinary and some
+    pinning gateways reject chunked multipart, and the failure arrives as an
+    opaque 400. Writing the bytes to a temporary file first costs nothing at
+    these sizes and keeps the request ordinary.
+    """
+
+    def __init__(self, payload):
+        self.payload = payload
+        self.handle = None
+
+    def __enter__(self):
+        import tempfile
+        self.handle = tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False)
+        self.handle.write(self.payload)
+        self.handle.close()
+        return self.handle.name
+
+    def __exit__(self, *exc):
+        try:
+            os.unlink(self.handle.name)
+        except OSError:
+            pass
+        return False
+
+
 def load_env(path=ENV_FILE):
     """Credentials from .env, with the real environment winning.
 
@@ -99,8 +129,13 @@ def warn(message):
 
 def curl(args, data=None, timeout=TIMEOUT):
     """One HTTP call, through curl for the same reason the model client uses it:
-    no dependencies, and no LibreSSL stall on the system Python."""
-    command = ["curl", "-sS", "-m", str(timeout), "-w", "\n%{http_code}"] + list(args)
+    no dependencies, and no LibreSSL stall on the system Python.
+
+    `-g` disables curl's URL globbing. Without it a query like
+    `metadata[name]=ledger` - which is how Pinata filters pins - is read as a
+    character range and the request never leaves the machine.
+    """
+    command = ["curl", "-sS", "-g", "-m", str(timeout), "-w", "\n%{http_code}"] + list(args)
     completed = subprocess.run(command, input=data, capture_output=True)
     if completed.returncode != 0:
         raise StoreError(completed.stderr.decode(errors="replace").strip()
@@ -249,6 +284,7 @@ class S3Store(Store):
 
     def __init__(self, bucket, prefix, key_id, secret, region="us-east-1", endpoint=""):
         self.bucket, self.prefix = bucket, prefix.strip("/")
+        self.writes = 0
         self.key_id, self.secret, self.region = key_id, secret, region
         if endpoint:
             parsed = urllib.parse.urlparse(endpoint if "://" in endpoint
@@ -304,7 +340,15 @@ class S3Store(Store):
     def append(self, lines):
         if not lines:
             return True
-        key = f"{self.prefix}/runs/{time.strftime('%Y%m%dT%H%M%S', time.gmtime())}-{os.getpid()}.jsonl"
+        # Timestamp, pid, sequence and four random bytes. The first two are for
+        # a human reading the bucket; the last two are what actually guarantee
+        # uniqueness, because two writes in one second from one process - which
+        # is exactly what a per-case flush does - collided on the timestamp
+        # alone and the second silently replaced the first.
+        self.writes += 1
+        stamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+        suffix = binascii.hexlify(os.urandom(4)).decode()
+        key = f"{self.prefix}/runs/{stamp}-{os.getpid()}-{self.writes:04d}-{suffix}.jsonl"
         payload = ("\n".join(lines) + "\n").encode()
         try:
             code, body = self._request("PUT", f"{self.root}/{urllib.parse.quote(key)}",
@@ -411,14 +455,15 @@ class CloudinaryStore(Store):
         merged = self.load() + list(lines)
         params = {"public_id": self.public_id, "overwrite": "true",
                   "invalidate": "true", "timestamp": str(int(time.time()))}
-        args = ["-X", "POST", f"{self.base}/v1_1/{self.cloud}/raw/upload",
-                "-F", f"file=@-;filename={self.public_id}",
-                "-F", f"api_key={self.api_key}",
-                "-F", f"signature={self._signature(params)}"]
-        for key, value in params.items():
-            args += ["-F", f"{key}={value}"]
         try:
-            code, body = curl(args, data=("\n".join(merged) + "\n").encode())
+            with staged(("\n".join(merged) + "\n").encode()) as path:
+                args = ["-X", "POST", f"{self.base}/v1_1/{self.cloud}/raw/upload",
+                        "-F", f"file=@{path};filename={self.public_id}",
+                        "-F", f"api_key={self.api_key}",
+                        "-F", f"signature={self._signature(params)}"]
+                for key, value in params.items():
+                    args += ["-F", f"{key}={value}"]
+                code, body = curl(args)
         except StoreError as exc:
             warn(f"could not write the ledger to cloudinary: {exc}")
             return False
@@ -489,11 +534,12 @@ class IPFSStore(Store):
         if not lines:
             return True
         metadata = json.dumps({"name": self.label})
-        args = ["-X", "POST", f"{self.api}/pinning/pinFileToIPFS",
-                "-F", f"file=@-;filename={self.label}.jsonl",
-                "-F", f"pinataMetadata={metadata}"] + self._auth()
         try:
-            code, body = curl(args, data=("\n".join(lines) + "\n").encode())
+            with staged(("\n".join(lines) + "\n").encode()) as path:
+                args = ["-X", "POST", f"{self.api}/pinning/pinFileToIPFS",
+                        "-F", f"file=@{path};filename={self.label}.jsonl",
+                        "-F", f"pinataMetadata={metadata}"] + self._auth()
+                code, body = curl(args)
         except StoreError as exc:
             warn(f"could not pin the ledger: {exc}")
             return False

@@ -17,31 +17,23 @@
     }
   ],
   "meta": {
-    "wall_clock_seconds": 93.1,
-    "cost_usd": 0.004348,
+    "wall_clock_seconds": 190.1,
+    "cost_usd": 0.006392,
     "human_minutes": 0,
     "model": "z-ai/glm-5.3-flash",
     "model_calls": 10,
-    "input_tokens": 10136,
-    "output_tokens": 8956,
+    "input_tokens": 10386,
+    "output_tokens": 15210,
     "deterministic_claims": 1,
-    "agent_claims": 1,
+    "agent_claims": 0,
     "suppressed_by_allowlist": 0,
     "verification": {
       "confirmed": 0,
-      "refuted": 1,
+      "refuted": 0,
       "unsupported": 1,
       "error": 0
     },
-    "dropped_by_gate": [
-      {
-        "path": "/payouts",
-        "method": "post",
-        "kind": "request_required_mismatch",
-        "detail": "X-Debug-Ratelimit header: handler rejects requests with 429 when this undocumented header is set to \"1\", a condition the",
-        "source": "agent"
-      }
-    ],
+    "dropped_by_gate": [],
     "agent_errors": [],
     "unread_endpoints": [],
     "memory": {

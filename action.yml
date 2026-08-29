@@ -36,9 +36,18 @@ inputs:
     required: false
     default: https://openrouter.ai/api/v1
   model:
-    description: Model id for the judgment pass.
+    description: >-
+      Model id for the judgment pass. Any model your endpoint serves, not just
+      the default: the client sends whatever id it is given.
     required: false
     default: z-ai/glm-5.3-flash
+  reasoning:
+    description: >-
+      How much deliberation to ask the model for: off, low, medium or high.
+      Slower and dearer on every endpoint. Leave empty to use the model's own
+      default, which is what the published results were measured under.
+    required: false
+    default: ""
   workers:
     description: Concurrent model calls.
     required: false
@@ -49,6 +58,37 @@ inputs:
       Start at none to adopt in warn mode; tighten once the backlog is clear.
     required: false
     default: high
+  memory-url:
+    description: >-
+      Turns on self-improvement. Where this audit's claim ledger is read from and
+      written to, e.g. s3://my-bucket/contract-auditor (any S3-compatible store),
+      https://host/ledger.jsonl, cloudinary://cloud/public_id, or ipfs://name.
+      Left empty, the auditor keeps no memory at all - nothing is stored in your
+      repository, and nothing ships inside this action's image. Configuring it
+      also turns on the verification gate, since a claim with no verdict teaches
+      nothing.
+    required: false
+    default: ""
+  memory-key-id:
+    description: >-
+      Access key id for the memory store (S3-compatible), or the Cloudinary API
+      key. Pass a secret, never a literal.
+    required: false
+    default: ""
+  memory-secret:
+    description: Secret key for the memory store, or the Cloudinary API secret.
+    required: false
+    default: ""
+  memory-token:
+    description: >-
+      Bearer token for an HTTP memory store, or the JWT for an IPFS pinning
+      service.
+    required: false
+    default: ""
+  memory-region:
+    description: Region for an S3-compatible memory store.
+    required: false
+    default: ""
   webhook-url:
     description: >-
       POST the full JSON report here. Intended for a data sink such as Postgres;

@@ -95,6 +95,23 @@ Anything found then shows up as a note attached to the exact line of code, right
 where the change is being reviewed. Adding `api-key` turns on the AI stage.
 Adding `webhook-url` sends the full report to Slack, Telegram, or a database.
 
+**Which AI, and how hard it thinks, is your choice.** Nothing here is tied to one
+vendor or one model. Set `model` to any model your endpoint serves, and
+`reasoning` to `off`, `low`, `medium` or `high` if you want it to deliberate
+before answering, which is slower and costs more:
+
+```yaml
+        with:
+          spec: openapi.json
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          model: deepseek/deepseek-v3.2
+          reasoning: medium
+```
+
+Locally the same two settings are `--model` and `--reasoning`, or `AUDITOR_MODEL`
+and `AUDITOR_REASONING` in `.env`. Left alone, the tool uses the model the
+[results](RESULTS.md) were measured with and sends no reasoning instruction at all.
+
 
 ## What is the Problem and Who this is for
 
@@ -203,15 +220,38 @@ on every single complaint, because each complaint is settled by a test that
 either fails or passes. That makes a run produce two things: a report, and a
 pile of marked homework.
 
-Every claim is written down with its result, including the ones thrown away -
-those are the valuable half, since a discarded complaint is a known false alarm.
-Before checking an endpoint, the tool looks up the false alarms most like the
-one it is about to consider and shows them to itself first, with the test that
-disproved each. It keeps a running score of how often each type of complaint
-turns out to be real, and uses it to order the report and decide where to spend
-effort. When the same kind of accepted difference is dismissed three times or
-more, it is written out as a rule with a count of the evidence behind it, which
-a person can read and overrule.
+This is an optional layer, exactly like the AI stage and the alerts. It is off
+until you point it at storage you own, and **nothing is ever kept in your
+repository or inside the published image**. There is no shared memory, no
+history bundled with the tool, and no way for one project's statistics to end up
+as another project's assumptions.
+
+```yaml
+      - uses: samso9th/contract-auditor@v1
+        with:
+          spec: openapi.json
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          memory-url: s3://my-bucket/contract-auditor
+          memory-key-id: ${{ secrets.MEMORY_KEY_ID }}
+          memory-secret: ${{ secrets.MEMORY_SECRET }}
+```
+
+Any S3-compatible bucket works — AWS, Cloudflare R2, MinIO, Backblaze, Spaces —
+and so does a plain HTTPS endpoint, Cloudinary, or IPFS through a pinning
+service. Leave `memory-url` out and the tool behaves exactly as it always has.
+
+**What gets stored.** One line per complaint, with the verdict its test
+returned. The disproved ones are the valuable half: a complaint that was tested
+and found wrong is a labelled mistake, and those are what most tools never
+collect.
+
+**What the next run does with it.** Before checking an endpoint, it looks up the
+most similar past mistakes and reads them first, with the test that disproved
+each. It keeps a running score of how often each type of complaint turns out to
+be real, and uses it to order the report and decide where to spend effort. When
+the same kind of accepted difference is dismissed three times, it is written out
+as a rule in English with the count of evidence behind it, which a person can
+read and overrule.
 
 One line governs all of it: **memory changes what the tool looks at, never what
 it is allowed to report.** History can move a finding down the page or warn the
@@ -220,29 +260,40 @@ If the test still fails, the problem is real, and last month's statistics do not
 get a vote.
 
 That rule exists because of a specific way these systems rot. Teach a tool to
-stop raising a kind of complaint, and it stops producing any evidence about that
-kind of complaint, so nothing ever contradicts the lesson and the blind spot
-becomes permanent - while the numbers look better, because the misses are no
-longer being counted. The defence is cheap: about one endpoint in twenty is
-checked with the memory switched off entirely, purely to keep testing what the
-memory has learned to doubt. A rule that starts being contradicted is demoted
-automatically.
+stop raising a kind of complaint, and it stops producing evidence about that kind
+of complaint, so nothing ever contradicts the lesson and the blind spot becomes
+permanent — while the numbers look better, because the misses are no longer
+counted. The defence is cheap: about one endpoint in twenty is checked with the
+memory switched off entirely, purely to keep testing what the memory has learned
+to doubt. A rule that starts being contradicted is demoted automatically.
 
-    make self-improve
+Turning memory on also turns on the verification gate for your repository, since
+a complaint with no verdict teaches nothing. That is the same gate the evaluation
+uses: a temporary test is written beside your code, run, and deleted. A complaint
+its test disproves is dropped; one whose test cannot be built is kept and marked,
+never quietly lost.
 
-Runs the same set twice and prints both side by side. Findings the tool had to
-raise and then disprove should fall on the second run, because the first run's
-mistakes were shown to it. Nothing found on the first run may go missing on the
-second; the comparison says so out loud if it does.
+### Measured, not asserted
 
-    make memory     # how often each kind of complaint has held up
-    make rules      # what has been dismissed often enough to become a rule
-    make harvest    # turn real findings into new test cases
+Run the same 16 cases twice, the second run reading the first run's mistakes:
 
-The last one matters more than it looks. Real drift found in a live repository
-becomes a new case in the evaluation set, and a false alarm that survived the
-test becomes a new decoy. A tool that improves against a frozen benchmark is
-indistinguishable from one that has learned the benchmark.
+| | first run | second run |
+|---|---|---|
+| complaints raised and then disproved | 11 | **0** |
+| precision | 1.000 | 1.000 |
+| recall | 1.000 | 1.000 |
+| cost | $0.076 | $0.074 |
+
+The number that moved is wasted work: the second run stopped raising eleven
+complaints it would have had to disprove. Precision could not rise because the
+gate was already catching all of them, and recall did not fall, which is the
+result that would have condemned the whole idea. `make self-improve` reproduces
+it; one pair of runs is a demonstration, not a trend line.
+
+Growing the test set matters as much as the memory. `make harvest` turns real
+drift found in a live repository into a new evaluation case, and a false alarm
+that survived the test into a new decoy — because a tool that improves against a
+frozen benchmark is indistinguishable from one that has learned the benchmark.
 
 One thing deliberately not done: training a model on any of this. The data is
 dozens of examples, the models are already good at the underlying reading, and a
@@ -398,7 +449,8 @@ only reason to trust the answer when you do.
 |---|---|
 | [auditor/](auditor/) | The agent: tools, prompts, orchestration |
 | [auditor/notify.py](auditor/notify.py) | Slack/Telegram alerting, gated on verification |
-| [auditor/memory/](auditor/memory/) | The claim ledger, retrieval, calibration and learned rules (built) |
+| [auditor/memory/](auditor/memory/) | Retrieval, calibration and learned rules; no ledger ships here (built) |
+| [auditor/memory/store.py](auditor/memory/store.py) | Where the ledger lives: S3-compatible, HTTP, Cloudinary, IPFS, or off |
 | [eval/harvest.py](eval/harvest.py) | Grows the evaluation set from real runs: field cases and decoys |
 | [eval/compare.py](eval/compare.py) | Compares two runs, for the self-improvement demonstration |
 | [ddocs/](ddocs/) | Plain-language overview, self-improvement note, GHCR publishing guide |

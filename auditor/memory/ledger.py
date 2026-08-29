@@ -174,25 +174,34 @@ def new_run_id():
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--ledger", default=str(LEDGER))
+    parser.add_argument("--memory-url", default="",
+                        help="overrides AUDITOR_MEMORY_URL; file:///path for local")
     parser.add_argument("--kind", help="show only rows of this kind")
     parser.add_argument("--verdict", help="show only rows with this verdict")
     parser.add_argument("--limit", type=int, default=20)
     args = parser.parse_args()
 
-    rows = read(args.ledger)
+    import store as store_mod
+    store = store_mod.open_store(args.memory_url)
+    rows = []
+    for line in store.load():
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
     if args.kind:
         rows = [r for r in rows if r.get("kind") == args.kind]
     if args.verdict:
         rows = [r for r in rows if r.get("verdict") == args.verdict]
 
     if not rows:
-        print(f"ledger {args.ledger}: empty")
+        print(f"ledger ({store.describe()}): empty")
         return
 
     counts = {}
     for row in rows:
         counts[row.get("verdict", "?")] = counts.get(row.get("verdict", "?"), 0) + 1
+    print(f"store: {store.describe()}")
     print(f"{len(rows)} claim(s) over {run_count(rows)} run(s): "
           + ", ".join(f"{v} {k}" for k, v in sorted(counts.items())))
     print()

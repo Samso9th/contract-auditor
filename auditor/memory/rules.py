@@ -31,6 +31,7 @@ import json
 import pathlib
 
 import ledger as ledger_mod
+import store as store_mod
 
 HERE = pathlib.Path(__file__).resolve().parent
 RULES = HERE / "rules.json"
@@ -139,6 +140,16 @@ def review(rules, rows):
     return reviewed
 
 
+def _parse(line):
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError:
+        return None
+
+
 def load(path=RULES):
     path = pathlib.Path(path)
     if not path.exists():
@@ -178,19 +189,22 @@ def accepted_entries(path=ALLOWLIST):
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--promote", action="store_true", help="rebuild rules from the ledger")
-    parser.add_argument("--review", action="store_true", help="re-check rules against later evidence")
     parser.add_argument("--min-support", type=int, default=MIN_SUPPORT)
-    parser.add_argument("--ledger", default=str(ledger_mod.LEDGER))
-    parser.add_argument("--rules", default=str(RULES))
+    parser.add_argument("--memory-url", default="",
+                        help="overrides AUDITOR_MEMORY_URL; file:///path for local")
+    parser.add_argument("--save", help="also write the rules to this file, for inspection")
     args = parser.parse_args()
 
-    rows = ledger_mod.read(args.ledger)
-    rules = promote(rows, accepted_entries(), args.min_support) if args.promote else load(args.rules)
-    if args.promote or args.review:
-        rules = review(rules, rows)
-        save(rules, args.rules)
+    # Rules are derived from the ledger every time rather than kept as state.
+    # A stored rule can drift away from the evidence behind it; a derived one
+    # cannot, and the support count is then always the true count.
+    store = store_mod.open_store(args.memory_url)
+    rows = [r for r in (_parse(line) for line in store.load()) if r]
+    rules = review(promote(rows, accepted_entries(), args.min_support), rows)
+    if args.save:
+        save(rules, args.save)
 
+    print(f"store: {store.describe()}")
     if not rules:
         print(f"no rules yet: no shape has been dismissed {args.min_support} times "
               f"({len(rows)} claim(s) in the ledger)")
