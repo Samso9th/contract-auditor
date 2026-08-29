@@ -1,7 +1,0 @@
-{
-  "id": "PN01",
-  "category": "decoy-local-rename",
-  "severity": "none",
-  "description": "DECOY. Renames a local variable. No contract change.",
-  "expect": []
-}

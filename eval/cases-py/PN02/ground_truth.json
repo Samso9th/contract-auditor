@@ -1,7 +1,0 @@
-{
-  "id": "PN02",
-  "category": "decoy-comment",
-  "severity": "none",
-  "description": "DECOY. Adds an implementation comment.",
-  "expect": []
-}
