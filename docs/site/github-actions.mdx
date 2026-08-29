@@ -153,9 +153,15 @@ integrated, so the brief asks the agent to decide explicitly and say why.
 | `strip-prefix` | n/a | Prefix to strip so routes match spec paths. |
 | `api-key` | n/a | Omit for deterministic-only: no cost, no secret. |
 | `base-url` | OpenRouter | Any OpenAI-compatible endpoint. |
-| `model` | `z-ai/glm-5.3-flash` | Model id for the judgment pass. |
+| `model` | `z-ai/glm-5.3-flash` | Any model id your endpoint serves. |
+| `reasoning` | n/a | `off`, `low`, `medium`, `high`. Slower and dearer; omit for the model's own default. |
 | `workers` | `8` | Concurrent model calls. Raise to shorten wall clock. |
 | `fail-on` | `high` | `critical`, `high`, `medium`, `low`, `none`. |
+| `memory-url` | n/a | Turns on self-improvement. Storage you own; nothing is kept in your repo. |
+| `memory-key-id` | n/a | Access key id, or Cloudinary API key. Pass a secret. |
+| `memory-secret` | n/a | Secret key, or Cloudinary API secret. |
+| `memory-token` | n/a | Bearer token for an HTTP store, or an IPFS pinning JWT. |
+| `memory-region` | n/a | Region for an S3-compatible store. |
 | `webhook-url` | n/a | Full JSON report POSTed to a data sink. |
 | `webhook-secret` | n/a | Sent as `X-Auditor-Token`. |
 | `slack-webhook-url` | n/a | Formatted Slack message, verified findings only. |
@@ -164,6 +170,56 @@ integrated, so the brief asks the agent to decide explicitly and say why.
 
 **Outputs:** `findings`, `critical`, `high`, `sarif`, `summary`, `brief`,
 `brief-zip`, `brief-dir`.
+
+## Turning on self-improvement
+
+The auditor can learn from its own mistakes across runs, but only where you tell
+it to keep the record. There is no default location and no shared store: leave
+`memory-url` out and it keeps no memory at all.
+
+```yaml
+      - uses: samso9th/contract-auditor@v1
+        with:
+          spec: openapi.json
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          memory-url: s3://my-bucket/contract-auditor
+          memory-key-id: ${{ secrets.MEMORY_KEY_ID }}
+          memory-secret: ${{ secrets.MEMORY_SECRET }}
+          memory-region: eu-west-1
+```
+
+Any S3-compatible bucket works. For Cloudflare R2, MinIO, Spaces or Backblaze,
+add the endpoint to the URL:
+
+```yaml
+          memory-url: s3://my-bucket/contract-auditor?endpoint=https://<account>.r2.cloudflarestorage.com
+```
+
+Other backends, same shape:
+
+| Store | `memory-url` | Credentials |
+|---|---|---|
+| Any HTTPS endpoint that takes GET and PUT | `https://host/ledger.jsonl` | `memory-token` |
+| Cloudinary raw storage | `cloudinary://cloud-name/ledger` | `memory-key-id`, `memory-secret` |
+| IPFS via a Pinata-compatible pinner | `ipfs://ledger` | `memory-token` |
+
+<Note>
+Two things change when you set this. Each run reads the ledger before auditing
+and appends to it afterwards, so the store must be reachable from the runner.
+And the verification gate runs against your repository, because a claim with no
+verdict teaches nothing: a temporary test is written next to your code, executed,
+and deleted. A claim its test disproves is dropped from the report; one whose
+test cannot be built is kept and marked, never silently lost.
+</Note>
+
+Memory only ever adjusts priors. It changes which past mistakes the model is
+shown and how findings are ranked, and it can never suppress a finding — if the
+generated test still fails, the finding ships. About one endpoint in twenty is
+audited with memory disabled on purpose, so a wrong assumption keeps being
+tested rather than becoming permanent.
+
+Nothing is written into your checkout, and no ledger ships inside the action's
+image: the build deletes any that reaches it and fails if one remains.
 
 ## Alerting a human
 

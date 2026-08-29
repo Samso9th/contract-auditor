@@ -13,11 +13,16 @@ description: "Every entry point, and what it costs."
 | `make routes` | Print the route table for the clean fixture | no | none |
 | `make deterministic` | Run the no-model layer and score it | no | none |
 | `make verify` | Put every deterministic finding through the gate | no | none |
-| `make models` | Show configured models and prices | no | none |
+| `make models` | Show configured models, prices and how to pick another | no | none |
 | `make test-llm` | Check the model client against the live endpoint | yes | `<$0.001` |
 | `make baseline` | Run the single-prompt baseline | yes | see [results](/results) |
 | `make agent` | Run the full auditor | yes | see [results](/results) |
 | `make score` | Score both runs side by side | no | none |
+| `make memory` | Show how often each claim kind has survived the gate | no | none |
+| `make memory-check` | Prove the configured memory store round-trips | store | none |
+| `make rules` | Promote repeated dismissals into rules, and re-check existing ones | no | none |
+| `make harvest` | Grow the evaluation set from the last run | no | none |
+| `make self-improve` | Run the cases twice and compare the two runs | yes | ~`$0.15` |
 | `make notify` | Preview the alert for the latest run | no | none |
 | `make clean` | Remove generated cases and runs | no | none |
 
@@ -47,6 +52,89 @@ Score a run:
 ```bash
 cd eval && python3 score.py --run ../reports/runs/agent --markdown
 ```
+
+Compare two runs, which is how the learned memory is measured:
+
+```bash
+python3 eval/compare.py reports/runs/memory-1 reports/runs/memory-2
+```
+
+## Choosing a model
+
+Any model your endpoint serves works: the client sends whatever id it is given,
+and nothing in the auditor is tied to one vendor. `--model` sets it per run,
+`AUDITOR_MODEL` in `.env` sets it once.
+
+`--reasoning` asks the provider for more deliberation before answering. It costs
+output tokens and wall-clock on every endpoint, so it is off unless asked for,
+and the published [results](/results) were measured without it.
+
+```bash
+python3 auditor/llm.py --models                    # what is configured, and prices
+python3 auditor/run.py --model anthropic/claude-sonnet-5 --repo . --spec openapi.json
+python3 auditor/run.py --reasoning high --cases eval/cases --out reports/runs/deep
+```
+
+```bash
+# .env, to set both once
+AUDITOR_MODEL=deepseek/deepseek-v3.2
+AUDITOR_REASONING=medium
+```
+
+| Level | Sends | Use when |
+|---|---|---|
+| omitted | no reasoning field at all | Default. The model does whatever it normally does |
+| `off` | `reasoning: {enabled: false}` | You want speed and the model lets you turn thinking off |
+| `low` / `medium` / `high` | `reasoning: {effort: ...}` | Judgment calls are being missed and you will pay for it |
+
+Not every model accepts every level. `z-ai/glm-5.3-flash` reasons unconditionally
+and rejects `off` with a 400; the error names the model and the level so it is
+clear what to change. Asking for a level also raises the token ceiling, because
+thinking is billed as output and emitted before the answer, so a ceiling sized
+for the answer alone truncates mid-thought.
+
+Both settings are recorded in every run's `meta`, since two runs at different
+models or reasoning levels are not comparable.
+
+## Learned memory
+
+Off unless you point it at storage you own. Nothing is stored in your repository
+or inside the action's image, and no history ships with the tool.
+
+```bash
+export AUDITOR_MEMORY_URL=s3://my-bucket/contract-auditor
+export AUDITOR_MEMORY_KEY_ID=...      # or AWS_ACCESS_KEY_ID
+export AUDITOR_MEMORY_SECRET=...      # or AWS_SECRET_ACCESS_KEY
+python3 auditor/memory/store.py --check     # write a probe, read it back
+```
+
+| URL | Backend |
+|---|---|
+| `s3://bucket/prefix` | Any S3-compatible store. Add `?endpoint=https://...` for R2, MinIO, Spaces, B2, and `?region=` for AWS |
+| `https://host/ledger.jsonl` | Any endpoint answering GET and PUT. `AUDITOR_MEMORY_TOKEN` becomes a bearer token |
+| `cloudinary://cloud/public_id` | Cloudinary raw storage, with `CLOUDINARY_API_KEY` and `CLOUDINARY_API_SECRET` |
+| `ipfs://name` | IPFS through a Pinata-compatible pinning API, with `AUDITOR_MEMORY_TOKEN` as the JWT |
+| `file:///abs/path` | A local file. Development only: a ledger in a working tree is one `git add` from being published |
+
+Every run appends each claim and its gate verdict, refuted claims included. Later
+runs read it back: similar past refutations go into the prompt, and per-kind
+survival rates order the report. Memory never suppresses a claim — the gate still
+decides.
+
+```bash
+python3 auditor/memory/ledger.py --verdict refuted     # the labelled false positives
+python3 auditor/memory/recall.py                       # calibration per claim kind
+python3 auditor/memory/recall.py --endpoint "post /payouts"   # what would be recalled
+python3 auditor/memory/rules.py                        # shapes dismissed 3+ times
+python3 eval/harvest.py --run reports/runs/agent       # new cases from real findings
+```
+
+| Flag on `auditor/run.py` | Does |
+|---|---|
+| `--memory-url URL` | Where the ledger lives. Defaults to `AUDITOR_MEMORY_URL`; unset means no memory at all |
+| `--no-memory` | Ignore learned history for this run. The ledger is still written |
+| `--epsilon 0.05` | Fraction of endpoints audited with memory off, so a wrong prior keeps being tested. `0` disables it |
+| `--verify` | With `--repo`: put every claim through the gate. Implied when memory is configured, because a claim with no verdict teaches nothing |
 
 ## Configuration
 

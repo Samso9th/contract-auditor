@@ -15,7 +15,8 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from llm import extract_json, chat, load_env, LLMError, DEFAULT_MODEL, ESCALATION_MODEL  # noqa: E402
+from llm import (extract_json, chat, load_env, normalise_reasoning, LLMError,  # noqa: E402
+                 DEFAULT_MODEL, ESCALATION_MODEL, REASONING_MIN_TOKENS)
 
 results = []
 
@@ -54,6 +55,26 @@ def offline_checks():
     check("empty returns None", extract_json("") is None)
     check("truncated object returns None", extract_json('{"a": 1') is None)
 
+    # Reasoning selection. Blank and `default` mean "send nothing and leave the
+    # model alone", which is not the same as `off` - `off` is an instruction the
+    # provider can reject.
+    check("reasoning level normalised", normalise_reasoning("HIGH ") == "high")
+    check("reasoning blank is unset", normalise_reasoning("") is None
+          and normalise_reasoning(None) is None
+          and normalise_reasoning("default") is None)
+    check("reasoning aliases map to off", normalise_reasoning("none") == "off"
+          and normalise_reasoning("false") == "off")
+    try:
+        normalise_reasoning("ultra")
+        check("unknown reasoning level rejected", False, "no exception raised")
+    except LLMError:
+        check("unknown reasoning level rejected", True)
+
+    # Every level must carry a ceiling above the plain default, or the thinking
+    # consumes the budget and the answer never arrives.
+    check("reasoning raises the token ceiling",
+          all(REASONING_MIN_TOKENS[level] > 8000 for level in ("low", "medium", "high")))
+
     # Deliberately not asserted here. CI runs the offline suite with no key, and
     # a check that fails simply because a secret is absent trains people to
     # ignore a red build. Credentials are exercised by the live suite instead.
@@ -80,6 +101,15 @@ def live_checks():
     total_cost += tight.cost_usd
     check("truncation is detected", tight.truncated or tight.json is not None,
           f"finish={tight.finish_reason} content={tight.content[:40]!r}")
+
+    # A chosen reasoning level has to reach the provider and still come back as
+    # parseable JSON. GLM reasons unconditionally, so this proves the field is
+    # accepted and the raised ceiling leaves room for an answer after thinking.
+    thinking = chat(DEFAULT_MODEL, "You return only JSON.",
+                    'Return exactly {"ok": true} and nothing else.', reasoning="low")
+    total_cost += thinking.cost_usd
+    check("reasoning level accepted", thinking.json is not None,
+          f"finish={thinking.finish_reason} reasoning_tokens={thinking.reasoning_tokens}")
 
     escalation = chat(ESCALATION_MODEL, "You return only JSON.",
                       'Return exactly {"ok": true} and nothing else.')

@@ -10,3 +10,10 @@ ddocs
 eval/cases-ts/
 eval/cases-py/
 eval/cases-php/
+
+# Learned memory never belongs in the repository. It is one project's
+# statistics, and a committed ledger becomes every consumer's priors the moment
+# the image is published. Point AUDITOR_MEMORY_URL at storage you own instead.
+.contract-auditor/
+auditor/memory/ledger.jsonl
+auditor/memory/rules.json

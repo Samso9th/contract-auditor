@@ -33,7 +33,8 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 
-from llm import chat, DEFAULT_MODEL, DEFAULT_MAX_TOKENS, LLMError  # noqa: E402
+from llm import (chat, DEFAULT_MODEL, DEFAULT_MAX_TOKENS, DEFAULT_REASONING,
+                 REASONING_LEVELS, LLMError)  # noqa: E402
 from diff import extract  # noqa: E402
 import languages  # noqa: E402
 from spec import load as load_spec  # noqa: E402
@@ -98,7 +99,7 @@ Function `{handler}` at {file}:{start}-{end}
 # Already reported by static analysis. Do NOT repeat these
 
 {known}
-
+{memory}
 # Your task
 
 Report only drift of these kinds:
@@ -174,19 +175,25 @@ def spec_summary(operation, kinds=None):
     return summary
 
 
-def build_prompt(path, method, facts, operation, source, known, kinds=None):
+def build_prompt(path, method, facts, operation, source, known, kinds=None,
+                 recalled=""):
     known_text = "\n".join(
         f"- {f['kind']}: {f.get('detail') or ''} ({f.get('evidence', '')[:110]})"
         for f in known
     ) or "- (nothing)"
     kinds = kinds or JUDGMENT_KINDS
     kinds_text = "\n".join(f'  - "{k}": {v}' for k, v in kinds.items())
+    # Recalled negatives sit between what static analysis already found and the
+    # task, which is where a reader would want them: after the facts, before the
+    # judgment. Empty when there is no history, so a first run's prompt is byte
+    # for byte the prompt this agent has always sent.
     return TEMPLATE.format(
         method=method.lower(), path=path, handler=facts["name"],
         file=facts["file"], start=facts["line"], end=facts.get("end_line", facts["line"]),
         source=source,
         spec_json=json.dumps(spec_summary(operation, kinds), indent=2),
         known=known_text, kinds=kinds_text,
+        memory=f"\n{recalled}\n" if recalled else "",
         kind_list=json.dumps(sorted(kinds)),
     )
 
@@ -247,8 +254,18 @@ def vocabulary(adapter=None):
 
 
 def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
-                   adapter=None):
-    """Audit one endpoint. Returns (claims, usage)."""
+                   adapter=None, memory=None, reasoning=None):
+    """Audit one endpoint. Returns (claims, usage).
+
+    `model` and `reasoning` are whatever the caller chose; neither is fixed
+    here. A reasoning level costs output tokens and wall-clock on every
+    endpoint, which is why it is off unless asked for.
+
+    `memory` is optional learned history (see auditor/memory). It can add
+    refuted precedents to the prompt and nothing else: it cannot filter a claim
+    on the way out, because the gate downstream is the only thing entitled to
+    decide that.
+    """
     path, method = key
     known = known or []
     usage = {"cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0, "elapsed": 0.0, "calls": 0}
@@ -299,9 +316,12 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
     kinds = vocabulary(adapter)
     described = facts or {"name": route["handler"], "file": location[0],
                           "line": location[1], "end_line": location[1]}
+    recalled = memory.prompt_block(path, method, set(kinds)) if memory is not None else ""
+    if recalled:
+        usage["recalled"] = True
     prompt = build_prompt(path, method, described, spec[key], source,
                           [f for f in known if f["path"] == path and f["method"] == method.lower()],
-                          kinds)
+                          kinds, recalled)
 
     # An unparseable reply is indistinguishable from "no drift here": both yield
     # zero claims. That makes a transport-level failure look like a clean
@@ -311,7 +331,8 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL,
     for attempt in range(2):
         try:
             reply = chat(model, SYSTEM, prompt,
-                         max_tokens=DEFAULT_MAX_TOKENS * (attempt + 1))
+                         max_tokens=DEFAULT_MAX_TOKENS * (attempt + 1),
+                         reasoning=reasoning)
         except LLMError as exc:
             # Any failure to read an endpoint marks it unread, not just an
             # unparseable reply. A DNS failure or a rate limit produces zero
@@ -351,7 +372,11 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("case", help="case directory, or eval/fixture for the clean baseline")
     parser.add_argument("--endpoint", help='e.g. "post /refunds" (default: every endpoint)')
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model", default=DEFAULT_MODEL,
+                        help="any model id the endpoint serves "
+                             f"(default {DEFAULT_MODEL}, set by AUDITOR_MODEL)")
+    parser.add_argument("--reasoning", choices=REASONING_LEVELS, default=DEFAULT_REASONING,
+                        help="how much deliberation to ask for; slower and dearer")
     parser.add_argument("--strip-prefix", default="/v1")
     parser.add_argument("--language", default=None, help="go or typescript; detected when omitted")
     args = parser.parse_args()
@@ -372,7 +397,7 @@ def main():
     total = {"cost_usd": 0.0, "calls": 0}
     for key in keys:
         claims, usage = audit_endpoint(api_dir, spec, key, table, model=args.model,
-                                       adapter=adapter)
+                                       adapter=adapter, reasoning=args.reasoning)
         total["cost_usd"] += usage["cost_usd"]
         total["calls"] += usage["calls"]
         marker = f"{len(claims)} claim(s)" if claims else "none"

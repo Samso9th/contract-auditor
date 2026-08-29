@@ -39,26 +39,21 @@ Running `make languages` prints the same table straight from the code.
 Everything here comes from the part of the tool that uses no AI at all. It costs
 nothing, needs no account, and finishes in under a second:
 
-| Language | Faults found without AI | Score without AI | Score with AI | Of what it reported, how much was real |
+| Language | Faults it finds without AI | Of what it reported, how much was real | Of what was there, how much it found | Combined score |
 |---|---|---|---|---|
-| **Go** | 9 kinds | 0.889 | **1.000** | 100% |
-| **TypeScript** (Express) | 8 kinds | 0.889 | **1.000** | 100% |
-| **Python** (FastAPI, Flask) | 8 kinds | 0.824 | **1.000** | 100% |
-| **PHP** (Laravel) | 6 kinds | 0.824 | **1.000** | 100% |
+| **Go** | 9 kinds | 100% | 80% | **0.889** |
+| **TypeScript** (Express) | 8 kinds | 100% | 80% | **0.889** |
+| **Python** (FastAPI, Flask) | 8 kinds | 100% | 70% | **0.824** |
+| **PHP** (Laravel) | 6 kinds | 100% | 70% | **0.824** |
 
-Every language finds every fault, and not one of them raised a false alarm or
-complained about the sample code we deliberately left correct.
+Two things matter in that table. Everything it reported was real, in every
+language, with no false alarms. And it never once raised a complaint about the
+sample applications we deliberately left correct.
 
-The middle column is worth pausing on. That is the score with the AI switched
-off entirely, and it is most of the way there for free. What the no-AI part
-cannot find is the same short list everywhere: a field the code secretly insists
-on, a rule quietly relaxed, a default value changed. Those need reading
-comprehension rather than lookup, and they are the only thing the AI is used for.
-
-The AI is also wrong most of the time, which is the point. Across the four
-languages it suggested between 6 and 13 things per run, and 50% to 78% of those
-were wrong. Every single wrong one was caught and thrown away by the proving
-step, in every language, which is why the last column reads 100% four times.
+What it does not find without AI is the same short list everywhere: a field the
+code secretly insists on, a rule quietly relaxed, a default value changed. Those
+need reading comprehension rather than lookup, and they are what the AI part is
+for.
 
 The tool never runs or installs your application. It only reads the source code.
 So a project whose dependencies are not installed can still be checked, which
@@ -100,6 +95,23 @@ Anything found then shows up as a note attached to the exact line of code, right
 where the change is being reviewed. Adding `api-key` turns on the AI stage.
 Adding `webhook-url` sends the full report to Slack, Telegram, or a database.
 
+**Which AI, and how hard it thinks, is your choice.** Nothing here is tied to one
+vendor or one model. Set `model` to any model your endpoint serves, and
+`reasoning` to `off`, `low`, `medium` or `high` if you want it to deliberate
+before answering, which is slower and costs more:
+
+```yaml
+        with:
+          spec: openapi.json
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          model: deepseek/deepseek-v3.2
+          reasoning: medium
+```
+
+Locally the same two settings are `--model` and `--reasoning`, or `AUDITOR_MODEL`
+and `AUDITOR_REASONING` in `.env`. Left alone, the tool uses the model the
+[results](RESULTS.md) were measured with and sends no reasoning instruction at all.
+
 
 ## What is the Problem and Who this is for
 
@@ -115,7 +127,7 @@ A published service ends up with three separate descriptions of itself, and
 nothing keeps them in step:
 
 1. the code, which is what actually runs;
-2. short notes written above the code, which a tool turns into the formal document;
+2. short notes written above the code, which a tool turns into the formal documentation;
 3. the human-readable guide that outside developers actually read.
 
 Different people edit each one, at different times. Code review asks whether the
@@ -201,6 +213,97 @@ becoming a list people learn to scroll past.
 
 ---
 
+## How it gets better the more it is used
+
+Most tools of this kind never find out whether they were right. This one does,
+on every single complaint, because each complaint is settled by a test that
+either fails or passes. That makes a run produce two things: a report, and a
+pile of marked homework.
+
+This is an optional layer, exactly like the AI stage and the alerts. It is off
+until you point it at storage you own, and **nothing is ever kept in your
+repository or inside the published image**. There is no shared memory, no
+history bundled with the tool, and no way for one project's statistics to end up
+as another project's assumptions.
+
+```yaml
+      - uses: samso9th/contract-auditor@v1
+        with:
+          spec: openapi.json
+          api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          memory-url: s3://my-bucket/contract-auditor
+          memory-key-id: ${{ secrets.MEMORY_KEY_ID }}
+          memory-secret: ${{ secrets.MEMORY_SECRET }}
+```
+
+Any S3-compatible bucket works — AWS, Cloudflare R2, MinIO, Backblaze, Spaces —
+and so does a plain HTTPS endpoint, Cloudinary, or IPFS through a pinning
+service. Leave `memory-url` out and the tool behaves exactly as it always has.
+
+**What gets stored.** One line per complaint, with the verdict its test
+returned. The disproved ones are the valuable half: a complaint that was tested
+and found wrong is a labelled mistake, and those are what most tools never
+collect.
+
+**What the next run does with it.** Before checking an endpoint, it looks up the
+most similar past mistakes and reads them first, with the test that disproved
+each. It keeps a running score of how often each type of complaint turns out to
+be real, and uses it to order the report and decide where to spend effort. When
+the same kind of accepted difference is dismissed three times, it is written out
+as a rule in English with the count of evidence behind it, which a person can
+read and overrule.
+
+One line governs all of it: **memory changes what the tool looks at, never what
+it is allowed to report.** History can move a finding down the page or warn the
+model that something like it was wrong before. It can never delete a complaint.
+If the test still fails, the problem is real, and last month's statistics do not
+get a vote.
+
+That rule exists because of a specific way these systems rot. Teach a tool to
+stop raising a kind of complaint, and it stops producing evidence about that kind
+of complaint, so nothing ever contradicts the lesson and the blind spot becomes
+permanent — while the numbers look better, because the misses are no longer
+counted. The defence is cheap: about one endpoint in twenty is checked with the
+memory switched off entirely, purely to keep testing what the memory has learned
+to doubt. A rule that starts being contradicted is demoted automatically.
+
+Turning memory on also turns on the verification gate for your repository, since
+a complaint with no verdict teaches nothing. That is the same gate the evaluation
+uses: a temporary test is written beside your code, run, and deleted. A complaint
+its test disproves is dropped; one whose test cannot be built is kept and marked,
+never quietly lost.
+
+### Measured, not asserted
+
+Run the same 16 cases twice, the second run reading the first run's mistakes:
+
+| | first run | second run |
+|---|---|---|
+| complaints raised and then disproved | 11 | **0** |
+| precision | 1.000 | 1.000 |
+| recall | 1.000 | 1.000 |
+| cost | $0.076 | $0.074 |
+
+The number that moved is wasted work: the second run stopped raising eleven
+complaints it would have had to disprove. Precision could not rise because the
+gate was already catching all of them, and recall did not fall, which is the
+result that would have condemned the whole idea. `make self-improve` reproduces
+it; one pair of runs is a demonstration, not a trend line.
+
+Growing the test set matters as much as the memory. `make harvest` turns real
+drift found in a live repository into a new evaluation case, and a false alarm
+that survived the test into a new decoy — because a tool that improves against a
+frozen benchmark is indistinguishable from one that has learned the benchmark.
+
+One thing deliberately not done: training a model on any of this. The data is
+dozens of examples, the models are already good at the underlying reading, and a
+fine-tune would freeze the project out of model upgrades that keep arriving
+faster than any training loop here would finish. Looking things up beats training
+decisively at this size. Full reasoning in
+[ddocs/self-improvement.md](ddocs/self-improvement.md).
+
+---
+
 ## What already exists
 
 This is not an untouched problem. Plenty of tools work on part of it, and it is
@@ -211,7 +314,7 @@ worth being precise about which part, because the differences are not small.
 | [oasdiff](https://github.com/oasdiff/oasdiff), [openapi-diff](https://github.com/OpenAPITools/openapi-diff), Optic, Bump.sh | Compare two versions of the published document against each other | Both sides are the document. If the code changed and the document did not, there is nothing to notice |
 | [Dredd](https://github.com/apiaryio/dredd), [Schemathesis](https://github.com/schemathesis/schemathesis), Specmatic | Send real requests at a running copy of the software and check the replies against the document | Needs the software running, with its database and dependencies installed. A proposed change arriving as a fresh checkout has none of that |
 | [Pact](https://pact.io) | Records what each outside team actually relies on, and checks the software still honours it | Also needs the software running, and only covers what somebody already wrote a test for. Requests nobody uses yet stay invisible, and those are the ones being got wrong |
-| [PactFlow](https://pactflow.io/ai/), now a module of SmartBear's Swagger platform | The paid version of Pact. Its newest feature has an AI write the contract tests for you, from the document or from the code | It writes tests to check the software matches the document. It does not go hunting for the places where it does not, and nothing checks the tests the AI wrote. Contract testing comes as part of a per-seat platform, [from about $32 per user per month](https://swagger.io/product/pricing/) (listed as €27.90) at the time of writing, and the AI is rationed: ten credits per user per month, thirty on the dearest tier |
+| [PactFlow](https://pactflow.io/ai/), now SmartBear's Swagger platform | The paid version of Pact. Its newest feature has an AI write the contract tests for you, from the document or from the code | It writes tests to check the software matches the document. And nothing checks the tests the AI wrote. Contract testing comes as part of a per-seat platform, [from about $32 per user per month](https://swagger.io/product/pricing/) and the AI is rationed: ten credits per user per month, thirty on the dearest tier |
 | [Speakeasy](https://www.speakeasy.com/blog/openapi-spec-drift-detection), Treblle, Tusk | Watch live traffic and report requests the document never mentioned | Answers after it has shipped and somebody has already called it. Also needs code added to the running service to do the watching |
 | [go-apispec](https://github.com/antst/go-apispec), AutoOAS | Read the source code and write a fresh document describing what they found | Produces a second document rather than a comparison. This is the closest relative of our free stage, and pairing one of them with oasdiff would get near it |
 | [driftcheck](https://github.com/deichrenner/driftcheck) | Asks an AI whether a code change contradicts anything written in the docs | Nothing checks the AI. Its answer goes straight to a person, which is the exact failure this project is built to remove |
@@ -219,8 +322,8 @@ worth being precise about which part, because the differences are not small.
 Worth saying plainly next to that, since much of the list above is sold by the
 seat. The stage that finds most of the faults here uses no AI, so it costs
 nothing at all, on any number of repositories, forever. The AI stage is optional
-and billed per use through whichever provider's key you already hold: the entire
-16-case evaluation in this repository, 159 model calls, cost 7 cents. There is no
+and billed per use through whichever provider's key you already hold: *the entire
+16-case evaluation in this repository, 159 model calls, cost 7 cents.* There is no
 seat to buy, no monthly ration of runs, and no account holding your results.
 
 Two gaps are left by that list, and they are the two things this tool is.
@@ -228,7 +331,7 @@ Two gaps are left by that list, and they are the two things this tool is.
 **Nothing reads the code and the document side by side without running
 anything.** A survey of drift-detection tools published this year went looking
 and concluded the same: no tool compares a published document against source code
-without executing it. That is why the free stage here can run on a proposed
+without executing it said source code. That is why the free stage here can run on a proposed
 change, in a checkout with nothing installed, in under a second. Every tool above
 either needs two documents, or needs the software up and answering requests.
 
@@ -248,95 +351,14 @@ anything.
 
 ## Does it actually work?
 
-### What it was tested against
+Yes, and every number is checkable by anyone who clones this. 16 test cases:
+twelve real faults, four pieces of correct code that look like faults. Scored
+against the obvious simple approach on the same cases with the same scoring.
+Overall 1.000 against its 0.219, every real fault found, and zero false alarms
+against its 107.
 
-The payments company's real codebase is private and its working files contain
-live passwords, so it cannot be handed to judges. Instead this repository
-contains a small working payments service written for the purpose: eight
-kinds of request, nothing to install, runs without internet, and a published
-document that matches it exactly.
-
-Faults are then deliberately introduced, one per test case. Because we broke it
-on purpose, we know precisely what a correct answer looks like, which is what
-makes every number below checkable by anyone who clones this.
-
-The real company codebase is reported separately as a case study, with findings
-quoted and no passwords included.
-
-### The test cases
-
-16 cases. Twelve contain a real fault of the kind that hurts outside developers.
-The other four contain a change that looks like a fault but is not: a variable
-renamed, a comment added, a function split in two, fields reordered. The
-behaviour is identical.
-
-Those four are the important ones. Without them, a tool that complains about
-everything would score perfectly.
-
-| ID | Severity | What was broken |
-|---|---|---|
-| D01 | high | A field was renamed in the code, the document still promises the old name |
-| D02 | medium | The code reports a different success signal than documented |
-| D03 | high | A request exists in the code that the document never mentions |
-| D04 | high | The document promises a request the code no longer answers |
-| D05 | **critical** | A money amount changed from exact text to a rounded number |
-| D06 | high | The code demands a field the document says is optional |
-| D07 | high | A setting is read under a different name than documented |
-| D08 | **critical** | A request now requires a password; the document says it is open to all |
-| D09 | low | A default value changed and the document was not updated |
-| D10 | **critical** | The security stamp on outgoing messages was renamed |
-| D11 | medium | A rule was relaxed below what the document promises |
-| D12 | medium | A new failure response was added and never documented |
-| N01–N04 | not a fault | Rename, comment, refactor, reorder. Behaviour unchanged |
-
-D05, D08 and D10 are the hardest three, and all three are silent. The code builds,
-the existing tests pass, and the request still succeeds. The damage lands in
-someone else's system: money quietly losing accuracy, a login demanded where none
-was before, and every outgoing security stamp being rejected because it arrives
-under a different name.
-
-Every introduced fault is checked to make sure the software still builds before it
-counts as a test case. A fault that breaks the build tests nothing.
-
-### The results
-
-Compared against the obvious simple approach: hand the whole codebase and the
-whole document to an AI in one go and ask it to find the disagreements. Same AI,
-same test cases, same scoring.
-
-| | Simple approach | This tool | Change |
-|---|---|---|---|
-| **Overall score** | 0.219 | **1.000** | **+0.781** |
-| Real faults found, of 15 | 15 | **15** | same |
-| Of what it reported, how much was real | 12% | **100%** | +88 points |
-| False alarms | 107 | **0** | −107 |
-| Correct code wrongly flagged, of 4 | 4 | **0** | −4 |
-| Serious faults found, of 5 | 5 | **5** | same |
-| Cost per run | $0.166 | **$0.070** | −$0.096 |
-| Human time | none | none | same |
-
-The simple approach is not blind. It found every one of the 15 real faults. It
-also reported 107 things that were not there, and complained about all four
-pieces of correct code. Reading its output means checking 122 complaints to find
-15 real ones, and being told four healthy things are broken.
-
-That is worse than useless, because a reviewer who checks ten false alarms in a
-row stops reading the eleventh. Finding everything is not the hard part. Not
-crying wolf is the hard part, and that is what the proving step buys.
-
-It also costs less than half as much, because asking about one request at a time
-is cheaper than repeatedly handing over an entire codebase.
-
-**What we said "good" meant, before running anything.** Written down in advance so
-it could not be adjusted afterwards to flatter the result: at least 80% of real
-faults found, at least 85% of reports being real, every serious fault caught, and
-no complaints about the four healthy pieces of code. All four were met.
-
-The AI is not doing most of the work here, and that is worth being honest about.
-The no-AI stage alone scores 0.889 for free. The AI earns its place on three
-faults out of fifteen, the three that need judgement rather than lookup, and only
-because every one of its suggestions has to survive a real test before anyone
-sees it.
+The full write-up, including every test case and the bar we set before running
+anything, is in [RESULTS.md](RESULTS.md).
 
 ---
 
@@ -376,14 +398,8 @@ code. Nothing in the writing separated the wrong ones from the right ones.
 An earlier run of identical code over identical cases made 13 suggestions, 10 of
 them false. The number of *correct* suggestions did not move: 3 both times,
 because there are 3 such faults to find. What moved was the noise, by more than
-three times, with nothing changed at all.
-
-Then the same thing happened in three more languages. The AI's raw accuracy was
-50% and 23% on two runs of the first language, 38% on the second, 22% on the
-third and 23% on the fourth. Every one of those became 100% after the proving
-step. That is five independent measurements of a number that will not sit still,
-and one measurement of a number that does. You cannot write a better prompt to
-fix the first. You can build something that makes it stop mattering.
+three times, with nothing changed at all. You cannot write a better prompt to fix
+a number that swings that much between identical runs.
 
 The same shape showed up three more times while building this, and each was
 invisible until something actually ran:
@@ -412,9 +428,9 @@ then be confidently wrong.
 
 But prompt work has a ceiling and it is never a guarantee. What actually changed
 the outcome was making every single complaint pay for itself with a test that
-runs against the real code. Across five runs in four languages the AI's raw accuracy ranged from 22% to 50%.
-Every one became 100% after the proving step, and each found *more*, not less.
-Runs whose raw noise differed by more than twofold produced identical reports.
+runs against the real code. The AI's raw accuracy was 50% on one run and 23% on
+another. Both became 100% after the proving step, and it found *more*, not less.
+Two runs whose raw noise differed threefold produced identical reports.
 
 The AI became more useful once it was allowed to be wrong, because being wrong
 stopped mattering.
@@ -433,6 +449,10 @@ only reason to trust the answer when you do.
 |---|---|
 | [auditor/](auditor/) | The agent: tools, prompts, orchestration |
 | [auditor/notify.py](auditor/notify.py) | Slack/Telegram alerting, gated on verification |
+| [auditor/memory/](auditor/memory/) | Retrieval, calibration and learned rules; no ledger ships here (built) |
+| [auditor/memory/store.py](auditor/memory/store.py) | Where the ledger lives: S3-compatible, HTTP, Cloudinary, IPFS, or off |
+| [eval/harvest.py](eval/harvest.py) | Grows the evaluation set from real runs: field cases and decoys |
+| [eval/compare.py](eval/compare.py) | Compares two runs, for the self-improvement demonstration |
 | [ddocs/](ddocs/) | Plain-language overview, self-improvement note, GHCR publishing guide |
 | [docs/site/](docs/site/) | Public documentation site: quickstart, CI setup, how it works |
 | [baseline/](baseline/) | The single-prompt baseline |
@@ -449,6 +469,7 @@ only reason to trust the answer when you do.
 | [eval/oracle.py](eval/oracle.py) | Emits a perfect run, to verify the scorer itself |
 | [reports/](reports/) | Run outputs and scored results |
 | [action.yml](action.yml) · [Dockerfile](Dockerfile) | The GitHub Action and its image |
+| [RESULTS.md](RESULTS.md) | The evaluation: test cases, scored results, baseline comparison |
 | [REPRODUCTION.md](REPRODUCTION.md) | Clean-environment setup and exact commands |
 
 ## Prior work

@@ -1,0 +1,48 @@
+{
+  "findings": [
+    {
+      "path": "/payouts",
+      "method": "post",
+      "kind": "undocumented_status",
+      "detail": "429",
+      "severity": "medium",
+      "evidence": "handlers/payouts.go:21 CreatePayout can return 429, which the spec does not document",
+      "file": "handlers/payouts.go",
+      "line": 21,
+      "rule": "R5",
+      "source": "deterministic",
+      "verdict": "unsupported",
+      "verification": "undocumented_status cannot be settled by executing the handler; it needs review rather than a test",
+      "priority": 1.0
+    }
+  ],
+  "meta": {
+    "wall_clock_seconds": 190.1,
+    "cost_usd": 0.006392,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 10386,
+    "output_tokens": 15210,
+    "deterministic_claims": 1,
+    "agent_claims": 0,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 0,
+      "unsupported": 1,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": [],
+    "memory": {
+      "enabled": true,
+      "ledger_claims": 26,
+      "endpoints_with_recall": 10,
+      "explored_without_memory": [],
+      "rules_active": 1
+    }
+  },
+  "case": "D12"
+}

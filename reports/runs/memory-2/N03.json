@@ -1,0 +1,32 @@
+{
+  "findings": [],
+  "meta": {
+    "wall_clock_seconds": 38.4,
+    "cost_usd": 0.004123,
+    "human_minutes": 0,
+    "model": "z-ai/glm-5.3-flash",
+    "model_calls": 10,
+    "input_tokens": 10315,
+    "output_tokens": 9663,
+    "deterministic_claims": 0,
+    "agent_claims": 0,
+    "suppressed_by_allowlist": 0,
+    "verification": {
+      "confirmed": 0,
+      "refuted": 0,
+      "unsupported": 0,
+      "error": 0
+    },
+    "dropped_by_gate": [],
+    "agent_errors": [],
+    "unread_endpoints": [],
+    "memory": {
+      "enabled": true,
+      "ledger_claims": 26,
+      "endpoints_with_recall": 10,
+      "explored_without_memory": [],
+      "rules_active": 1
+    }
+  },
+  "case": "N03"
+}

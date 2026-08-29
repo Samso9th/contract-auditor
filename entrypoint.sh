@@ -11,6 +11,9 @@ SPEC="${INPUT_SPEC:-}"
 LANGUAGE="${INPUT_LANGUAGE:-auto}"
 STRIP_PREFIX="${INPUT_STRIP_PREFIX:-}"
 MODEL="${INPUT_MODEL:-z-ai/glm-5.3-flash}"
+# Empty means send no reasoning field at all and let the model do what it
+# normally does, which is what the published numbers were measured under.
+REASONING="${INPUT_REASONING:-}"
 WORKERS="${INPUT_WORKERS:-8}"
 FAIL_ON="${INPUT_FAIL_ON:-high}"
 SARIF="${INPUT_SARIF_PATH:-contract-audit.sarif}"
@@ -21,6 +24,16 @@ export OPENROUTER_API_KEY="${INPUT_API_KEY:-${OPENROUTER_API_KEY:-}}"
 export OPENROUTER_BASE_URL="${INPUT_BASE_URL:-${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}}"
 export AUDITOR_WEBHOOK_URL="${INPUT_WEBHOOK_URL:-}"
 export AUDITOR_WEBHOOK_SECRET="${INPUT_WEBHOOK_SECRET:-}"
+# Self-improvement is a layer, exactly like the model and the notifications: it
+# exists only when the operator points it at storage they own. No url means no
+# memory, and in that case nothing is read, nothing is written, and the audit is
+# unchanged. Nothing is ever stored in the checkout or inside this image.
+export AUDITOR_MEMORY_URL="${INPUT_MEMORY_URL:-${AUDITOR_MEMORY_URL:-}}"
+export AUDITOR_MEMORY_KEY_ID="${INPUT_MEMORY_KEY_ID:-${AUDITOR_MEMORY_KEY_ID:-}}"
+export AUDITOR_MEMORY_SECRET="${INPUT_MEMORY_SECRET:-${AUDITOR_MEMORY_SECRET:-}}"
+export AUDITOR_MEMORY_TOKEN="${INPUT_MEMORY_TOKEN:-${AUDITOR_MEMORY_TOKEN:-}}"
+export AUDITOR_MEMORY_REGION="${INPUT_MEMORY_REGION:-${AUDITOR_MEMORY_REGION:-}}"
+
 export SLACK_WEBHOOK_URL="${INPUT_SLACK_WEBHOOK_URL:-${SLACK_WEBHOOK_URL:-}}"
 export TELEGRAM_BOT_TOKEN="${INPUT_TELEGRAM_BOT_TOKEN:-${TELEGRAM_BOT_TOKEN:-}}"
 export TELEGRAM_CHAT_ID="${INPUT_TELEGRAM_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}"
@@ -38,11 +51,22 @@ mkdir -p "$OUT_DIR"
 LANG_ARG=()
 [ "$LANGUAGE" != "auto" ] && LANG_ARG=(--language "$LANGUAGE")
 
+REASONING_ARG=()
+[ -n "$REASONING" ] && REASONING_ARG=(--reasoning "$REASONING")
+
 log "::group::Contract audit"
 log "source     $SOURCE_DIR"
 log "spec       $SPEC"
 log "language   $LANGUAGE"
 log "model      $MODEL"
+log "reasoning  ${REASONING:-provider default}"
+if [ -n "${AUDITOR_MEMORY_URL:-}" ]; then
+  # The scheme and host are safe to print and useful when a store misbehaves.
+  # The path, the keys and the token are not printed anywhere, ever.
+  log "memory     ${AUDITOR_MEMORY_URL%%/*}// (self-improvement on, gate enabled)"
+else
+  log "memory     off (no memory-url; set one to turn on self-improvement)"
+fi
 
 # No key means the deterministic layer only. That is a genuinely useful mode:
 # it catches most drift, costs nothing, and needs no secret, so it runs rather
@@ -54,7 +78,7 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
       --json > "$OUT_DIR/report.json"
 else
   python3 "$AUDITOR/auditor/run.py" --repo "$SOURCE_DIR" --spec "$SPEC" \
-      --model "$MODEL" --workers "$WORKERS" \
+      --model "$MODEL" --workers "$WORKERS" "${REASONING_ARG[@]}" \
       ${STRIP_PREFIX:+--strip-prefix "$STRIP_PREFIX"} "${LANG_ARG[@]}" \
       --out "$OUT_DIR"
 fi

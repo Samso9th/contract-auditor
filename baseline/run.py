@@ -25,7 +25,8 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "auditor"))
 
-from llm import chat, DEFAULT_MODEL, LLMError  # noqa: E402
+from llm import (chat, DEFAULT_MODEL, DEFAULT_REASONING, REASONING_LEVELS,
+                 LLMError)  # noqa: E402
 
 KINDS = [
     "route_missing_from_spec", "route_missing_from_code",
@@ -97,7 +98,7 @@ def normalise(findings):
     return out
 
 
-def run_case(case_dir, model):
+def run_case(case_dir, model, reasoning=None):
     case_dir = pathlib.Path(case_dir)
     api = case_dir / "api" if (case_dir / "api").exists() else case_dir
     spec_path = case_dir / "spec" / "openapi.json"
@@ -121,13 +122,15 @@ def run_case(case_dir, model):
         # sixteen cases timed out mid-stream and scored as finding nothing.
         # Cutting the baseline off early would flatter the agent for the wrong
         # reason. The wall-clock difference is reported instead.
-        reply = chat(model, SYSTEM, prompt, max_tokens=48000, timeout=1200)
+        reply = chat(model, SYSTEM, prompt, max_tokens=48000, timeout=1200,
+                     reasoning=reasoning)
     except LLMError as exc:
         return case_dir.name, {
             "case": case_dir.name, "findings": [],
             "meta": {"error": str(exc), "cost_usd": 0.0,
                      "wall_clock_seconds": round(time.time() - started, 1),
-                     "human_minutes": 0, "model": model},
+                     "human_minutes": 0, "model": model,
+                     "reasoning": reasoning or "provider-default"},
         }
 
     findings = normalise((reply.json or {}).get("findings"))
@@ -139,6 +142,9 @@ def run_case(case_dir, model):
             "cost_usd": round(reply.cost_usd, 6),
             "human_minutes": 0,
             "model": model,
+            # The baseline has to be run at whatever the agent was run at, or
+            # the comparison stops being like for like. Recorded on both sides.
+            "reasoning": reasoning or "provider-default",
             "model_calls": 1,
             "input_tokens": reply.input_tokens,
             "output_tokens": reply.output_tokens,
@@ -153,7 +159,12 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cases", default="eval/cases")
     parser.add_argument("--out", default="reports/runs/baseline")
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model", default=DEFAULT_MODEL,
+                        help="any model id your endpoint serves "
+                             f"(default {DEFAULT_MODEL}, set by AUDITOR_MODEL)")
+    parser.add_argument("--reasoning", choices=REASONING_LEVELS, default=DEFAULT_REASONING,
+                        help="match whatever the agent run used, or the two runs "
+                             "are not comparable (set by AUDITOR_REASONING)")
     parser.add_argument("--workers", type=int, default=6)
     args = parser.parse_args()
 
@@ -164,12 +175,13 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
 
     selected = sorted(d for d in cases.iterdir() if d.is_dir())
-    print(f"baseline over {len(selected)} case(s) with {args.model}\n")
+    reasoning_note = f", reasoning {args.reasoning}" if args.reasoning else ""
+    print(f"baseline over {len(selected)} case(s) with {args.model}{reasoning_note}\n")
 
     total_cost = 0.0
     started = time.time()
     with futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        jobs = [pool.submit(run_case, d, args.model) for d in selected]
+        jobs = [pool.submit(run_case, d, args.model, args.reasoning) for d in selected]
         for job in futures.as_completed(jobs):
             name, result = job.result()
             with open(out / f"{name}.json", "w") as f:

@@ -38,6 +38,14 @@ COPY auditor/ ./auditor/
 COPY entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
+# Belt and braces over .dockerignore: no claim ledger may ship inside the image.
+# A ledger is one project's statistics, and shipping ours would hand every
+# consumer priors learned from a payments fixture they have never seen. The
+# build fails rather than publishes if one is present.
+RUN rm -f auditor/memory/*.jsonl auditor/memory/rules.json \
+    && ! ls auditor/memory/*.jsonl >/dev/null 2>&1 \
+    && echo "image carries no learned memory"
+
 # Prebuild the route extractor so the first audit does not pay for it, and fail
 # the build if it does not compile. The previous `|| true` here would have
 # produced an image that looked fine and failed at audit time instead.
