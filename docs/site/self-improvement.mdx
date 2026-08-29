@@ -28,7 +28,7 @@ loop:
   **Memory adjusts priors. The gate still decides.**
 
   Learned history may change what the auditor looks at and how it ranks a
-  finding — but it must never hard-suppress a claim. If the model still makes the
+  finding, but it must never hard-suppress a claim. If the model still makes the
   claim and the test still fails, the drift is real, and yesterday's statistics
   do not get a veto over today's evidence.
 </Card>
@@ -37,7 +37,7 @@ loop:
 
 <Steps>
   <Step title="The claim ledger">
-    Append-only JSONL of every claim ever made, **including the discarded ones** —
+    Append-only JSONL of every claim ever made, **including the discarded ones**,
     which are the valuable half. The only component that is expensive to add
     later: reconstructing rejected claims from runs that never logged them means
     paying for every run again.
@@ -50,14 +50,14 @@ loop:
   </Step>
   <Step title="Promoting dismissals into rules">
     When several allowlisted items share a shape, promote it to a rule carrying
-    its own support count — `routes under /admin/* are internal`, support 47.
+    its own support count: `routes under /admin/* are internal`, support 47.
 
     This produces the internal-vs-public classifier as a **learned artifact
     instead of a hand-written config**, with auditable evidence behind each rule.
   </Step>
   <Step title="Calibration, not learning">
     Track each claim kind's survival rate through the gate, and let it drive
-    severity ranking and verification budget. Pure arithmetic — no training, and
+    severity ranking and verification budget. Pure arithmetic: no training, and
     completely explainable to someone who has to trust the output.
   </Step>
   <Step title="Growing the evaluation set from the field">
@@ -73,8 +73,8 @@ loop:
 
 <Warning>
   **Feedback poisoning.** Suppress a claim class because it has historically been
-  wrong, and the auditor stops producing claims of that class — which means it
-  generates no counter-evidence — which means the suppression is never
+  wrong, and the auditor stops producing claims of that class, which means it
+  generates no counter-evidence, which means the suppression is never
   contradicted. The belief becomes permanently self-justifying, and the blind
   spot is invisible from inside: precision looks excellent, because the misses
   are no longer being counted.
@@ -83,7 +83,7 @@ loop:
 The fix is cheap. **Epsilon exploration:** audit ~5% of endpoints with memory
 disabled entirely, purely to keep measuring the classes memory has learned to
 skip. If a suppressed class starts confirming again, the rule that suppressed it
-gets demoted. This is why rules store support counts — a rule you cannot
+gets demoted. This is why rules store support counts: a rule you cannot
 re-evaluate is a rule you cannot retire.
 
 ## What to skip

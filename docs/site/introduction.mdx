@@ -27,7 +27,7 @@ them in sync:
 </CardGroup>
 
 Different people edit these at different times. Code review asks *"is this code
-correct?"* — never *"does this still match what we promised?"* So drift
+correct?"*, never *"does this still match what we promised?"* So drift
 accumulates silently and surfaces at integration time, in someone else's
 codebase, with no error message pointing at the real cause.
 
@@ -45,7 +45,7 @@ full of those costs more attention than it saves.
 
 <Card title="Nothing reaches the report unverified" icon="shield-check" horizontal>
   Every claim must ship a Go test that fails against the current code. If the
-  test passes, the claim was wrong and the finding is discarded — however
+  test passes, the claim was wrong and the finding is discarded, however
   confident its author was. That single constraint is the whole design.
 </Card>
 
@@ -62,7 +62,7 @@ From the motivating repository, payments API:
 
 <Warning>
   The 841-vs-170 gap is **not** 671 missing documents. Most endpoints in a real
-  API are never meant to be public — admin screens, internal service calls,
+  API are never meant to be public: admin screens, internal service calls,
   health checks. Those belong out of developer documentation. The honest reading
   is that nobody knows which of the remaining 671 *should* have been published,
   and sorting them is part of the job rather than a step to skip.

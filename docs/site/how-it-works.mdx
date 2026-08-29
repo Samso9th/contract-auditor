@@ -46,7 +46,7 @@ description: "Where determinism ends and judgement begins."
 
     A small illustration of why this matters: grepping the target repository for
     route registrations returns 805 lines. The parser finds 841. The grep is both
-    too high — it counts calls that are not registrations — and too low, missing
+    too high (it counts calls that are not registrations) and too low, missing
     the 50 routes gin registers as `group.GET("", handler)` where the path comes
     entirely from the group prefix. The approximate answer and the correct answer
     are not the same answer.
@@ -83,7 +83,7 @@ description: "Where determinism ends and judgement begins."
 | Code △ spec differ | `auditor/tools/diff.py` | `test_diff.py` |
 | Verification gate | `auditor/verify.py` | `test_verify.py` |
 | Provider-neutral model client | `auditor/llm.py` | `test_llm.py` |
-| Per-endpoint auditor | `auditor/audit_endpoint.py` | — |
+| Per-endpoint auditor | `auditor/audit_endpoint.py` | n/a |
 | Notification layer | `auditor/notify.py` | `test_notify.py` |
 
 Every test in that right-hand column runs offline, without an API key:

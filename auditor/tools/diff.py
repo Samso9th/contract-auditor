@@ -45,7 +45,17 @@ SEVERITY = {
 MONEY_HINTS = ("amount", "balance", "fee", "available", "ledger", "total", "price", "value")
 
 
-def finding(path, method, kind, detail, evidence, rule, severity=None):
+def finding(path, method, kind, detail, evidence, rule, severity=None, file="", line=0):
+    """Every finding carries its location as structured fields.
+
+    The location was originally only inside the evidence prose, which meant a
+    consumer had to parse English to place an annotation - and it was silently
+    lost the moment anything rewrote the evidence string. An inline annotation on
+    the right line is most of this tool's value inside CI, so the location is
+    data, not text.
+    """
+    if not file:
+        file, line = _location_from(evidence)
     return {
         "path": path,
         "method": method.lower(),
@@ -53,9 +63,19 @@ def finding(path, method, kind, detail, evidence, rule, severity=None):
         "detail": detail,
         "severity": severity or SEVERITY.get(kind, "medium"),
         "evidence": evidence,
+        "file": file,
+        "line": line,
         "rule": rule,
         "source": "deterministic",
     }
+
+
+def _location_from(evidence):
+    for token in (evidence or "").replace(",", " ").split():
+        candidate, _, number = token.rpartition(":")
+        if candidate and number.isdigit() and ("/" in candidate or "." in candidate):
+            return candidate.lstrip("./"), int(number)
+    return "", 0
 
 
 def auth_header_names(spec):

@@ -9,11 +9,11 @@ description: "From clone to a scored run. The first three steps cost nothing."
 |---|---|---|
 | Go | 1.22+ | Building the fixture and running verification tests |
 | Python | 3.9+, standard library only | Case injection, scoring, the auditor itself |
-| An OpenRouter key | — | Only the model-backed steps. Everything below runs without one. |
+| An OpenRouter key | n/a | Only the model-backed steps. Everything below runs without one. |
 
 <Note>
   No `pip install`, no Docker, no database. The harness shells out to `curl`
-  rather than importing an HTTP library — see [Field notes](/field-notes) for the
+  rather than importing an HTTP library. See [Field notes](/field-notes) for the
   measurement that forced that.
 </Note>
 
@@ -24,7 +24,7 @@ description: "From clone to a scored run. The first three steps cost nothing."
     ```bash
     make cases
     ```
-    Injects 16 mutations into a synthetic Go payments API — 12 real drifts and 4
+    Injects 16 mutations into a synthetic Go payments API: 12 real drifts and 4
     decoys. Every mutated fixture is compiled before it becomes a case, so a
     green run means all 16 are valid targets.
 
@@ -64,7 +64,7 @@ description: "From clone to a scored run. The first three steps cost nothing."
     make agent
     make score
     ```
-    Any OpenAI-compatible endpoint works — set `OPENROUTER_BASE_URL` to point
+    Any OpenAI-compatible endpoint works; set `OPENROUTER_BASE_URL` to point
     somewhere else.
   </Step>
 </Steps>
@@ -96,5 +96,5 @@ See [Notifications](/notifications) for wiring Slack or Telegram.
 make clean
 ```
 
-`eval/fixture/` is the pristine source and is never mutated in place — every
+`eval/fixture/` is the pristine source and is never mutated in place; every
 mutation is applied to a copy under `eval/cases/`.

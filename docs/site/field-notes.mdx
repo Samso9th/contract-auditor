@@ -15,7 +15,7 @@ documentation. Recorded so the same hour is not spent twice.
     with `finish_reason: "length"`.
 
     **Resolution.** Default is now 8000 tokens, and the client reports truncation
-    as its own distinct condition rather than surfacing it as a bad answer — the
+    as its own distinct condition rather than surfacing it as a bad answer. The
     two need different handling and look identical from the outside.
   </Accordion>
 
@@ -23,7 +23,7 @@ documentation. Recorded so the same hour is not spent twice.
     The extractor handles a leading space, code fences, prose on either side, and
     braces appearing inside strings.
 
-    That last one is the case a naive `rfind("}")` gets wrong — it will happily
+    That last one is the case a naive `rfind("}")` gets wrong: it will happily
     cut a JSON document at a brace that is inside a string literal.
   </Accordion>
 
@@ -31,7 +31,7 @@ documentation. Recorded so the same hour is not spent twice.
     System Python 3.9 links **LibreSSL 2.8.3**. Both `urllib` and `requests` took
     ~160s for calls `curl` completes in 3–7s.
 
-    The earlier read — "the models are slow" — was wrong. The tell was six
+    The earlier read ("the models are slow") was wrong. The tell was six
     different models all landing at 153–160s regardless of whether they emitted
     40 tokens or 854. That is not model latency; that is a fixed transport cost
     wearing a disguise.

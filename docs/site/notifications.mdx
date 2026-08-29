@@ -13,7 +13,7 @@ broken contract lands on the person who can still fix it cheaply.
   <Accordion title="Only verified findings are sent" icon="shield-check">
     If the run went through the [verification gate](/verification-gate), anything
     with a verdict other than `confirmed` stays out of the alert. Pushing a
-    plausible-but-wrong claim into a team channel is how a tool gets muted — and
+    plausible-but-wrong claim into a team channel is how a tool gets muted, and
     a muted tool has negative value, because it still costs attention and returns
     nothing.
 
@@ -35,7 +35,7 @@ broken contract lands on the person who can still fix it cheaply.
 
 ## Configure a channel
 
-Credentials come from `.env` or the environment. Wire either or both — a channel
+Credentials come from `.env` or the environment. Wire either or both; a channel
 with no credentials is skipped rather than treated as an error.
 
 <Tabs>
@@ -98,7 +98,7 @@ Send failures exit `1`, which lets a pipeline tell "the API is broken" apart fro
   What to call this run in the alert. Defaults to the run directory name.
 </ParamField>
 <ParamField path="--report-url">
-  Link included in the alert — typically the CI run.
+  Link included in the alert, typically the CI run.
 </ParamField>
 <ParamField path="--unverified">
   Send claims that did not pass the verification gate. Off by default.
@@ -114,6 +114,6 @@ Send failures exit `1`, which lets a pipeline tell "the API is broken" apart fro
 </ParamField>
 
 <Note>
-  Transport is `curl`, not `urllib` — the same measurement that forced it in the
-  model client. See [Field notes](/field-notes).
+  Transport is `curl`, not `urllib`, for the same measurement that forced it in
+  the model client. See [Field notes](/field-notes).
 </Note>

@@ -164,20 +164,39 @@ noise, precision alone rewards silence.
 
 | METRIC | SIMPLE BASELINE | AGENT SOLUTION | CHANGE |
 |---|---|---|---|
-| Recall (drifts caught / 12) | _pending_ | _pending_ | _pending_ |
-| Precision | _pending_ | _pending_ | _pending_ |
-| F1 (primary) | _pending_ | _pending_ | _pending_ |
-| Decoys left clean (/4) | _pending_ | _pending_ | _pending_ |
-| Critical drifts caught (/3) | _pending_ | _pending_ | _pending_ |
-| Human minutes per repo | _pending_ | _pending_ | _pending_ |
-| Cost per repo (USD) | _pending_ | _pending_ | _pending_ |
+| **F1 (primary)** | 0.231 | **1.000** | **+0.769** |
+| Recall (drifts caught / 15) | 0.400 (6) | **1.000** (15) | +0.600 |
+| Precision | 0.162 | **1.000** | +0.838 |
+| False positives | 31 | **0** | −31 |
+| Critical drifts caught (/5) | 2 | **5** | +3 |
+| Decoys left clean (/4) | 4 | 4 | — |
+| Cost per repo (USD) | $0.0160 | $0.0441 | +$0.0281 |
+| Human minutes per repo | 0 | 0 | — |
 
-**Target before running.** A result is only useful to the intended user if it is
-worth reading: **recall ≥ 0.80, precision ≥ 0.85, all 3 critical drifts caught,
-and all 4 decoys clean.** Below roughly 0.85 precision a reviewer starts
-double-checking every finding, at which point the tool has moved the work rather
-than removed it. Recorded here before the first run so it cannot be adjusted to
-flatter the outcome.
+The baseline is not merely worse, it is differently wrong. It reported **31 false
+positives against 6 true findings** — five spurious findings on D02 alone, twelve
+on D05 — so a reviewer would have to check 37 findings to reach 6 real ones. It
+also missed every drift requiring cross-file reasoning: the renamed field (D01),
+the unregistered route (D04), the auth change (D08). Its 4/4 on decoys is not
+discrimination; it invented findings on the drift cases instead.
+
+Cost is worth reading carefully. The agent costs 2.8x the baseline per repo and
+still lands at four cents. Latency is the real price: the agent made 159 model
+calls against the baseline's 16.
+
+**Target committed before the first run.** A result is only useful to the
+intended user if it is worth reading: **recall ≥ 0.80, precision ≥ 0.85, every
+critical drift caught, and all 4 decoys clean.** Below roughly 0.85 precision a
+reviewer starts double-checking every finding, at which point the tool has moved
+the work rather than removed it.
+
+All four met: recall 1.00, precision 1.00, 5/5 critical, 4/4 decoys. The bar was
+written down before any run so it could not be adjusted to flatter the outcome.
+
+**Where the gain comes from.** The deterministic layer alone scores F1 0.889 at
+precision 1.0 for nothing — no model, no key, 0.2 seconds. The agent's whole
+contribution is the last 0.20 of recall: D06, D09 and D11, the three drifts that
+need judgment rather than lookup.
 
 ### Baseline
 

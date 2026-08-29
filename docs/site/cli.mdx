@@ -14,7 +14,7 @@ description: "Every entry point, and what it costs to run."
 | `make deterministic` | Run the no-model layer over every case and score it | no | none |
 | `make verify` | Put every deterministic finding through the gate | no | none |
 | `make models` | Show configured models and their prices | no | none |
-| `make test-llm` | Check the model client against the live endpoint | yes | <$0.001 |
+| `make test-llm` | Check the model client against the live endpoint | yes | `<$0.001` |
 | `make baseline` | Run the single-prompt baseline | yes | see status |
 | `make agent` | Run the full auditor | yes | see status |
 | `make score` | Score both runs side by side | no | none |
@@ -32,8 +32,8 @@ description: "Every entry point, and what it costs to run."
       --docs /path/to/docs \
       --out reports/runs/my-api
     ```
-    Produces a ranked report rather than a score — there is no ground truth for a
-    real repository. Each finding carries the test that proves it.
+    Produces a ranked report rather than a score, because there is no ground
+    truth for a real repository. Each finding carries the test that proves it.
   </Accordion>
 
   <Accordion title="Extract the route table" icon="route">

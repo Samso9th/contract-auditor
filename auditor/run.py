@@ -111,9 +111,11 @@ def verify_all(case_dir, spec, claims):
         stats[verdict] = stats.get(verdict, 0) + 1
         enriched = dict(claim, verdict=verdict, verification=outcome.get("detail", ""))
         if verdict == "confirmed" and outcome.get("detail"):
-            # The gate saw the real behaviour; its message is better evidence
-            # than the claim's own description of it.
-            enriched["evidence"] = outcome["detail"]
+            # The gate saw the real behaviour, so its observation belongs in the
+            # evidence - appended, not substituted. Replacing the static evidence
+            # threw away the file and line the finding was anchored to, which is
+            # what an inline CI annotation needs.
+            enriched["evidence"] = f"{claim.get('evidence', '')} — verified: {outcome['detail']}"
         (kept if verdict in KEEP else dropped).append(enriched)
     return kept, dropped, stats
 

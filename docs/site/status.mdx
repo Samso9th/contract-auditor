@@ -37,13 +37,13 @@ Every component below is covered by offline tests that run with no API key
 </CardGroup>
 
 There is also a scored **no-model run** (`make deterministic`) that establishes
-how much of the problem needs no AI at all — the bar the agent layer has to clear
+how much of the problem needs no AI at all: the bar the agent layer has to clear
 to justify its cost.
 
 ## Not yet built
 
-- `auditor/run.py` — the full orchestration
-- `baseline/run.py` — the single-prompt baseline it has to beat
+- `auditor/run.py`: the full orchestration
+- `baseline/run.py`: the single-prompt baseline it has to beat
 
 ## The scoreboard
 
@@ -56,8 +56,8 @@ to justify its cost.
 | Critical drifts caught (of 3) | pending | pending |
 | Cost per repo | pending | pending |
 
-Targets were committed in writing **before** the first run — recall ≥ 0.80,
-precision ≥ 0.85, all 3 critical drifts caught, all 4 decoys clean — so they
+Targets were committed in writing **before** the first run: recall ≥ 0.80,
+precision ≥ 0.85, all 3 critical drifts caught, all 4 decoys clean, so they
 cannot be quietly lowered afterwards to flatter the outcome.
 
 <Note>

@@ -154,7 +154,7 @@ def build_prompt(path, method, facts, operation, source, known):
     )
 
 
-def clean_claims(raw, path, method, drop_low_confidence=True):
+def clean_claims(raw, path, method, drop_low_confidence=True, file="", line=0):
     """Keep only claims that are in vocabulary and about this endpoint.
 
     A model that invents a kind, or answers about a different endpoint, has
@@ -183,6 +183,8 @@ def clean_claims(raw, path, method, drop_low_confidence=True):
             "detail": str(item.get("detail", ""))[:120],
             "severity": "high" if kind == "request_required_mismatch" else "medium",
             "evidence": str(item.get("evidence", ""))[:400],
+            "file": file,
+            "line": line,
             "rule": "agent",
             "source": "agent",
             "confidence": str(item.get("confidence", "")).lower() or "unstated",
@@ -226,7 +228,9 @@ def audit_endpoint(api_dir, spec, key, table, known=None, model=DEFAULT_MODEL):
         usage["error"] = "reply was not JSON"
         return [], usage
 
-    return clean_claims(reply.json.get("findings"), path, method), usage
+    # Anchor every agent claim to the handler it actually read.
+    return clean_claims(reply.json.get("findings"), path, method,
+                        file=facts["file"], line=facts["line"]), usage
 
 
 def main():

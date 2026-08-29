@@ -31,11 +31,11 @@ Requiring executable proof converts the output from opinion into evidence.
 <Steps>
   <Step title="Synthesise a request">
     A plausible request for the endpoint, using the spec's schema. Field names
-    matter — a BVN that is not 11 digits gets rejected by validation before the
+    matter: a BVN that is not 11 digits gets rejected by validation before the
     response shape is ever reached, and the test would prove nothing.
   </Step>
   <Step title="Generate a Go test asserting the documented behaviour">
-    Not the observed behaviour — the **documented** one. The test encodes the
+    Not the observed behaviour, but the **documented** one. The test encodes the
     promise, then runs it against the real handler through `httptest`.
   </Step>
   <Step title="Run it and read the outcome">
@@ -48,8 +48,8 @@ Requiring executable proof converts the output from opinion into evidence.
 
 | Verdict | Meaning | Reaches the report |
 |---|---|---|
-| `confirmed` | the test failed — real drift | Yes |
-| `refuted` | the test passed — the claim was wrong | No |
+| `confirmed` | the test failed: real drift | Yes |
+| `refuted` | the test passed: the claim was wrong | No |
 | `unsupported` | the claim kind is not executable | No, reported as unverifiable |
 | `error` | the test did not build or run | No |
 
@@ -69,7 +69,7 @@ Requiring executable proof converts the output from opinion into evidence.
 
 ## No model is involved
 
-The gate takes a claim from anywhere — a deterministic rule, an agent, a human —
+The gate takes a claim from anywhere (a deterministic rule, an agent, a human)
 and judges it identically. That independence is what lets the same gate score the
 baseline and the agent without favouring either.
 
