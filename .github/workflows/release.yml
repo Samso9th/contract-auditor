@@ -10,7 +10,7 @@ on:
         required: true
 
 permissions:
-  contents: read
+  contents: write        # required to move the major version tag
   packages: write        # required to push to GHCR
   id-token: write        # required to mint the Sigstore signing certificate
   attestations: write    # required to persist the attestation to the repository
@@ -73,3 +73,52 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+      # `uses: owner/repo@v1` resolves a git ref, not a Docker tag. The image
+      # above already gets a v1 alias from the metadata action; without this the
+      # git side never gets one, and every consumer pinned to the major sees
+      # "unable to resolve action, repository or version not found".
+      #
+      # Last, and deliberately: the alias must not move until the image it names
+      # exists and has been attested. A consumer resolving v1 between the two
+      # would pull a tag that is not there yet.
+      - name: Move the major version tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          case "$RELEASE_TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *)
+              echo "::notice::$RELEASE_TAG is not a release tag; leaving the major alias alone"
+              exit 0 ;;
+          esac
+
+          # A prerelease must never move the alias production pins to.
+          case "$RELEASE_TAG" in
+            *-*)
+              echo "::notice::$RELEASE_TAG is a prerelease; leaving the major alias alone"
+              exit 0 ;;
+          esac
+
+          MAJOR="${RELEASE_TAG%%.*}"   # v1.2.3 -> v1
+
+          # Resolved through the API rather than github.sha: on workflow_dispatch
+          # the checked-out ref is the branch the run was started from, which is
+          # not necessarily the commit being released. This dereferences both
+          # lightweight and annotated tags to their commit.
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
+
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$MAJOR" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$MAJOR" \
+              -f sha="$SHA" -F force=true >/dev/null
+            echo "moved $MAJOR to $RELEASE_TAG ($SHA)"
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$MAJOR" -f sha="$SHA" >/dev/null
+            echo "created $MAJOR at $RELEASE_TAG ($SHA)"
+          fi
+
+          echo "::notice::consumers can now use ${GITHUB_REPOSITORY}@${MAJOR}"
