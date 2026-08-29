@@ -1,0 +1,78 @@
+---
+title: "Results"
+description: "Measured against injected drift with known ground truth."
+---
+
+Evaluation runs against synthetic APIs whose specs match the code exactly in the
+clean state. Drift is then injected, so ground truth is known by construction
+rather than argued about.
+
+## Go suite, full pipeline
+
+15 known drifts across 12 cases, plus 4 decoys that change code without changing
+the contract.
+
+| Metric | Single-prompt baseline | Contract Auditor |
+|---|---|---|
+| **F1** | 0.231 | **1.000** |
+| Recall | 0.400 | **1.000** |
+| Precision | 0.162 | **1.000** |
+| False positives | 31 | **0** |
+| Critical drifts caught | 2 of 5 | **5 of 5** |
+| Decoys left clean | 4 of 4 | 4 of 4 |
+| Cost per repo | $0.016 | $0.044 |
+
+Targets were committed in writing before the first run: recall ≥ 0.80, precision
+≥ 0.85, all critical drifts caught, all decoys clean. All four were met.
+
+## What the gate contributes
+
+<Card icon="shield-check">
+  The agent's own raw precision was **0.23**. Ten of its thirteen claims were
+  false. The [verification gate](/verification-gate) refuted all ten and
+  confirmed all three true ones.
+</Card>
+
+That is the difference between the two columns above. Ungated, the agent would
+have made the report worse than the deterministic layer alone.
+
+## Without any AI at all
+
+The deterministic layer needs no account, no key and no network, and finishes in
+under a second.
+
+| Language | Fault kinds found | Precision | Recall | F1 |
+|---|---|---|---|---|
+| **Go** | 9 | 100% | 80% | **0.889** |
+| **TypeScript** (Express) | 8 | 100% | 80% | **0.889** |
+| **Python** (FastAPI, Flask) | 8 | 100% | 70% | **0.824** |
+| **PHP** (Laravel) | 6 | 100% | 70% | **0.824** |
+
+Everything it reported was real, in every language, with no false alarms, and it
+never raised a complaint about the sample applications deliberately left
+correct.
+
+```bash
+make languages
+```
+
+prints that table straight from the code.
+
+## Reproduce it
+
+```bash
+make cases          # build the evaluation cases
+make check          # confirm the scorer is sound
+make deterministic  # the no-AI layer, scored
+make agent && make score
+```
+
+Only the last line needs a key. `make check` feeds ground truth to the scorer as
+a perfect run and should return precision 1.0, recall 1.0, decoys 4/4. Anything
+else means the scorer is broken, not the auditor.
+
+<Note>
+  These numbers come from synthetic fixtures with injected drift, which is what
+  makes them checkable by anyone. A real repository has no ground truth, so
+  auditing one produces a ranked report rather than a score.
+</Note>
