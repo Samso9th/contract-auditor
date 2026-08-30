@@ -155,6 +155,29 @@ on the language:
 | **Python** (FastAPI, Flask) | the package your app lives in, commonly `app` | `/api/v1` | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` |
 | **PHP** (Laravel) | the project root, so both `routes/api.php` and `app/Http/Controllers` are readable | `/api` | `artisan`, `composer.json`, `routes/api.php` |
 
+### Routes that are not part of the contract
+
+Most codebases register endpoints no integrator was ever promised: a dashboard's
+own session routes, internal health checks, an admin surface. Reported as drift
+they are not wrong, only irrelevant, and a report that is mostly irrelevant stops
+being read. Leave them out:
+
+```yaml
+          exclude-paths: |
+            /auth/*
+            /internal/*
+```
+
+Patterns are matched against the path as your spec writes it, so after
+`strip-prefix` has been removed, and `*` crosses slashes: `/auth/*` covers
+`/auth/me/password`. A trailing `/*` covers the collection itself too, so
+`/auth/*` also excludes `/auth`, while `/authorize` is left alone. An excluded
+path leaves the audit in both directions, so it is neither missing from the spec
+nor missing from the code.
+
+Excluding every endpoint fails the run rather than reporting a clean audit, which
+is what catches the usual first attempt of writing the prefix back in.
+
 You do not have to set `language`: it is detected from the markers in the last
 column. Set it explicitly only in a polyglot repository, where the first marker
 found wins and may not be the one you meant.

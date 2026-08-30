@@ -10,7 +10,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from diff import audit  # noqa: E402
+from diff import audit, parse_excludes, path_excluded  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "eval" / "fixture"
@@ -63,6 +63,40 @@ def main():
                          strip_prefix="/v1")
         digests.add(hashlib.sha256(json.dumps(findings, sort_keys=True).encode()).hexdigest())
     check("repeated runs are byte-identical", len(digests) == 1, f"{len(digests)} distinct results")
+
+    # exclude-paths. D03 registers a route the spec does not document and D04
+    # documents one the code does not register: one case per direction, so an
+    # exclusion that only silenced half of the audit would show up here.
+    check("a pattern is normalised whether or not it leads with a slash",
+          parse_excludes("payouts/*") == parse_excludes("/payouts/*") == ("/payouts/*",))
+    check("patterns split on newlines and on commas",
+          parse_excludes("/a/*,/b/*") == parse_excludes("/a/*\n/b/*") == ("/a/*", "/b/*"))
+    check("* crosses slashes", path_excluded("/auth/me/password", ("/auth/*",)))
+    check("an unrelated path is kept", not path_excluded("/payouts", ("/auth/*",)))
+    check("a trailing /* covers the collection itself",
+          path_excluded("/auth", ("/auth/*",)))
+    check("a trailing /* does not cover a sibling with a shared prefix",
+          not path_excluded("/authorize", ("/auth/*",)))
+
+    for case_id in ("D03", "D04"):
+        case = CASES / case_id
+        spec = case / "spec" / "openapi.json"
+        before = audit(case / "api", spec, strip_prefix="/v1")
+        paths = sorted({f["path"] for f in before})
+        after = audit(case / "api", spec, strip_prefix="/v1",
+                      exclude=[p + "*" for p in paths])
+        check(f"{case_id}: excluding the drifting path silences it",
+              after == [], f"got {[f['kind'] for f in after]}")
+
+    # Excluding everything is a configuration mistake, not a clean audit. The
+    # most likely way to make it is writing the path as the code registers it.
+    try:
+        audit(FIXTURE, FIXTURE / "spec" / "openapi.json", strip_prefix="/v1",
+              exclude="/*")
+        check("excluding every endpoint raises rather than reporting clean", False)
+    except Exception as exc:
+        check("excluding every endpoint raises rather than reporting clean",
+              "exclude-paths" in str(exc), str(exc)[:60])
 
     for case_id, kinds in sorted(EXPECTED_KINDS.items()):
         case = CASES / case_id

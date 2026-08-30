@@ -5,7 +5,7 @@ build history behind the design: what the tool was tested against, every test
 case, the scored results against a single-prompt baseline, the bar we set before
 running anything, and every idea we tried, kept or abandoned along the way.
 
-## What it was tested against
+## What it was tested against.
 
 The payments company's real codebase is private and its working files contain
 live passwords, so it cannot be handed to judges. Instead this repository

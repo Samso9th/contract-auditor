@@ -179,25 +179,19 @@ def to_markdown(findings, meta, title="Contract audit", brief_text="", artifact_
                   "Copy the brief below straight into Cursor, Codex or Claude Code. "
                   "It contains every finding, what was observed, and the test that "
                   "proved it."]
-        if artifact_name:
-            run_url = meta.get("run_url") if isinstance(meta, dict) else ""
-            # The Artifacts panel sits at the foot of the run summary page, which
-            # is not where a link to a failed run lands you: say so, rather than
-            # leaving people to hunt through the job log for it.
-            where = (f"the Artifacts panel at the foot of [this run's summary page]"
-                     f"({run_url}), which downloads as a zip"
-                     if run_url else f"`{artifact_name}/`")
-            has_tests = any(f.get("test_source") for f in findings)
-            tests_note = ("The `.md` is the brief, and `tests/` holds the same tests as "
-                          "runnable files."
-                          if has_tests else
-                          "The `.md` is the brief. No tests are included: this run had no "
-                          "API key, so findings came from parsing alone and nothing was "
-                          "executed to prove them.")
-            lines += ["", f"To download it instead, take **{artifact_name}** from "
-                          f"{where}. {tests_note}"]
+        # The brief comes first: it is the thing being offered, and a paragraph
+        # about downloading it does not belong between the offer and the text.
         lines += ["", "<details>", "<summary>Fix brief (click to expand, then copy)</summary>",
                   "", "```markdown", brief_text.strip(), "```", "", "</details>", ""]
+        if artifact_name:
+            # The workflow appends a download button below this, so the only
+            # thing left worth saying is what the download contains.
+            has_tests = any(f.get("test_source") for f in findings)
+            lines += ["", "The download is a zip: the `.md` is this brief"
+                          + (", and `tests/` holds the same tests as runnable files."
+                             if has_tests else
+                             ". It carries no tests, because this run had no API key "
+                             "and nothing was executed to prove the findings.")]
 
     return "\n".join(lines) + "\n"
 
