@@ -64,9 +64,12 @@ matters because that is the normal state of a fresh checkout.
 **Requirements:** Docker.
 
 ```bash
-docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
+docker run --rm --pull=always -v "$PWD:/github/workspace" -w /github/workspace \
   ghcr.io/samso9th/contract-auditor:v1 init
 ```
+
+`--pull=always` matters: `v1` is a moving tag, and `docker run` otherwise
+reuses whatever it already pulled.
 
 That reads your repository and writes `.github/workflows/contract-audit.yml`,
 with every value it derived and why. Commit it. From then on every pull request

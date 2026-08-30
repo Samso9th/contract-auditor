@@ -10,9 +10,15 @@ description: "One command sets it up. Nothing to configure by hand."
 Run this inside the repository you want audited:
 
 ```bash
-docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
+docker run --rm --pull=always -v "$PWD:/github/workspace" -w /github/workspace \
   ghcr.io/samso9th/contract-auditor:v1 init
 ```
+
+<Note>
+`--pull=always` matters: `v1` is a moving tag, and `docker run` reuses whatever
+it already has on disk rather than checking whether the tag now points somewhere
+else. Without it you keep running the version you first pulled.
+</Note>
 
 It reads the repository and writes `.github/workflows/contract-audit.yml`.
 Commit that file and you are done.
