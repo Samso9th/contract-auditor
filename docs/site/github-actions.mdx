@@ -77,6 +77,41 @@ If a first run reports that **every** route is missing from the spec,
 `strip-prefix` is wrong. Your spec's `servers[].url` usually names it.
 </Warning>
 
+## Routes that are not part of the contract
+
+Most codebases register endpoints no integrator was ever promised: a dashboard's
+own session routes, internal health checks, an admin surface. Reported as drift
+they are not wrong, only irrelevant, and a report that is mostly irrelevant stops
+being read.
+
+```yaml
+      - uses: samso9th/contract-auditor@v1
+        with:
+          spec: docs/openapi.json
+          source-dir: src
+          strip-prefix: /api/v1
+          exclude-paths: |
+            /auth/*
+            /internal/*
+```
+
+Patterns are matched against the path **as your spec writes it**, so after
+`strip-prefix` has been removed, and `*` crosses slashes: `/auth/*` covers
+`/auth/me/password`. A trailing `/*` covers the collection itself as well, so
+`/auth/*` also excludes `/auth` while leaving `/authorize` alone. Commas work as
+well as newlines, for a short list on one line.
+
+An excluded path leaves the audit in **both** directions. It is neither missing
+from the spec nor missing from the code, because a route you have declared
+internal is not something the specification is wrong to stay quiet about.
+
+<Note>
+Excluding every endpoint fails the run rather than reporting a clean audit. The
+usual way to do that by accident is writing the prefix back in: `/api/v1/*`
+matches nothing, because the prefix is already gone by the time patterns are
+applied.
+</Note>
+
 ## Adding the judgment pass
 
 The deterministic rules settle what is mechanical. Three kinds of drift need
@@ -164,6 +199,7 @@ integrated, so the brief asks the agent to decide explicitly and say why.
 | `source-dir` | `.` | Directory containing the API source. |
 | `language` | `auto` | `go`, `typescript`, or detect. |
 | `strip-prefix` | n/a | Prefix to strip so routes match spec paths. |
+| `exclude-paths` | n/a | Globs to leave out of the audit, one per line. Matched after `strip-prefix` is removed. |
 | `api-key` | n/a | Omit for deterministic-only: no cost, no secret. |
 | `base-url` | OpenRouter | Any OpenAI-compatible endpoint. |
 | `model` | `z-ai/glm-5.3-flash` | Any model id your endpoint serves. |
@@ -335,6 +371,12 @@ on:
   <Accordion title="Every route reported as missing from the spec">
     `strip-prefix` is wrong. If code registers `/api/v1/payouts` and the spec
     documents `/payouts`, set `strip-prefix: /api/v1`.
+  </Accordion>
+  <Accordion title="The report is mostly routes that were never meant to be public">
+    Dashboard session routes, health checks and admin surfaces are registered in
+    code and deliberately absent from an integrator-facing spec, so every audit
+    reports them. Leave them out with `exclude-paths`, one glob per line, matched
+    against the path as the spec writes it.
   </Accordion>
   <Accordion title="manifest unknown when pulling the image">
     The package is private, or was never linked to its repository. Check with

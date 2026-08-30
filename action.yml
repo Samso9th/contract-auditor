@@ -25,6 +25,17 @@ inputs:
     description: 'Path prefix to strip from routes so they match the spec, e.g. "/api/v1".'
     required: false
     default: ""
+  exclude-paths:
+    description: >-
+      Paths to leave out of the audit, one glob per line or comma separated,
+      e.g. "/auth/*". Matched against the path as the spec writes it, so after
+      strip-prefix has been removed. `*` crosses slashes, and a trailing /*
+      covers the collection itself, so /auth/* excludes /auth as well. Use it for routes
+      that are deliberately undocumented - a dashboard's own session endpoints,
+      internal health checks - so the report stays about the contract your
+      integrators were promised.
+    required: false
+    default: ""
   api-key:
     description: >-
       OpenRouter (or any OpenAI-compatible) API key. Omit to run the

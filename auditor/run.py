@@ -30,7 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 from audit_endpoint import audit_endpoint  # noqa: E402
 from diff import audit as deterministic_audit  # noqa: E402
 from llm import DEFAULT_MODEL, DEFAULT_REASONING, REASONING_LEVELS  # noqa: E402
-from diff import extract  # noqa: E402
+from diff import extract, parse_excludes, path_excluded  # noqa: E402
 import languages  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 from verify import verify_claim  # noqa: E402
@@ -272,6 +272,9 @@ def main():
                              "and dearer on every endpoint; omitted, the model's "
                              "own default applies (set by AUDITOR_REASONING)")
     parser.add_argument("--strip-prefix", default="/v1")
+    parser.add_argument("--exclude-paths", default="",
+                        help="glob(s) to leave out of the audit, newline or comma "
+                             "separated, e.g. '/auth/*,/internal/*'")
     parser.add_argument("--language", default=None,
                         help="go or typescript; detected when omitted")
     parser.add_argument("--workers", type=int, default=8,
@@ -313,8 +316,19 @@ def main():
         api = pathlib.Path(args.repo).resolve()
         spec = load_spec(args.spec)
         table = extract(api, strip_prefix=args.strip_prefix, language=args.language)
+        # Filtered here as well as inside the deterministic pass, so the model
+        # is never shown a route the operator has already declared out of scope
+        # and cannot spend a call raising a claim that would only be dropped.
+        excludes = parse_excludes(args.exclude_paths)
+        if excludes:
+            kept = [r for r in (table.get("routes") or [])
+                    if not path_excluded(r["path"], excludes)]
+            log(f"exclude-paths: {len(table.get('routes') or []) - len(kept)} "
+                f"route(s) left out of the audit")
+            table["routes"] = kept
         mechanical = deterministic_audit(api, args.spec, strip_prefix=args.strip_prefix,
-                                         language=args.language)
+                                         language=args.language,
+                                         exclude=args.exclude_paths)
         log(f"deterministic: {len(mechanical)} finding(s)")
         adapter = languages.get(args.language) if args.language else languages.detect(api)
         judged, usage = agent_pass(api, spec, table, mechanical, args.model, pool,

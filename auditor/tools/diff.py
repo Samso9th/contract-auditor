@@ -19,6 +19,7 @@ Standalone:
 """
 
 import argparse
+import fnmatch
 import json
 import pathlib
 import sys
@@ -150,7 +151,46 @@ def wire_fields(struct):
     return {f["json_name"]: f for f in struct["fields"] if f["json_name"] and not f["skipped"]}
 
 
-def audit(source_dir, spec_path, strip_prefix="", language=None):
+def parse_excludes(raw):
+    """Split an exclude-paths value into patterns.
+
+    Accepts newlines or commas so a workflow can write either the block form or
+    a one-liner. A pattern is matched against the path as the spec would write
+    it, which is after --strip-prefix has been removed.
+    """
+    if not raw:
+        return ()
+    if isinstance(raw, (list, tuple)):
+        parts = list(raw)
+    else:
+        parts = [p for chunk in str(raw).splitlines() for p in chunk.split(",")]
+    out = []
+    for part in parts:
+        pattern = part.strip()
+        if not pattern or pattern.startswith("#"):
+            continue
+        # A pattern without a leading slash is what people write first, and
+        # rejecting it teaches nothing that accepting it would not.
+        out.append(pattern if pattern.startswith("/") else "/" + pattern)
+    return tuple(out)
+
+
+def path_excluded(path, patterns):
+    """fnmatch, so `*` crosses slashes: /auth/* covers /auth/me/password.
+
+    A trailing /* also covers the collection itself, so /auth/* excludes /auth.
+    Writing the subtree and then still being reported on its root is nobody's
+    intent, and the alternative is every caller listing both forms.
+    """
+    for pattern in patterns:
+        if fnmatch.fnmatch(path, pattern):
+            return True
+        if pattern.endswith("/*") and path == pattern[:-2]:
+            return True
+    return False
+
+
+def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=()):
     """Run every deterministic rule. Returns a list of findings.
 
     A language whose adapter supplies no handler facts - TypeScript today - gets
@@ -174,6 +214,23 @@ def audit(source_dir, spec_path, strip_prefix="", language=None):
             f"language was detected correctly.")
 
     routes = {(r["path"], r["method"].lower()): r for r in extracted}
+
+    # Excluded paths leave the audit entirely, on both sides. A route the
+    # operator has declared internal is not "missing from the spec", and the
+    # spec is not wrong for staying quiet about it.
+    exclude = parse_excludes(exclude)
+    spec_keys = set(spec.keys())
+    if exclude:
+        before = len(routes) + len(spec_keys)
+        routes = {k: v for k, v in routes.items() if not path_excluded(k[0], exclude)}
+        spec_keys = {k for k in spec_keys if not path_excluded(k[0], exclude)}
+        if not routes and not spec_keys:
+            raise RouteExtractionError(
+                f"exclude-paths removed all {before} endpoint(s) from the audit. "
+                f"Patterns are matched against the path with --strip-prefix "
+                f"already removed, so '/api/v1/*' excludes nothing while '/*' "
+                f"excludes everything.")
+
     auth_headers = auth_header_names(spec)
 
     findings = []
@@ -191,7 +248,7 @@ def audit(source_dir, spec_path, strip_prefix="", language=None):
             "R1"))
 
     # R2 - documented in the spec, not registered in code.
-    for key in sorted(spec.keys()):
+    for key in sorted(spec_keys):
         if key not in routes:
             path, method = key
             findings.append(finding(
@@ -201,7 +258,7 @@ def audit(source_dir, spec_path, strip_prefix="", language=None):
                 "R2"))
 
     # Per-operation rules. Only where code and spec both describe the endpoint.
-    for key in sorted(set(routes) & set(spec.keys())):
+    for key in sorted(set(routes) & spec_keys):
         path, method = key
         route = routes[key]
         operation = spec[key]
@@ -379,12 +436,16 @@ def main():
     parser.add_argument("source", help="directory of Go source")
     parser.add_argument("spec", help="path to openapi.json")
     parser.add_argument("--strip-prefix", default="")
+    parser.add_argument("--exclude-paths", default="",
+                        help="glob(s) to leave out of the audit, newline or comma "
+                             "separated, e.g. '/auth/*,/internal/*'")
     parser.add_argument("--language", default=None, help="go or typescript; detected when omitted")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     try:
-        findings = audit(args.source, args.spec, args.strip_prefix, args.language)
+        findings = audit(args.source, args.spec, args.strip_prefix, args.language,
+                         args.exclude_paths)
     except (RouteExtractionError, SpecError) as exc:
         sys.exit(f"error: {exc}")
 

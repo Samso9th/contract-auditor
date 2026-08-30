@@ -35,6 +35,23 @@ python3 auditor/run.py --repo /path/to/go/api --spec /path/to/openapi.json \
   --docs /path/to/docs --out reports/runs/my-api
 ```
 
+Leave routes that were never part of the contract out of it. Patterns are
+matched against the path as the spec writes it, so after `--strip-prefix` has
+been removed, and `*` crosses slashes:
+
+```bash
+python3 auditor/run.py --repo /path/to/api --spec openapi.json \
+  --strip-prefix /api/v1 --exclude-paths '/auth/*,/internal/*' \
+  --out reports/runs/my-api
+```
+
+The same flag works on the deterministic layer on its own:
+
+```bash
+python3 auditor/tools/diff.py /path/to/api openapi.json \
+  --strip-prefix /api/v1 --exclude-paths '/auth/*' --json
+```
+
 Extract the route table:
 
 ```bash
@@ -135,6 +152,7 @@ python3 eval/harvest.py --run reports/runs/agent       # new cases from real fin
 | `--no-memory` | Ignore learned history for this run. The ledger is still written |
 | `--epsilon 0.05` | Fraction of endpoints audited with memory off, so a wrong prior keeps being tested. `0` disables it |
 | `--verify` | With `--repo`: put every claim through the gate. Implied when memory is configured, because a claim with no verdict teaches nothing |
+| `--exclude-paths GLOBS` | Paths to leave out of the audit, newline or comma separated. Also on `auditor/tools/diff.py` |
 
 ## Configuration
 

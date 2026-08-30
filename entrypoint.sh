@@ -22,6 +22,7 @@ SOURCE_DIR="$(input SOURCE-DIR)"; SOURCE_DIR="${SOURCE_DIR:-.}"
 SPEC="$(input SPEC)"
 LANGUAGE="$(input LANGUAGE)"; LANGUAGE="${LANGUAGE:-auto}"
 STRIP_PREFIX="$(input STRIP-PREFIX)"
+EXCLUDE_PATHS="$(input EXCLUDE-PATHS)"
 MODEL="$(input MODEL)"; MODEL="${MODEL:-z-ai/glm-5.3-flash}"
 # Empty means send no reasoning field at all and let the model do what it
 # normally does, which is what the published numbers were measured under.
@@ -79,10 +80,16 @@ LANG_ARG=()
 REASONING_ARG=()
 [ -n "$REASONING" ] && REASONING_ARG=(--reasoning "$REASONING")
 
+# An array rather than ${VAR:+...}: the value is multi-line by design, and word
+# splitting would turn one pattern per line into one pattern per word.
+EXCLUDE_ARG=()
+[ -n "$EXCLUDE_PATHS" ] && EXCLUDE_ARG=(--exclude-paths "$EXCLUDE_PATHS")
+
 log "::group::Contract audit"
 log "source     $SOURCE_DIR"
 log "spec       $SPEC"
 log "language   $LANGUAGE"
+[ -z "$EXCLUDE_PATHS" ] || log "excluding  $(printf '%s' "$EXCLUDE_PATHS" | tr '\n' ' ')"
 log "model      $MODEL"
 log "reasoning  ${REASONING:-provider default}"
 if [ -n "${AUDITOR_MEMORY_URL:-}" ]; then
@@ -100,12 +107,12 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
   log "no api-key supplied, running the deterministic layer only (no model calls)"
   python3 "$AUDITOR/auditor/tools/diff.py" "$SOURCE_DIR" "$SPEC" \
       ${STRIP_PREFIX:+--strip-prefix "$STRIP_PREFIX"} "${LANG_ARG[@]}" \
-      --json > "$OUT_DIR/report.json"
+      "${EXCLUDE_ARG[@]}" --json > "$OUT_DIR/report.json"
 else
   python3 "$AUDITOR/auditor/run.py" --repo "$SOURCE_DIR" --spec "$SPEC" \
       --model "$MODEL" --workers "$WORKERS" "${REASONING_ARG[@]}" \
       ${STRIP_PREFIX:+--strip-prefix "$STRIP_PREFIX"} "${LANG_ARG[@]}" \
-      --out "$OUT_DIR"
+      "${EXCLUDE_ARG[@]}" --out "$OUT_DIR"
 fi
 log "::endgroup::"
 
