@@ -9,7 +9,8 @@
 //
 //   router.get('/:id', handler)                 // route, params normalised
 //   router.use('/customers', customersRouter)   // prefix resolved across files
-//   app.post('/pay', mw, handler)               // middleware skipped
+//   app.post('/pay', mw, handler)               // guard recorded on the route
+//   app.post('/pay', [mw], handler)             // and the bracketed spelling
 //
 // Usage: node extract.mjs --dir <src> [--strip-prefix /api/v1]
 
@@ -149,6 +150,41 @@ function sourceFiles(dir) {
 const literal = (node) =>
   node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
 
+// Top-level string constants, by name, across every file. A name declared twice
+// with different values is dropped rather than guessed at - the same discipline
+// the route table uses everywhere else.
+const constants = new Map();
+const clashedConstants = new Set();
+
+function recordConstant(node) {
+  if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name)) return;
+  const value = literal(node.initializer);
+  if (value === null) return;
+  if (constants.has(node.name.text) && constants.get(node.name.text) !== value) {
+    clashedConstants.add(node.name.text);
+  }
+  constants.set(node.name.text, value);
+}
+
+// A path written as a template, resolved against those constants:
+//
+//   app.get(`/${CERT_NAME}`, handler)
+//
+// Common wherever a base path or a filename is declared once and reused. The
+// path is not a string literal, so it read as no path at all and the route was
+// dropped - which understates the API surface, the one error this must not make.
+// Anything the constants cannot settle stays dropped rather than guessed.
+function templatePath(node) {
+  if (!node || !ts.isTemplateExpression(node)) return null;
+  let out = node.head.text;
+  for (const span of node.templateSpans) {
+    const name = ts.isIdentifier(span.expression) ? span.expression.text : "";
+    if (!name || clashedConstants.has(name) || !constants.has(name)) return null;
+    out += constants.get(name) + span.literal.text;
+  }
+  return out;
+}
+
 // Express ':id' and '*' become OpenAPI '{id}', so paths compare to a spec.
 function normalisePath(p) {
   let out = p.replace(/:([A-Za-z_][A-Za-z0-9_]*)\??/g, "{$1}").replace(/\/\*$/, "/{wildcard}");
@@ -175,15 +211,81 @@ function argName(a) {
   return "";
 }
 
+// Express takes a guard either bare or wrapped in an array, and the two are
+// equally idiomatic:
+//
+//   app.get('/x', validApiKey, handler)
+//   app.get('/x', [validApiKey], handler)
+//
+// Reading only the first spelling is not a cosmetic miss. A codebase that groups
+// its guards writes the second everywhere, so every route comes back unguarded,
+// contract-middleware has nothing to select on, and the session-authenticated
+// dashboard reads as part of the published API. That was the whole of a 277
+// finding report on a real repository, none of which was actionable.
+function argNames(a) {
+  if (ts.isArrayLiteralExpression(a)) return a.elements.flatMap(argNames);
+  const name = argName(a);
+  return name ? [name] : [];
+}
+
 function middlewareNames(args) {
   const out = [];
   // args[0] is the path and the last is the handler; everything between guards
   // the route. An inline arrow function is a handler, never a named guard.
-  for (let i = 1; i < args.length - 1; i++) {
-    const name = argName(args[i]);
-    if (name) out.push(name);
-  }
+  for (let i = 1; i < args.length - 1; i++) out.push(...argNames(args[i]));
   return out;
+}
+
+// Express registers a route in two shapes, and this is the second:
+//
+//   app.route('/tags').get(handler).post(handler)
+//
+// The path is an argument of .route(); the method calls that follow take
+// handlers only, so each one reads as an ordinary function call unless the
+// receiver chain is followed back to its root. Class-based Express services,
+// which is most of the TypeScript ones, are usually written this way: reading
+// only the flat form found 3 of one real repository's 23 routes and would have
+// reported the other 20 as documented but never implemented.
+function routeChainPath(expr) {
+  let cur = expr;
+  while (cur && ts.isCallExpression(cur) && ts.isPropertyAccessExpression(cur.expression)) {
+    const name = cur.expression.name.text;
+    if (name === "route" && cur.arguments.length >= 1) {
+      const p = literal(cur.arguments[0]);
+      if (p === null || (p !== "" && !p.startsWith("/"))) return null;
+      return { path: p, receiver: receiverName(cur.expression.expression) };
+    }
+    // Only a method call may sit between this one and its .route(); anything
+    // else means the chain is something other than a route registration.
+    if (!HTTP_METHODS.has(name)) return null;
+    cur = cur.expression.expression;
+  }
+  return null;
+}
+
+// What a registration was called on: `app`, `router`, or `api` for `this.api`.
+// Needed because a router can be declared and mounted inside one file, and then
+// the only thing tying its routes to its prefix is the variable name.
+function receiverName(expr) {
+  if (!expr) return "";
+  if (ts.isIdentifier(expr)) return expr.text;
+  if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+  return "";
+}
+
+// In the chained form there is no path argument, so every argument but the last
+// is a guard.
+function chainedMiddlewareNames(args) {
+  const out = [];
+  for (let i = 0; i < args.length - 1; i++) out.push(...argNames(args[i]));
+  return out;
+}
+
+// The identifiers an argument names, looking through an array literal. Used for
+// mounts, where the name has to resolve back to an import to be followed.
+function localNames(a) {
+  if (ts.isArrayLiteralExpression(a)) return a.elements.flatMap(localNames);
+  return ts.isIdentifier(a) ? [a.text] : [];
 }
 
 function handlerName(args) {
@@ -387,6 +489,8 @@ for (const file of files) {
       }
     }
 
+    recordConstant(node);
+
     if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
       const target = resolveImport(literal(node.moduleSpecifier) ?? "");
       if (target) reexports.push(target);
@@ -402,29 +506,48 @@ for (const file of files) {
         // cosmetic: a webhook registered above the use() line is open, and
         // calling it guarded would hide the one thing an auth rule exists to
         // find. The line is kept so the routes below can select on it.
-        const name = argName(first);
-        if (name) routerMiddleware.push({ name, line: lineOf(node) });
+        for (const name of argNames(first)) {
+          routerMiddleware.push({ name, line: lineOf(node) });
+        }
       } else if (method === "use" && node.arguments.length >= 2) {
         const prefix = literal(first);
         if (prefix !== null && prefix.startsWith("/")) {
           for (let i = 1; i < node.arguments.length; i++) {
-            const a = node.arguments[i];
-            if (ts.isIdentifier(a)) mounts.push({ prefix, local: a.text });
+            for (const local of localNames(node.arguments[i])) {
+              mounts.push({ prefix, local });
+            }
           }
         }
-      } else if (HTTP_METHODS.has(method) && node.arguments.length >= 2) {
-        const routePath = literal(first);
+      } else if (HTTP_METHODS.has(method) && node.arguments.length >= 1) {
+        const routePath = node.arguments.length >= 2
+          ? (literal(first) ?? templatePath(first)) : null;
         // A route registration always takes a path string plus a handler. The
         // guard keeps unrelated .get()/.delete() calls - a Map, a cache, an ORM
         // query builder - out of the route table.
         if (routePath !== null && (routePath === "" || routePath.startsWith("/"))) {
           routes.push({ method: method.toUpperCase(), path: routePath,
+                        receiver: receiverName(node.expression.expression),
                         handler: handlerName(node.arguments),
                         // Everything between the path and the handler. Which of
                         // these is an auth guard is the caller's judgement, not
                         // this parser's: it records what is there.
                         middleware: middlewareNames(node.arguments),
                         line: lineOf(node) });
+        } else {
+          // The chained form, where the path sits on a .route() call further
+          // down the receiver and the method takes handlers only.
+          const chained = routeChainPath(node.expression.expression);
+          if (chained !== null) {
+            routes.push({ method: method.toUpperCase(), path: chained.path,
+                          receiver: chained.receiver,
+                          handler: handlerName(node.arguments),
+                          middleware: chainedMiddlewareNames(node.arguments),
+                          // The method name, not the call: a chain starts at
+                          // the receiver, so lineOf(node) would put all five
+                          // methods of one .route() on the line the chain
+                          // opens rather than on their own.
+                          line: lineOf(node.expression.name) });
+          }
         }
       }
     }
@@ -444,6 +567,26 @@ const entry = files.find((f) => /routes[\\/]index\.(ts|js)$/.test(f))
 const collected = [];
 const seen = new Set();
 
+// The prefix a router declared in this same file was mounted at:
+//
+//   const mcpRouter = express.Router();
+//   mcpRouter.all('/', handler);
+//   app.use('/mcp', mcpRouter);
+//
+// The mount graph resolves a mount whose target is another file. A router
+// declared and mounted inside one file has no import to follow, so its routes
+// used to be collected at the bare path they were registered with - two of one
+// repository's endpoints went missing and a third was reported at '/' rather
+// than '/mcp'. The variable name is the only thing tying the two together, so
+// that is what this keys on.
+function localPrefixes(data) {
+  const out = new Map();
+  for (const mount of data.mounts) {
+    if (!data.imports.get(mount.local)) out.set(mount.local, mount.prefix);
+  }
+  return out;
+}
+
 function walk(file, prefix, depth) {
   if (!file || depth > 12) return;                 // cycle and runaway guard
   const key = `${file}::${prefix}`;
@@ -453,10 +596,11 @@ function walk(file, prefix, depth) {
   const entryData = perFile.get(file);
   if (!entryData) return;
 
+  const own = localPrefixes(entryData);
   for (const route of entryData.routes) {
     collected.push({
       method: route.method,
-      path: normalisePath(prefix + route.path),
+      path: normalisePath(prefix + (own.get(route.receiver) ?? "") + route.path),
       handler: route.handler,
       middleware: [
         ...entryData.routerMiddleware.filter((m) => m.line < route.line).map((m) => m.name),
@@ -487,9 +631,12 @@ for (const [file, data] of perFile) {
   if (seen.has(`${file}::`) || !data.routes.length) continue;
   const reached = [...seen].some((k) => k.startsWith(`${file}::`));
   if (reached) continue;
+  const own = localPrefixes(data);
   for (const route of data.routes) {
     collected.push({
-      method: route.method, path: normalisePath(route.path), handler: route.handler,
+      method: route.method,
+      path: normalisePath((own.get(route.receiver) ?? "") + route.path),
+      handler: route.handler,
       middleware: [
         ...data.routerMiddleware.filter((m) => m.line < route.line).map((m) => m.name),
         ...(route.middleware || []),

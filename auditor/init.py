@@ -14,13 +14,20 @@ the generated file as a comment, so the output is reviewable rather than magic:
     language        the marker file that decided it
     spec            the candidate with the most documented operations
     strip-prefix    the path component of the spec's own servers[].url
-    source-dir      the candidate directory that yielded the most routes
+    source-dir      of the directories this repository declares a unit - a
+                    conventional source root, or anything carrying its own
+                    dependency manifest - the one implementing the most of the
+                    spec with the fewest routes it never mentions. Not the one
+                    with the most routes: on a repository holding several
+                    services that is always the root, because it is the union
+                    of all of them.
     contract-middleware
                     the spec names the credential integrators were promised, in
-                    components.securitySchemes. The middleware whose source
-                    reads that header is the guard that defines the contract.
-                    Everything else - a console's session guard, an unguarded
-                    internal route - is outside it.
+                    components.securitySchemes. Of the middleware whose source
+                    reads that header, the contract guard is the one protecting
+                    the endpoints the spec documents. Everything else - a
+                    console's session guard, an unguarded internal route - is
+                    outside it.
 
     python3 auditor/init.py --repo .    # writes .github/workflows/contract-audit.yml
 """
@@ -39,7 +46,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 
 import languages  # noqa: E402
-from diff import auth_header_names, guards_reading  # noqa: E402
+from diff import auth_header_names, guards_reading, strip_factory  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 
 # Directories that never hold a project's own route registrations, and are large
@@ -66,6 +73,22 @@ SOURCE_CANDIDATES = {
     "python": ("app", "src", "api", "."),
     "php": (".", "routes", "app"),
 }
+
+# The file a language's toolchain requires at the root of anything it can build
+# or install. A name list cannot find a service directory - server/, apps/api/
+# and backend/ are the same thing and none of them is a convention anyone
+# agreed on - but a manifest is not a convention. The toolchain will not work
+# without it, so it is there whatever the directory is called.
+SERVICE_MANIFESTS = {
+    "go": ("go.mod",),
+    "typescript": ("package.json",),
+    "python": ("pyproject.toml", "setup.py", "Pipfile", "requirements.txt"),
+    "php": ("composer.json",),
+}
+
+# How deep to look for one. Deep enough for apps/api and services/gateway/api,
+# shallow enough that the scan stays instant on a large repository.
+MANIFEST_DEPTH = 4
 
 
 # Branches a team treats as shared, and so wants audited on their merged result
@@ -143,42 +166,52 @@ def walk(root):
 
 
 def find_specs(root):
-    """Candidate OpenAPI documents, richest first.
+    """Candidate OpenAPI documents, richest first, and the ones that were
+    rejected with the reason why.
 
     Richest rather than first-found: a repository often carries a stub spec next
     to the real one, and the one describing more operations is the one anybody
     would have meant.
+
+    The rejections are returned rather than dropped because they used to be
+    dropped, and the result was the worst error this tool produced: a repository
+    whose spec was found and could not be read reported "no OpenAPI document
+    found", sending the reader to look for a file that was sitting right there.
+    A document that cannot be parsed is a different problem from one that does
+    not exist, and only one of them is the reader's to fix.
     """
-    seen, out = set(), []
+    seen, out, rejected = set(), [], []
+
+    def consider(path):
+        if path in seen:
+            return
+        seen.add(path)
+        try:
+            spec = load_spec(path)
+        except Exception as exc:
+            rejected.append((path, str(exc).replace(str(root) + "/", "")))
+            return
+        operations = len(spec.keys())
+        if operations:
+            out.append((operations, path, spec))
+        else:
+            rejected.append((path, "parsed, but documents no operations"))
+
     for directory in SPEC_DIRS:
         base = root / directory
         if not base.is_dir():
             continue
         for name in SPEC_NAMES:
             path = base / name
-            if not path.is_file() or path in seen:
-                continue
-            seen.add(path)
-            try:
-                spec = load_spec(path)
-                operations = len(spec.keys())
-            except Exception:
-                continue
-            if operations:
-                out.append((operations, path, spec))
+            if path.is_file():
+                consider(path)
     # Anything not in a conventional directory, so a spec at mintlify/v2/ or
     # docs/reference/ is still found rather than silently skipped.
     if not out:
         for path in walk(root):
-            if path.name in SPEC_NAMES and path not in seen:
-                try:
-                    spec = load_spec(path)
-                    operations = len(spec.keys())
-                except Exception:
-                    continue
-                if operations:
-                    out.append((operations, path, spec))
-    return sorted(out, key=lambda row: -row[0])
+            if path.name in SPEC_NAMES:
+                consider(path)
+    return sorted(out, key=lambda row: -row[0]), rejected
 
 
 def server_prefix(spec):
@@ -186,12 +219,23 @@ def server_prefix(spec):
 
     This is the prefix the code registers and the spec's paths leave out, which
     is what strip-prefix exists to reconcile.
+
+    Swagger 2.0 spells it `basePath` at the top level; OpenAPI 3 replaced that
+    with `servers`. Reading only the newer one left the prefix empty for every
+    2.0 document, and an empty prefix means not one path matches: two of the
+    twelve repositories this was measured on reported their whole API as
+    undocumented and their whole document as unimplemented, from that alone.
+    Swagger 2.0 is what `swaggo` still emits, which is most annotated Go.
     """
     for server in spec.document.get("servers", []) or []:
         url = str(server.get("url", ""))
         path = re.sub(r"^https?://[^/]+", "", url).rstrip("/")
         if path and path != "/":
             return path
+
+    base = str(spec.document.get("basePath", "")).rstrip("/")
+    if base and base != "/":
+        return base if base.startswith("/") else "/" + base
     return ""
 
 
@@ -203,43 +247,225 @@ def route_table(adapter, directory, prefix):
     return table if (table or {}).get("routes") else None
 
 
-def pick_source(root, adapter, prefix):
-    """The candidate directory that yields the most routes.
+def arbitrate(root, tied, prefix, spec_keys):
+    """Which of the equally-plausible languages this specification belongs to.
 
-    Most rather than first: `.` almost always extracts something, and picking it
-    would drag a repository's outbound HTTP clients and test fixtures into the
-    audit alongside its real handlers.
+    Marker files answer "what is written here", and on a polyglot repository the
+    answer is legitimately several. They cannot answer "which of these serves
+    the document being audited", and that is the question. So where the evidence
+    ties, each candidate reads the repository and the one whose routes account
+    for the most of the specification wins.
+
+    Extraction is the expensive step, which is why this runs only on a tie and
+    only over the candidates that tied.
     """
-    best = None
-    for candidate in SOURCE_CANDIDATES.get(adapter.NAME, (".",)):
-        directory = (root / candidate).resolve()
-        if not directory.is_dir():
-            continue
-        table = route_table(adapter, directory, prefix)
-        if not table:
-            continue
-        count = len(table["routes"])
-        if best is None or count > best[0]:
-            best = (count, candidate, table)
-    return best
+    if len(tied) == 1:
+        return tied[0], (f"{tied[0].NAME} is the only language with a project "
+                         f"marker at this level.")
+
+    scored = []
+    for adapter in tied:
+        table = route_table(adapter, root, prefix)
+        routes = (table or {}).get("routes") or []
+        covered = len({(r["path"], r["method"].lower()) for r in routes} & spec_keys)
+        scored.append((covered, len(routes), adapter))
+
+    covered, _, adapter = max(scored)
+    others = ", ".join(f"{a.NAME} {c}" for c, _, a in scored if a is not adapter)
+    if covered:
+        return adapter, (f"{covered} of the spec's {len(spec_keys)} documented "
+                         f"operation(s) are registered in {adapter.NAME}, against "
+                         f"{others}. Marker files alone tied "
+                         f"{', '.join(a.NAME for a in tied)}.")
+    # Nothing matched, so this is no better than the marker ordering. Say so
+    # rather than dressing the fallback up as a derivation.
+    return tied[0], (f"marker files tie {', '.join(a.NAME for a in tied)} and no "
+                     f"candidate's routes matched a documented operation, so this "
+                     f"is the most decisive marker rather than a measurement. "
+                     f"Check it, and check strip-prefix.")
 
 
-def contract_guards(root, table, headers):
-    """Middleware whose source reads a credential the spec promises integrators.
+def descend(root, max_depth):
+    """Directories under root, pruning the ones that never hold source.
+
+    An explicit descent rather than rglob, because rglob walks .git and
+    node_modules in full before any filter sees them, and on a large repository
+    that is nearly all of the time spent.
+    """
+    stack = [(root, 0)]
+    while stack:
+        base, depth = stack.pop()
+        yield base
+        if depth >= max_depth:
+            continue
+        try:
+            entries = list(base.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if (entry.is_dir() and not entry.is_symlink()
+                    and entry.name not in SKIP_DIRS
+                    and not entry.name.startswith(".")):
+                stack.append((entry, depth + 1))
+
+
+def service_roots(root, adapter):
+    """Directories this repository declares a buildable unit, by manifest."""
+    names = SERVICE_MANIFESTS.get(adapter.NAME, ())
+    out = set()
+    for directory in descend(root, MANIFEST_DEPTH):
+        if any((directory / name).is_file() for name in names):
+            relative = directory.relative_to(root).as_posix()
+            out.add(relative or ".")
+    return out
+
+
+def routes_under(table, candidate):
+    """The routes in a whole-repository table that belong to one directory."""
+    if candidate == ".":
+        return table["routes"]
+    prefix = candidate.rstrip("/") + "/"
+    return [r for r in table["routes"] if (r.get("file") or "").startswith(prefix)]
+
+
+def pick_source(root, adapter, prefix, spec_keys=frozenset()):
+    """The directory whose routes best account for the specification.
+
+    Not the directory with the most routes, which is what this used to choose.
+    On a repository holding more than one service the root always has the most,
+    because it is the union of every one of them, and auditing that union
+    reports every other service's routes as undocumented. On the first real
+    repository this was pointed at that was 277 findings, 46 of them from two
+    programs that do not serve this specification at all and never could.
+
+    The specification is the thing being audited, so it is the thing that
+    decides: of the directories this repository declares a unit, the one
+    implementing the most of it, and among those the one carrying the fewest
+    routes it never mentions.
+
+    A candidate is only ever a conventional source directory or a directory with
+    its own dependency manifest. Narrowing further - to whichever subdirectory
+    happens to score best - would let the audit shrink to the routes that are
+    already documented and report a clean bill of health, which is the one
+    answer this tool must never give.
+    """
+    conventional = SOURCE_CANDIDATES.get(adapter.NAME, (".",))
+    candidates = list(dict.fromkeys(
+        [c for c in conventional if (root / c).is_dir()]
+        + sorted(service_roots(root, adapter), key=lambda c: (c.count("/"), c))
+        + ["."]))
+
+    whole = route_table(adapter, root, prefix)
+
+    scored = []
+    for candidate in candidates:
+        if not (root / candidate).is_dir():
+            continue
+        # The whole-repository table already says which routes live where, so
+        # scoring costs nothing. Only the winner is extracted again, and only
+        # because a nested directory resolves its own mount graph differently.
+        routes = routes_under(whole, candidate) if whole else None
+        if routes is None:
+            table = route_table(adapter, (root / candidate).resolve(), prefix)
+            if not table:
+                continue
+            routes = table["routes"]
+        if not routes:
+            continue
+        covered = len({(r["path"], r["method"].lower()) for r in routes} & spec_keys)
+        scored.append((covered, -(len(routes) - covered), candidate, len(routes)))
+
+    if not scored:
+        return None
+
+    if spec_keys and max(row[0] for row in scored):
+        covered, _, candidate, count = max(scored)
+        why = (f"{covered} of the spec's {len(spec_keys)} documented operation(s) "
+               f"are registered here, with fewer undocumented routes alongside "
+               f"them than any other candidate directory.")
+    else:
+        # Nothing matched anything, so the spec cannot arbitrate. Either the
+        # prefix is wrong or this really is a wholly undocumented API, and both
+        # want the widest view rather than the narrowest.
+        count, candidate = max((row[3], row[2]) for row in scored)
+        why = (f"{count} route(s) extracted here, more than any other candidate "
+               f"directory. No candidate matched any documented operation, so "
+               f"the spec could not narrow this further - check strip-prefix "
+               f"if the first run reports every route as undocumented.")
+
+    table = (whole if candidate == "."
+             else route_table(adapter, (root / candidate).resolve(), prefix))
+    if not table:
+        return None
+    return len(table["routes"]), candidate, table, why
+
+
+def contract_guards(root, table, headers, spec_keys=frozenset()):
+    """The middleware that separates the published API from everything else.
 
     The spec is the authority on what the contract's credential is: an apiKey
-    security scheme names the header, and http auth means Authorization. A file
-    that reads that header and exports a middleware the routes use is the guard
-    that separates the promised API from everything else in the same codebase.
+    scheme names the header, http or basic auth means Authorization. A guard
+    that reads that header is authenticating, whatever it is called.
+
+    Reading the header is neither necessary nor sufficient, which is why the
+    spec arbitrates twice.
+
+    Not sufficient: where the only declared scheme is bearer - most specs - the
+    credential is Authorization and a session guard reads it too. Both qualify,
+    and naming both puts the whole dashboard back inside the contract.
+
+    Not necessary: a framework can do the reading. Laravel routes name a guard
+    by alias and Sanctum reads the header inside the framework, so the app's own
+    middleware never touches it; coolify's API guard asks
+    `$request->user()->currentAccessToken()` and would be invisible to a test
+    that insisted on the header. So a guard whose body does not read the
+    credential is not discarded, only ranked below one that does.
+
+    What settles it either way is coverage: the contract guard is the one
+    protecting the endpoints the spec documents. A session guard scores near
+    zero against a spec it does not serve, however many headers it reads.
     """
     used = sorted({m for route in table["routes"] for m in (route.get("middleware") or [])})
-    if not used or not headers:
-        return [], used
+    if not used:
+        return [], used, {}
 
     # Authorization is worth almost nothing on its own: a session guard reads it
     # too. It only discriminates when the spec offers no better credential.
     strong = {h for h in headers if h.lower() != "authorization"}
-    return sorted(guards_reading(root, used, strong or headers)), used
+    reading = sorted(guards_reading(root, used, strong or headers)) if headers else []
+
+    # Confirmed readers first; if none could be confirmed, every guard in use is
+    # a candidate and coverage alone decides. An empty candidate list would mean
+    # no filter at all, which on a repository whose route file holds both the
+    # API and the console is the noisiest possible answer.
+    candidates = reading or [strip_factory(name) for name in used]
+    if not spec_keys or not candidates:
+        return reading, used, {}
+
+    # strip_factory on both sides: the route table keeps a factory guard's
+    # parentheses - validate(schema) reads differently from validate - and the
+    # names coming back from guards_reading have already lost them. Comparing
+    # the two spellings directly scored every factory guard at zero coverage.
+    documented = {
+        name: len({(r["path"], r["method"].lower())
+                   for r in table["routes"]
+                   if name in {strip_factory(m) for m in (r.get("middleware") or [])}}
+                  & spec_keys)
+        for name in sorted(set(candidates))
+    }
+
+    best = max(documented.values(), default=0)
+    # Nothing protects any documented endpoint, so no guard defines this
+    # contract. An empty answer is a real answer; the caller explains it.
+    if best * 2 < len(spec_keys):
+        return [], used, documented
+
+    # The best, and anything within a tenth of it. A contract split across two
+    # layered guards is real; a guard trailing far behind the leader is a
+    # different API that happens to share some routes.
+    covering = sorted(name for name, count in documented.items()
+                      if count >= best * 0.9)
+    return covering, used, documented
 
 
 def render(findings):
@@ -309,6 +535,7 @@ def render(findings):
         f"          spec: {f['spec']}",
         *comment(f["source_why"]),
         f"          source-dir: {f['source_dir']}",
+        *comment(f["language_why"]),
         f"          language: {f['language']}",
     ]
 
@@ -457,15 +684,23 @@ def inspect(root, branches=()):
                "branch it has and this clone never fetched is missing")
             + ". Add or remove to match how your team merges.")
 
-    adapter = languages.detect(root)
-    if adapter is None:
+    tied = languages.tied(root)
+    if not tied:
         raise SystemExit(
             f"could not identify a language in {root}. Supported: "
             f"{', '.join(languages.names())}. Point --repo at the directory "
             f"holding go.mod, package.json, pyproject.toml or artisan.")
+    adapter = tied[0]
 
-    specs = find_specs(root)
+    specs, rejected = find_specs(root)
     if not specs:
+        if rejected:
+            listed = "\n  ".join(
+                f"{p.relative_to(root).as_posix()}: {why}" for p, why in rejected)
+            raise SystemExit(
+                f"found {len(rejected)} OpenAPI document(s) under {root} and could "
+                f"read none of them:\n  {listed}\n"
+                f"Fix the document, or point --spec at one that parses.")
         raise SystemExit(
             f"no OpenAPI document found under {root}. Looked for "
             f"{', '.join(SPEC_NAMES)} in {', '.join(SPEC_DIRS)}. There is nothing "
@@ -473,17 +708,25 @@ def inspect(root, branches=()):
     operations, spec_path, spec = specs[0]
 
     prefix = server_prefix(spec)
-    picked = pick_source(root, adapter, prefix)
+    spec_keys = set(spec.keys())
+
+    # A polyglot repository can look equally like two languages, and the marker
+    # ordering then decides by convention rather than by evidence. The spec is
+    # better evidence than any convention: the language that implements the
+    # document is the language the document is about.
+    adapter, language_why = arbitrate(root, tied, prefix, spec_keys)
+
+    picked = pick_source(root, adapter, prefix, spec_keys)
     if picked is None:
         raise SystemExit(
             f"no routes extracted from any of "
             f"{', '.join(SOURCE_CANDIDATES.get(adapter.NAME, ('.',)))} in {root}. "
             f"The language was detected as {adapter.NAME}; if that is wrong, the "
             f"marker file that decided it is not this project's main language.")
-    route_count, source_dir, table = picked
+    route_count, source_dir, table, source_why = picked
 
     headers = auth_header_names(spec)
-    guards, used = contract_guards(root, table, headers)
+    guards, used, considered = contract_guards(root, table, headers, spec_keys)
 
     if guards:
         guard_why = (f"{', '.join(sorted(headers))} is the credential this spec "
@@ -498,6 +741,18 @@ def inspect(root, branches=()):
                      "credential integrators were promised. Routes are guarded by "
                      f"{', '.join(used[:4])}; name the contract guard by hand, or use "
                      f"exclude-paths below.")
+    elif considered:
+        # They read the credential but none of them protects the API the spec
+        # describes, so naming one would filter the audit down to the wrong
+        # thing. Saying which were weighed, and by how much they missed, is what
+        # lets a reader overrule this in one line.
+        ranked = ", ".join(f"{name} guards {count} of them"
+                           for name, count in sorted(considered.items(),
+                                                     key=lambda kv: -kv[1])[:4])
+        guard_why = (f"the spec documents {len(spec_keys)} operation(s) and no "
+                     f"single guard protects even half: {ranked}. Naming one would "
+                     f"audit the wrong API, so nothing is set. Name the contract "
+                     f"guard by hand, or use exclude-paths below.")
     else:
         guard_why = (f"none of {', '.join(used[:4])} reads "
                      f"{', '.join(sorted(headers))}. Name the contract guard by "
@@ -505,11 +760,11 @@ def inspect(root, branches=()):
 
     return {
         "language": adapter.NAME,
+        "language_why": language_why,
         "spec": spec_path.relative_to(root).as_posix(),
         "spec_why": f"{operations} documented operation(s), the richest spec found.",
         "source_dir": source_dir,
-        "source_why": f"{route_count} route(s) extracted here, more than any other "
-                      f"candidate directory.",
+        "source_why": source_why,
         "strip_prefix": prefix,
         "prefix_why": "the path component of this spec's own servers[].url.",
         "guards": guards,

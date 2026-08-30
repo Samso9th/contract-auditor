@@ -336,10 +336,12 @@ def main():
             log(f"contract-middleware: {len(table.get('routes') or []) - len(kept)} "
                 f"route(s) outside the contract left out of the audit")
             table["routes"] = kept
+        coverage = {}
         mechanical = deterministic_audit(api, args.spec, strip_prefix=args.strip_prefix,
                                          language=args.language,
                                          exclude=args.exclude_paths,
-                                         contract_middleware=args.contract_middleware)
+                                         contract_middleware=args.contract_middleware,
+                                         coverage=coverage)
         log(f"deterministic: {len(mechanical)} finding(s)")
         adapter = languages.get(args.language) if args.language else languages.detect(api)
         judged, usage = agent_pass(api, spec, table, mechanical, args.model, pool,
@@ -377,6 +379,9 @@ def main():
 
         usage["memory"] = {"enabled": learning, "store": store.describe(),
                            "ledger_claims": len(memory.rows) if memory is not None else 0}
+        # What the spec was able to assert, so the brief can say which rules had
+        # a promise to check and which had nothing.
+        usage["coverage"] = coverage
         with open(out / "report.json", "w") as f:
             json.dump({"findings": findings, "meta": usage}, f, indent=2, default=str)
         log(f"\nwritten to {out / 'report.json'}")

@@ -18,10 +18,12 @@ LABEL org.opencontainers.image.title="contract-auditor" \
       org.opencontainers.image.licenses="MIT"
 
 # python3 runs the harness, node runs the TypeScript extractor, curl is the
-# HTTPS transport for model calls. No pip packages: the harness has no Python
-# dependencies, which is why this layer stays small and the build stays offline-safe.
+# HTTPS transport for model calls. python3-yaml reads the half of OpenAPI
+# documents that are written as YAML rather than JSON. Still no pip: every
+# dependency comes from the distribution, which is why this layer stays small
+# and the build stays offline-safe.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-minimal ca-certificates curl git jq \
+        python3 python3-minimal python3-yaml ca-certificates curl git jq \
         nodejs npm \
     && npm install -g typescript@5 --no-fund --no-audit \
     && apt-get clean && rm -rf /var/lib/apt/lists/*

@@ -122,7 +122,14 @@ class Spec:
     # -- indexing --------------------------------------------------------
 
     def _index(self):
-        global_security = self._security_names(self.document.get("security", []))
+        # No default. A document with no `security` key has not declared its
+        # operations public - it has said nothing about authentication at all,
+        # and the two are opposite claims. Defaulting to [] read every such
+        # document as "everything here is public", so every guarded route in it
+        # became an endpoint the spec supposedly promised needed no credential.
+        # Specs that declare securitySchemes and then never reference them are
+        # common, which is exactly where this fired.
+        global_security = self._security_names(self.document.get("security"))
 
         for path, item in self.document.get("paths", {}).items():
             if not isinstance(item, dict):
@@ -228,15 +235,61 @@ class Spec:
         return [c for c in self.status_codes(key) if c.startswith("2")]
 
 
+def _load_json(text, path):
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise SpecError(f"{path} is not valid JSON: {exc}") from exc
+
+
+def _load_yaml(text, path):
+    try:
+        import yaml
+    except ImportError as exc:                              # pragma: no cover
+        raise SpecError(
+            f"{path} is YAML and no YAML parser is installed. Install one "
+            f"(apt install python3-yaml, or pip install pyyaml) or point the "
+            f"spec input at a JSON document.") from exc
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise SpecError(f"{path} is not valid YAML: {exc}") from exc
+
+
 def load(path):
+    """Read an OpenAPI document, in either of the two formats it is written in.
+
+    YAML is not a nicety here. The loader was JSON-only while the file names it
+    is asked for have always included openapi.yaml, so a repository whose spec
+    was YAML - four of the first twelve real ones this was pointed at - failed
+    with "no OpenAPI document found", which is both wrong and unactionable.
+
+    The suffix chooses which parser to try first, not which one is right. A
+    project that generates openapi.json from a YAML source, or serves a
+    .yaml written as JSON, is ordinary; whichever parser succeeds wins, and the
+    error kept is the one for the format the name promised.
+    """
     path = pathlib.Path(path)
     if not path.exists():
         raise SpecError(f"spec not found: {path}")
-    try:
-        with open(path) as f:
-            document = json.load(f)
-    except json.JSONDecodeError as exc:
-        raise SpecError(f"{path} is not valid JSON: {exc}") from exc
+    text = path.read_text(encoding="utf-8", errors="replace")
+
+    order = ((_load_yaml, _load_json) if path.suffix.lower() in (".yaml", ".yml")
+             else (_load_json, _load_yaml))
+
+    document, first_error = None, None
+    for parse in order:
+        try:
+            document = parse(text, path)
+            break
+        except SpecError as exc:
+            first_error = first_error or exc
+    if document is None:
+        raise first_error
+
+    if not isinstance(document, dict):
+        raise SpecError(f"{path} parsed but is not an object; not an OpenAPI "
+                        f"document?")
     if "paths" not in document:
         raise SpecError(f"{path} has no `paths`; not an OpenAPI document?")
     return Spec(document, source=str(path))

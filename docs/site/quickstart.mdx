@@ -28,11 +28,11 @@ has a comment next to it saying where it came from, so you can check the working
 
 | Input | Derived from |
 |---|---|
-| `language` | the marker file that decided it |
-| `spec` | the candidate document describing the most operations |
-| `source-dir` | the candidate directory that yielded the most routes |
-| `strip-prefix` | the path component of the spec's own `servers[].url` |
-| `contract-middleware` | the spec names the credential integrators were promised, in `components.securitySchemes`. The middleware whose source reads that header is the guard that defines the contract |
+| `language` | how strongly each language's markers are present, and where they tie, which one's routes account for the spec |
+| `spec` | the candidate document describing the most operations, JSON or YAML |
+| `source-dir` | of the directories the repository declares a unit - a conventional source root, or anything with its own dependency manifest - the one implementing most of the spec with the fewest routes it never mentions |
+| `strip-prefix` | the path component of the spec's own `servers[].url`, or its `basePath` on Swagger 2.0 |
+| `contract-middleware` | the spec names the credential integrators were promised, in `securitySchemes` or `securityDefinitions`. Of the guards in use, the one protecting the endpoints that spec documents - preferring one whose source reads the credential, since a framework often does that reading instead |
 | trigger branches | `git ls-remote`, falling back to the local refs |
 
 The middleware row is the one that saves you reading an unfamiliar codebase.

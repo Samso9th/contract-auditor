@@ -115,7 +115,7 @@ router.get("/stats", adminAuthenticate, getStats); // out of it
 ```
 
 <Note>
-Route middleware is extracted for TypeScript today. Where a language supplies
+Route middleware is extracted for every supported language. Where a project supplies
 none, the run fails and says so instead of quietly excluding every route. Use
 `exclude-paths` there instead.
 </Note>
@@ -273,7 +273,7 @@ integrated, so the brief asks the agent to decide explicitly and say why.
 | `source-dir` | `.` | Directory containing the API source. |
 | `language` | `auto` | `go`, `typescript`, or detect. |
 | `strip-prefix` | n/a | Prefix to strip so routes match spec paths. |
-| `contract-middleware` | n/a | Only audit routes guarded by these middleware, one name per line. TypeScript today. Also enables the two guard rules. |
+| `contract-middleware` | n/a | Only audit routes guarded by these middleware, one name per line. Also enables the two guard rules. |
 | `exclude-paths` | n/a | Globs to leave out of the audit, one per line. Matched after `strip-prefix` is removed. |
 | `api-key` | n/a | Omit for deterministic-only: no cost, no secret. |
 | `base-url` | OpenRouter | Any OpenAI-compatible endpoint. |

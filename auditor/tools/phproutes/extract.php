@@ -116,34 +116,383 @@ function normalisePath(string $path, string $strip): string
  * so the prefix in force depends on how many group closures are open. Brace
  * depth is tracked and the prefix stack popped as each closes.
  */
-function collectRoutes(array $tokens, string $rel, string $strip): array
+/**
+ * The prefix Laravel itself puts in front of a route file's paths.
+ *
+ * Nothing in routes/api.php says /api. The framework adds it when it loads the
+ * file, and where that is declared depends on the generation: Laravel 11 and
+ * later in bootstrap/app.php via withRouting(api: ...), everything before it in
+ * app/Providers/RouteServiceProvider.php via ->prefix('api'). Both were
+ * measured on real projects; one of each is in the test set.
+ *
+ * The declaration is what proves it, not the file name. A routes/api.php with
+ * no Laravel bootstrap above it is not a Laravel application and gets nothing,
+ * which is also what keeps this from rewriting a fixture that only borrows the
+ * layout. And because the prefix is configurable, it is read rather than
+ * assumed wherever the declaration names one.
+ */
+function laravelApiPrefix(string $absolute): string
+{
+    static $cache = [];
+
+    $dir = dirname($absolute);
+    for ($up = 0; $up < 8; $up++) {
+        if (is_file($dir . '/artisan') || is_file($dir . '/composer.json')) {
+            break;
+        }
+        $parent = dirname($dir);
+        if ($parent === $dir) {
+            return '';
+        }
+        $dir = $parent;
+    }
+    if (!is_file($dir . '/artisan') && !is_file($dir . '/composer.json')) {
+        return '';
+    }
+    if (array_key_exists($dir, $cache)) {
+        return $cache[$dir];
+    }
+
+    $prefix = '';
+    $bootstrap = @file_get_contents($dir . '/bootstrap/app.php');
+    if ($bootstrap !== false) {
+        if (preg_match('/apiPrefix\s*:\s*[\'"]([^\'"]+)/', $bootstrap, $m)) {
+            $prefix = '/' . trim($m[1], '/');
+        } elseif (preg_match('/\bapi\s*:\s*(__DIR__|base_path|\[)/', $bootstrap)) {
+            $prefix = '/api';
+        }
+    }
+    if ($prefix === '') {
+        $provider = @file_get_contents($dir . '/app/Providers/RouteServiceProvider.php');
+        if ($provider !== false && preg_match('/->prefix\(\s*[\'"]([^\'"]+)/', $provider, $m)) {
+            $prefix = '/' . trim($m[1], '/');
+        }
+    }
+
+    $cache[$dir] = $prefix;
+    return $prefix;
+}
+
+/**
+ * Whether this file is one Laravel loads as its API routes: routes/api.php, or
+ * the files a large project splits it into under routes/api/ and require()s
+ * from there.
+ */
+function implicitPrefix(string $absolute): string
+{
+    $normalised = str_replace('\\', '/', $absolute);
+    if (!preg_match('#(^|/)routes/api(\.php$|/)#', $normalised)) {
+        return '';
+    }
+    return laravelApiPrefix($absolute);
+}
+
+/**
+ * The prefix inside `Route::group(['prefix' => 'v1', ...], ...)`.
+ *
+ * Reads only the array literal that opens the group's argument list, and stops
+ * at its matching bracket, so a 'prefix' key belonging to something nested
+ * cannot be mistaken for this group's own.
+ */
+/**
+ * The guards named by a middleware(...) call starting at $i.
+ *
+ * Accepts both spellings Laravel takes: middleware('auth:sanctum') and
+ * middleware(['auth:sanctum', 'throttle:api']). A guard written as
+ * 'auth:sanctum' keeps only the part before the colon, because the argument
+ * after it is a parameter to the guard rather than a different guard.
+ */
+/**
+ * Laravel's alias map: the short names a route uses, and the classes behind them.
+ *
+ * A Laravel route never names its guard in code. It writes 'auth:sanctum' or
+ * 'api.ability', and the class that actually reads the credential is bound to
+ * that string somewhere else - $middlewareAliases in app/Http/Kernel.php before
+ * Laravel 11, $middleware->alias([...]) in bootstrap/app.php since. Left
+ * unresolved there is nothing for the auditor to look up, so a Laravel project
+ * could never have its contract guard identified, however plainly the code
+ * reads the header.
+ */
+function laravelAliases(string $absolute): array
+{
+    static $cache = [];
+
+    $dir = dirname($absolute);
+    for ($up = 0; $up < 8; $up++) {
+        if (is_file($dir . '/artisan') || is_file($dir . '/composer.json')) {
+            break;
+        }
+        $parent = dirname($dir);
+        if ($parent === $dir) {
+            return [];
+        }
+        $dir = $parent;
+    }
+    if (array_key_exists($dir, $cache)) {
+        return $cache[$dir];
+    }
+
+    $aliases = [];
+    foreach (['/app/Http/Kernel.php', '/bootstrap/app.php'] as $candidate) {
+        $source = @file_get_contents($dir . $candidate);
+        if ($source === false) {
+            continue;
+        }
+        if (preg_match_all('/[\'"]([A-Za-z0-9_.\-]+)[\'"]\s*=>\s*([A-Za-z0-9_\\\\]+)::class/', $source, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $class = $match[2];
+                $short = substr($class, strrpos($class, '\\') === false ? 0 : strrpos($class, '\\') + 1);
+                $aliases[$match[1]] = $short;
+            }
+        }
+    }
+
+    $cache[$dir] = $aliases;
+    return $aliases;
+}
+
+function middlewareNamesAt(array $tokens, int $i): array
+{
+    if (($tokens[$i + 1]['text'] ?? '') !== '(') {
+        return [];
+    }
+    $out = [];
+    $depth = 0;
+    for ($j = $i + 1, $count = count($tokens); $j < $count; $j++) {
+        $text = $tokens[$j]['text'];
+        if ($text === '(' || $text === '[') {
+            $depth++;
+            continue;
+        }
+        if ($text === ')' || $text === ']') {
+            $depth--;
+            if ($depth <= 0) {
+                break;
+            }
+            continue;
+        }
+        $literal = stringValue($tokens[$j]);
+        if ($literal !== null && $literal !== '') {
+            $out[] = explode(':', $literal)[0];
+        }
+    }
+    return $out;
+}
+
+/**
+ * The guards inside `Route::group(['middleware' => [...], ...], ...)`.
+ */
+/**
+ * The guards a route attaches after the fact:
+ *
+ *   Route::get('/x', [C::class, 'm'])->middleware('auth:sanctum');
+ *
+ * Laravel chains these behind the registration, so they are not visible when
+ * the route is emitted and have to be read forward to the end of the statement.
+ * Stopping at the semicolon matters: without it a guard belonging to the next
+ * route, or to a group opened below, would be attributed to this one.
+ */
+/**
+ * Alias names replaced by the class behind them, so the auditor has something
+ * it can find in the source. An alias with no binding keeps its own name: it is
+ * still what the route says, and saying nothing would be worse.
+ */
+function resolveAliases(array $names, string $absolute): array
+{
+    $aliases = laravelAliases($absolute);
+    $out = [];
+    foreach (array_unique($names) as $name) {
+        $out[] = $aliases[$name] ?? $name;
+    }
+    return array_values(array_unique($out));
+}
+
+function trailingMiddleware(array $tokens, int $i): array
+{
+    $out = [];
+    $depth = 0;
+    for ($j = $i + 1, $count = count($tokens); $j < $count; $j++) {
+        $text = $tokens[$j]['text'];
+        if ($text === '(' || $text === '[') { $depth++; continue; }
+        if ($text === ')' || $text === ']') { $depth--; continue; }
+        if ($text === ';' && $depth <= 0) { break; }
+        if ($depth === 0 && $tokens[$j]['type'] === T_STRING
+            && strtolower($tokens[$j]['text']) === 'middleware') {
+            $out = array_merge($out, middlewareNamesAt($tokens, $j));
+        }
+    }
+    return $out;
+}
+
+function groupArrayMiddleware(array $tokens, int $i): array
+{
+    if (($tokens[$i + 1]['text'] ?? '') !== '(' || ($tokens[$i + 2]['text'] ?? '') !== '[') {
+        return [];
+    }
+    $depth = 0;
+    for ($j = $i + 2, $count = count($tokens); $j < $count; $j++) {
+        $text = $tokens[$j]['text'];
+        if ($text === '[') { $depth++; continue; }
+        if ($text === ']') { $depth--; if ($depth === 0) { return []; } continue; }
+        if ($depth !== 1) { continue; }
+        if (stringValue($tokens[$j]) === 'middleware' && ($tokens[$j + 1]['text'] ?? '') === '=>') {
+            return middlewareNamesAt($tokens, $j + 1);
+        }
+    }
+    return [];
+}
+
+function groupArrayPrefix(array $tokens, int $i): ?string
+{
+    if (($tokens[$i + 1]['text'] ?? '') !== '(' || ($tokens[$i + 2]['text'] ?? '') !== '[') {
+        return null;
+    }
+    $depth = 0;
+    for ($j = $i + 2, $count = count($tokens); $j < $count; $j++) {
+        $text = $tokens[$j]['text'];
+        if ($text === '[') {
+            $depth++;
+            continue;
+        }
+        if ($text === ']') {
+            $depth--;
+            if ($depth === 0) {
+                return null;
+            }
+            continue;
+        }
+        if ($depth !== 1) {
+            continue;
+        }
+        if (stringValue($tokens[$j]) === 'prefix' && ($tokens[$j + 1]['text'] ?? '') === '=>') {
+            $literal = stringValue($tokens[$j + 2] ?? ['type' => 0, 'text' => '']);
+            if ($literal !== null) {
+                return '/' . trim($literal, '/');
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * The file a require/include pulls in, resolved to a real path.
+ *
+ * A large Laravel project splits routes/api.php with
+ * `require __DIR__.'/api/v1/routes.php'` inside a group, and every prefix and
+ * guard that group opened applies to what comes back. Read as a separate file
+ * it inherits none of them: speedtest-tracker's v1 routes lost both the /api
+ * prefix and the auth:sanctum the group applied.
+ */
+function requireTarget(array $tokens, int $i, string $absolute, string $root): ?string
+{
+    for ($j = $i + 1, $count = count($tokens); $j < $count; $j++) {
+        if ($tokens[$j]['text'] === ';') {
+            break;
+        }
+        $literal = stringValue($tokens[$j]);
+        if ($literal === null || !str_ends_with($literal, '.php')) {
+            continue;
+        }
+        foreach ([dirname($absolute) . '/' . ltrim($literal, '/'),
+                  $root . '/' . ltrim($literal, '/')] as $candidate) {
+            $real = realpath($candidate);
+            if ($real !== false) {
+                return $real;
+            }
+        }
+    }
+    return null;
+}
+
+/** Every file this one requires, for the pre-pass that decides which files are
+ *  roots and which are pulled in by another. */
+function requireTargets(array $tokens, string $absolute, string $root): array
+{
+    $out = [];
+    foreach ($tokens as $i => $token) {
+        if (in_array($token['type'], [T_REQUIRE, T_REQUIRE_ONCE, T_INCLUDE, T_INCLUDE_ONCE], true)) {
+            $target = requireTarget($tokens, $i, $absolute, $root);
+            if ($target !== null) {
+                $out[] = $target;
+            }
+        }
+    }
+    return $out;
+}
+
+function collectRoutes(array $tokens, string $rel, string $strip, string $absolute = '', string $root = '', array $prefixStack = [], int $depth = 0): array
 {
     $routes = [];
-    $prefixStack = [];        // ['prefix' => string, 'depth' => int]
-    $depth = 0;
+    // The absolute path, because the implicit prefix is decided by the file's
+    // place in the project and --dir may already point inside routes/.
+    $implicit = implicitPrefix($absolute !== '' ? $absolute : $rel);
+    // The stack the requiring file was holding when it pulled this one in, so a
+    // group's prefix and guards carry across the file boundary. Empty for a
+    // file nothing requires.
+    $inheritedStack = $prefixStack;   // ['prefix', 'middleware', 'depth']
+    $braceDepth = 0;
     $pendingPrefix = '';
+    $pendingMiddleware = [];
     $count = count($tokens);
 
     for ($i = 0; $i < $count; $i++) {
         $token = $tokens[$i];
 
         if ($token['text'] === '{') {
-            $depth++;
+            $braceDepth++;
             continue;
         }
         if ($token['text'] === '}') {
-            $depth--;
-            while ($prefixStack && end($prefixStack)['depth'] > $depth) {
+            $braceDepth--;
+            // >= rather than >: a group is recorded at the depth of the
+            // `group(` token, which is outside the closure brace it opens, so
+            // its entry sits at the depth the closing brace returns to. With >
+            // the entry survived its own closure and every later sibling group
+            // inherited it, which compounded: two top-level groups both
+            // prefixed v1 produced /v1/v1. Harmless while array-form prefixes
+            // were being missed entirely, and wrong the moment they were read.
+            while (count($prefixStack) > count($inheritedStack)
+                   && end($prefixStack)['depth'] >= $braceDepth) {
                 array_pop($prefixStack);
             }
             continue;
         }
 
-        if ($token['type'] !== T_STRING) {
+        // A required file is parsed here and now, carrying the prefix and the
+        // guards of the group the require sits inside.
+        if (in_array($token['type'], [T_REQUIRE, T_REQUIRE_ONCE, T_INCLUDE, T_INCLUDE_ONCE], true)) {
+            $target = $depth < 4 ? requireTarget($tokens, $i, $absolute, $root) : null;
+            $source = $target === null ? false : @file_get_contents($target);
+            if ($source !== false) {
+                $targetRel = $root !== '' && str_starts_with($target, $root . '/')
+                    ? substr($target, strlen($root) + 1) : basename($target);
+                foreach (collectRoutes(significantTokens($source), $targetRel, $strip,
+                                       $target, $root, $prefixStack, $depth + 1) as $inner) {
+                    $routes[] = $inner;
+                }
+            }
+            continue;
+        }
+
+        // T_MATCH as well as T_STRING: PHP 8 made `match` a reserved keyword,
+        // so Route::match() does not tokenise as an ordinary method name and
+        // was skipped before it could be recognised at all.
+        if ($token['type'] !== T_STRING && $token['type'] !== T_MATCH) {
             continue;
         }
 
         $name = strtolower($token['text']);
+
+        // Route::middleware('auth')->group(...) and ->middleware('auth') on a
+        // single route. Which of the two it is depends on what follows, so both
+        // are collected here and the group handler below claims them if a group
+        // opens; otherwise the next route registration takes them.
+        if ($name === 'middleware' && isset($tokens[$i + 1]) && $tokens[$i + 1]['text'] === '(') {
+            foreach (middlewareNamesAt($tokens, $i) as $guard) {
+                $pendingMiddleware[] = $guard;
+            }
+            continue;
+        }
 
         // Route::prefix('v1') and ->prefix('v1'), whether chained or not.
         if ($name === 'prefix' && isset($tokens[$i + 1]) && $tokens[$i + 1]['text'] === '(') {
@@ -155,22 +504,75 @@ function collectRoutes(array $tokens, string $rel, string $strip): array
         }
 
         // group(...) opens a scope that owns whatever prefix was pending.
+        //
+        // Laravel spells a group's prefix two ways and both are current:
+        // Route::prefix('v1')->group(...), handled above, and the array form
+        // Route::group(['prefix' => 'v1'], ...). Reading only the chained one
+        // dropped the version segment from every route in a project using the
+        // other, which is most large Laravel codebases.
         if ($name === 'group') {
+            if ($pendingPrefix === '') {
+                $fromArray = groupArrayPrefix($tokens, $i);
+                if ($fromArray !== null) {
+                    $pendingPrefix = $fromArray;
+                }
+            }
+            foreach (groupArrayMiddleware($tokens, $i) as $guard) {
+                $pendingMiddleware[] = $guard;
+            }
             $inherited = $prefixStack ? end($prefixStack)['prefix'] : '';
-            $prefixStack[] = ['prefix' => $inherited . $pendingPrefix, 'depth' => $depth];
+            $inheritedMw = $prefixStack ? end($prefixStack)['middleware'] : [];
+            $prefixStack[] = [
+                'prefix' => $inherited . $pendingPrefix,
+                'middleware' => array_values(array_unique(array_merge($inheritedMw, $pendingMiddleware))),
+                'depth' => $braceDepth,
+            ];
             $pendingPrefix = '';
+            $pendingMiddleware = [];
             continue;
         }
 
-        if (in_array($name, HTTP_METHODS, true) && isset($tokens[$i + 1]) && $tokens[$i + 1]['text'] === '(') {
-            $literal = stringValue($tokens[$i + 2] ?? ['type' => 0, 'text' => '']);
+        // Route::match(['get', 'post'], '/path', $action) puts the verbs in an
+        // array and the path second, so neither is where the single-verb form
+        // looks for them. The route then reads as never registered, and the
+        // operations documenting it as never implemented - two findings on one
+        // real project, both false.
+        $matchVerbs = null;
+        if ($name === 'match' && ($tokens[$i + 1]['text'] ?? '') === '('
+            && ($tokens[$i + 2]['text'] ?? '') === '[') {
+            $matchVerbs = [];
+            $j = $i + 3;
+            for ($count2 = count($tokens); $j < $count2; $j++) {
+                if ($tokens[$j]['text'] === ']') {
+                    break;
+                }
+                $verb = stringValue($tokens[$j]);
+                if ($verb !== null && in_array(strtolower($verb), HTTP_METHODS, true)) {
+                    $matchVerbs[] = strtolower($verb);
+                }
+            }
+            // The path follows the closing bracket and the comma after it.
+            $pathAt = $j + 2;
+        }
+
+        if (($matchVerbs !== null || in_array($name, HTTP_METHODS, true))
+            && isset($tokens[$i + 1]) && $tokens[$i + 1]['text'] === '(') {
+            $pathAt = $matchVerbs !== null ? $pathAt : $i + 2;
+            $literal = stringValue($tokens[$pathAt] ?? ['type' => 0, 'text' => '']);
             if ($literal === null) {
                 continue;
             }
             $prefix = $prefixStack ? end($prefixStack)['prefix'] : '';
+            $groupMiddleware = $prefixStack ? end($prefixStack)['middleware'] : [];
+            // From the method token, not the path: the scan counts brackets from
+            // the opening paren, and starting inside it makes every depth wrong.
+            $routeMiddleware = trailingMiddleware($tokens, $i);
+            // A route's own guards belong to it and to nothing after it. Left
+            // pending, they would be inherited by the next group that opened.
+            $pendingMiddleware = [];
             $handler = '';
             // [UserController::class, 'index'] or 'UserController@index'
-            for ($j = $i + 3; $j < min($i + 14, $count); $j++) {
+            for ($j = $pathAt + 1; $j < min($pathAt + 12, $count); $j++) {
                 $candidate = stringValue($tokens[$j]);
                 if ($candidate !== null && $candidate !== $literal) {
                     $handler = str_contains($candidate, '@')
@@ -179,15 +581,20 @@ function collectRoutes(array $tokens, string $rel, string $strip): array
                     break;
                 }
             }
+            foreach ($matchVerbs ?? [$name] as $verb) {
             $routes[] = [
-                'method' => strtoupper($name === 'any' ? 'GET' : $name),
-                'path' => normalisePath($prefix . '/' . ltrim($literal, '/'), $strip),
+                'method' => strtoupper($verb === 'any' ? 'GET' : $verb),
+                'path' => normalisePath($implicit . $prefix . '/' . ltrim($literal, '/'), $strip),
+                'middleware' => resolveAliases(
+                    array_merge($groupMiddleware, $routeMiddleware),
+                    $absolute !== '' ? $absolute : $rel),
                 'handler' => $handler,
                 'file' => $rel,
                 'line' => $token['line'],
                 'style' => 'laravel',
                 'annotation' => null,
             ];
+            }
         }
     }
     return $routes;
@@ -327,6 +734,20 @@ function returnedStatuses(array $tokens, array $bodies, string $name): array
 
 $routes = [];
 $seen = [];
+// Which route files another file pulls in. Those are not roots: parsing one on
+// its own would collect its routes a second time, at the bare path it has
+// before the requiring group's prefix is applied.
+$pulledIn = [];
+foreach (sourceFiles($root) as $path) {
+    $source = @file_get_contents($path);
+    if ($source === false) {
+        continue;
+    }
+    foreach (requireTargets(significantTokens($source), $path, $root) as $target) {
+        $pulledIn[$target] = true;
+    }
+}
+
 $handlers = [];
 $handlersByLocation = [];
 foreach (sourceFiles($root) as $path) {
@@ -363,7 +784,11 @@ foreach (sourceFiles($root) as $path) {
     if (!str_contains($source, 'Route::')) {
         continue;
     }
-    foreach (collectRoutes($tokens, $rel, $strip) as $route) {
+    $real = realpath($path);
+    if ($real !== false && isset($pulledIn[$real])) {
+        continue;   // collected through the file that requires it
+    }
+    foreach (collectRoutes($tokens, $rel, $strip, $path, $root) as $route) {
         $key = $route['method'] . ' ' . $route['path'];
         if (isset($seen[$key])) {
             continue;
