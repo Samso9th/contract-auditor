@@ -1,9 +1,100 @@
 ---
 title: "Quickstart"
-description: "Clone to scored run. The first four steps cost nothing."
+description: "One command sets it up. Nothing to configure by hand."
 ---
 
-## Requirements
+## 1. Generate the workflow
+
+**Requires:** Docker, and nothing else.
+
+Run this inside the repository you want audited:
+
+```bash
+docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
+  ghcr.io/samso9th/contract-auditor:v1 init
+```
+
+It reads the repository and writes `.github/workflows/contract-audit.yml`.
+Commit that file and you are done.
+
+Nothing is guessed. Each value is derived, and the derivation is written into
+the file beside it as a comment, so the result is reviewable rather than magic:
+
+| Input | Derived from |
+|---|---|
+| `language` | the marker file that decided it |
+| `spec` | the candidate document describing the most operations |
+| `source-dir` | the candidate directory that yielded the most routes |
+| `strip-prefix` | the path component of the spec's own `servers[].url` |
+| `contract-middleware` | the spec names the credential integrators were promised, in `components.securitySchemes`. The middleware whose source reads that header is the guard that defines the contract |
+| trigger branches | `git ls-remote`, falling back to the local refs |
+
+That last-but-one row is the one that saves you reading an unfamiliar codebase.
+Most projects register two APIs in one place — the one integrators hold a key
+for, and the one a dashboard talks to with a session token — and they are told
+apart by which guard they sit behind, not by their paths.
+
+<Note>
+`init` refuses to overwrite a workflow that already exists. Pass `--force` to
+replace it, `--stdout` to print it instead, or `--json` to see what was detected
+without writing anything.
+</Note>
+
+### Without Docker
+
+Coming soon. Whoever has the codebase checked out already has one of these
+installed, which makes it the shortest path there is:
+
+| Runtime | Planned |
+|---|---|
+| Node | `npx contract-auditor init` |
+| Python | `pipx run contract-auditor init` |
+| PHP | `composer exec contract-auditor init` |
+| Go | `go run github.com/samso9th/contract-auditor@latest init` |
+| Rust | `cargo run contract-auditor init` |
+
+Until then the image above needs nothing but Docker.
+
+## 2. What runs on GitHub
+
+Once the workflow is committed, every pull request into one of your shared
+branches is audited, and so is the merged result on those branches — one pull
+request can add a route while another edits the spec, and each is audited
+against its own merge preview rather than against what they both land on.
+
+Each run leaves:
+
+- **A comment on the pull request**, updated in place rather than repeated, with
+  counts by severity and by what disagrees. Endpoint paths are deliberately not
+  listed: a registered but undocumented route is usually undocumented on
+  purpose, and enumerating them publishes an inventory to everyone who can see
+  the pull request.
+- **A fix brief**, uploaded as an artifact and linked from that comment. It has
+  every finding, the evidence, and the test that proved it, written to be pasted
+  straight into Cursor, Codex or Claude Code.
+
+Every input the action takes is already in the generated file, pointing at
+secrets that may not exist yet. Each is skipped silently when its secret is
+unset, so the workflow runs exactly as generated. Adding a secret under
+**Settings → Secrets and variables → Actions** turns a feature on without
+editing any YAML:
+
+| Secret | Turns on |
+|---|---|
+| `OPENROUTER_API_KEY` | the judgment pass, for drift that needs reading comprehension rather than lookup |
+| `CONTRACT_AUDIT_SLACK_WEBHOOK_URL` | Slack notifications, counts only |
+| `CONTRACT_AUDIT_TELEGRAM_BOT_TOKEN`, `..._CHAT_ID` | Telegram notifications |
+| `CONTRACT_AUDIT_WEBHOOK_URL`, `..._SECRET` | the full JSON report POSTed to a sink of your own |
+| `CONTRACT_AUDIT_MEMORY_*` | self-improvement, so later runs know which complaints have been refuted |
+
+The only edits that file should ever need are deletions.
+
+[Full input reference and troubleshooting →](/github-actions)
+
+## 3. Running it locally
+
+Only needed to work on the auditor itself, or to audit a repository without
+putting anything in CI.
 
 | Tool | Version | Needed for |
 |---|---|---|
@@ -13,7 +104,25 @@ description: "Clone to scored run. The first four steps cost nothing."
 
 No `pip install`, no Docker, no database.
 
-## Run it
+```bash
+git clone https://github.com/Samso9th/contract-auditor
+cd contract-auditor
+```
+
+### Audit a repository directly
+
+```bash
+python3 auditor/init.py --repo /path/to/api --json   # what it detects
+python3 auditor/run.py \
+  --repo /path/to/api \
+  --spec /path/to/openapi.json \
+  --out reports/runs/my-api
+```
+
+Real repositories have no ground truth, so this produces a ranked report rather
+than a score.
+
+### Reproduce the evaluation
 
 <Steps>
   <Step title="Build the 16 evaluation cases">
@@ -50,22 +159,4 @@ No `pip install`, no Docker, no database.
   </Step>
 </Steps>
 
-## Audit a real repository
-
-```bash
-python3 auditor/run.py \
-  --repo /path/to/go/api \
-  --spec /path/to/openapi.json \
-  --out reports/runs/my-api
-
-python3 auditor/notify.py --run reports/runs/my-api --min-severity high
-```
-
-Real repositories have no ground truth, so this produces a ranked report rather
-than a score.
-
-## Reset
-
-```bash
-make clean
-```
+Reset with `make clean`.
