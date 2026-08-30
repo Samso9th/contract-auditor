@@ -28,6 +28,7 @@ the generated file as a comment, so the output is reviewable rather than magic:
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import pathlib
 import re
@@ -581,9 +582,25 @@ def main():
         if not path.is_absolute():
             path = pathlib.Path(args.repo).resolve() / path
         if path.exists() and not args.force:
-            raise SystemExit(
-                f"{path} already exists. Read it, then pass --force to replace it, "
-                f"or --stdout to print the generated one and merge by hand.")
+            # A diff, not an instruction to go and read two files. The question
+            # anyone has here is what would change, and printing the whole
+            # generated workflow to answer it makes them do the comparing.
+            current = path.read_text()
+            if current == workflow:
+                print(f"{path} is already exactly what init would write.",
+                      file=sys.stderr)
+                return
+            sys.stdout.writelines(difflib.unified_diff(
+                current.splitlines(keepends=True),
+                workflow.splitlines(keepends=True),
+                fromfile=f"{args.out} (yours)", tofile=f"{args.out} (init)", n=2))
+            # stderr is unbuffered and stdout is not, so without this the
+            # summary prints above the diff it is summarising.
+            sys.stdout.flush()
+            print(f"\n{path} was left alone. --force replaces it, --out PATH "
+                  f"writes elsewhere, --stdout prints without comparing.",
+                  file=sys.stderr)
+            raise SystemExit(1)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(workflow)
         print(f"wrote {path}", file=sys.stderr)
