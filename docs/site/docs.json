@@ -31,6 +31,7 @@
       {
         "group": "Reference",
         "pages": [
+          "secrets",
           "notifications",
           "cli"
         ]
