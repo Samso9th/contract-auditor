@@ -134,8 +134,8 @@ years. The other is a dashboard or admin console, opened with a session token
 that expires in an hour. They sit in the same files and are separated only by
 which piece of middleware guards them.
 
-The moment one guard accepts both credentials — a function that takes an API key
-**or** a session token, which is an ordinary thing to write — every endpoint
+The moment one guard accepts both credentials (a function that takes an API key
+**or** a session token, which is an ordinary thing to write), every endpoint
 behind it accepts both. A key issued to move money also reaches account
 management. Nobody chose that, and because it was never written down, nothing
 contradicts it.

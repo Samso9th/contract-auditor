@@ -35,8 +35,8 @@ a dashboard or admin console, reached with a session token that expires. They
 live in the same router files, and are told apart only by which middleware they
 sit behind.
 
-Once one guard accepts both credentials — an `authenticate` that takes
-`x-api-key` **or** a bearer token, which is a very ordinary thing to write —
+Once one guard accepts both credentials (an `authenticate` that takes
+`x-api-key` **or** a bearer token, which is a very ordinary thing to write),
 every route behind it is reachable with either. A machine key scoped for
 payments now also reaches account management, and nobody decided that. It was
 never written down, so nothing contradicts it.
@@ -47,7 +47,7 @@ The auditor makes that surface visible two ways:
   reads the credential your spec promises integrators. What comes back is,
   precisely, the set of endpoints your API key can reach. Anything in that list
   you believed was dashboard-only is an architectural finding, and it is the
-  reason this section exists — it is how the payments API above discovered its
+  reason this section exists. That is how the payments API above discovered its
   own session endpoints answered to a merchant key.
 - **`auth_guard_missing` and `auth_guard_undocumented`** compare each route's
   guard against the security its spec declares, in both directions. Documented
