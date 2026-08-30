@@ -18,8 +18,8 @@ description: "A claim is confirmed only if the test asserting the spec fails."
     gets rejected by validation before the response shape is reached.
   </Step>
   <Step title="Generate a Go test asserting the documented behaviour">
-    Not the observed behaviour. The test encodes the promise, then runs it
-    against the real handler through `httptest`.
+    The test encodes what the spec promises, not what the code currently does,
+    then runs against the real handler through `httptest`.
   </Step>
   <Step title="Run it">
     Failure means code and contract disagree.
@@ -35,7 +35,8 @@ description: "A claim is confirmed only if the test asserting the spec fails."
 | `unsupported` | claim kind is not executable | No |
 | `error` | the test did not build or run | No |
 
-An unsupported claim is reported as unverifiable rather than waved through.
+A claim the gate cannot execute is marked unverifiable. It is never let
+through as though it had passed.
 
 ## Executable claim kinds
 
@@ -48,6 +49,6 @@ An unsupported claim is reported as unverifiable rather than waved through.
 python3 auditor/verify.py eval/cases/D01
 ```
 
-No model is involved. A claim from a rule, an agent or a human is judged
-identically, which is what lets the same gate score the baseline and the agent
-without favouring either.
+No model is involved. A claim is judged the same way whether a rule, an agent or
+a person raised it, so the same gate can score the baseline and the agent without
+favouring either.

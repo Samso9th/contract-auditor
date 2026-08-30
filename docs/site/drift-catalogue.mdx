@@ -24,7 +24,42 @@ construction.
 | D11 | medium | Validation loosened below the documented constraint |
 | D12 | medium | New 429 response undocumented |
 
-## The three that hurt
+## Authentication, checked at the guard
+
+D08 is caught by reading the handler: an endpoint the spec calls public whose
+code reads a credential. That direction is unambiguous, but it only answers half
+the question. Authentication is usually applied by middleware instead of inside
+the handler, so a handler that reads no header tells you nothing about whether
+the endpoint is protected.
+
+Where a language's extractor records route middleware, both directions are
+checked against the guard instead:
+
+| Kind | Severity | What it means |
+|---|---|---|
+| `auth_guard_missing` | **critical** | The spec declares a security scheme for the operation, and the route carries no middleware that reads any credential the spec names. Documented as protected, registered open |
+| `auth_guard_undocumented` | high | The route is guarded, and the spec documents the operation as needing no authentication. An integrator following the spec is answered 401 |
+
+The pattern that motivates the first one is ordering. `router.use(mw)` guards
+only the routes registered **after** it, so a route sitting above that line is
+open however protected the rest of the file looks:
+
+```ts
+router.post("/hooks/incoming", handleHook);   // open
+router.use(authenticate);
+router.get("/logs", listLogs);                // guarded
+```
+
+Both rules are reported per file, and only for files that guard something. A
+project that applies authentication once at the application level registers no
+route middleware at all, so calling every one of its routes unguarded would fill
+a page with false alarms.
+
+What makes something a guard is what it reads, not what it is called. The spec's
+`components.securitySchemes` names the credential, and any middleware whose
+source reads that header counts as an authentication guard, whatever its name.
+
+## The three worst ones
 
 <CardGroup cols={3}>
   <Card title="D05 Money precision" icon="coins">
@@ -46,9 +81,9 @@ construction.
 
 ## The 4 decoys
 
-A local rename, an added comment, an extracted helper, a reordered field. Code
-changes that do not change the contract. A finding on any of them is a false
-positive.
+A local rename, an added comment, an extracted helper, a reordered field. These
+are code changes that leave the contract alone, so a finding on any of them is a
+false positive.
 
 Without decoys, an auditor that reports everything scores perfectly.
 

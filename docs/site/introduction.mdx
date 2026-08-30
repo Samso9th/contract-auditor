@@ -10,17 +10,19 @@ Each finding ships with a Go test that fails against the current code. If the
 test passes, the finding was wrong and gets dropped.
 
 <Card title="Nothing reaches the report unverified" icon="shield-check" horizontal>
-  That one constraint is the whole design. See [The verification
+  Everything else in the design follows from that. See [The verification
   gate](/verification-gate).
 </Card>
 
 ## The problem
 
-Three descriptions of the same API, edited by different people at different
-times: the handler code, the generated spec, and the prose partners read.
+An API ends up with three descriptions of itself: the handler code, the
+generated spec, and the prose your partners read. Different people edit each one,
+at different times.
 
-Code review asks whether the code is correct, never whether it still matches what
-was promised. Drift surfaces at integration time, in someone else's codebase.
+Code review asks whether the code is correct. It does not ask whether the code
+still matches what was promised, so the difference tends to show up at
+integration time, in someone else's codebase.
 
 ## Measured on a real payments API
 
@@ -41,7 +43,7 @@ was promised. Drift surfaces at integration time, in someone else's codebase.
 
 <CardGroup cols={2}>
   <Card title="Teams publishing an API" icon="server">
-    Run it in CI. Drift is caught at the commit that caused it.
+    Run it in CI, and drift gets caught at the commit that caused it.
   </Card>
   <Card title="Fintech and payments" icon="credit-card">
     Knows about money precision, auth scope, idempotency, webhook signing.
@@ -50,7 +52,7 @@ was promised. Drift surfaces at integration time, in someone else's codebase.
     Check the docs you were handed before you build on them.
   </Card>
   <Card title="Platform and DevEx" icon="gauge">
-    A number for doc drift instead of a hunch.
+    A number for doc drift, instead of a hunch.
   </Card>
 </CardGroup>
 

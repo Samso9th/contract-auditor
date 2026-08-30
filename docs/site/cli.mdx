@@ -46,9 +46,9 @@ python3 auditor/run.py --repo /path/to/go/api --spec /path/to/openapi.json \
   --docs /path/to/docs --out reports/runs/my-api
 ```
 
-Leave routes that were never part of the contract out of it. Patterns are
-matched against the path as the spec writes it, so after `--strip-prefix` has
-been removed, and `*` crosses slashes:
+Leave out routes that were never part of the contract. Patterns are matched
+against the path as the spec writes it, so after `--strip-prefix` has been
+removed, and `*` crosses slashes:
 
 ```bash
 python3 auditor/run.py --repo /path/to/api --spec openapi.json \
@@ -93,9 +93,9 @@ Any model your endpoint serves works: the client sends whatever id it is given,
 and nothing in the auditor is tied to one vendor. `--model` sets it per run,
 `AUDITOR_MODEL` in `.env` sets it once.
 
-`--reasoning` asks the provider for more deliberation before answering. It costs
-output tokens and wall-clock on every endpoint, so it is off unless asked for,
-and the published [results](/results) were measured without it.
+`--reasoning` asks the provider to think for longer before answering. It costs
+output tokens and wall-clock time on every endpoint, so it is off unless you ask
+for it, and the published [results](/results) were measured without it.
 
 ```bash
 python3 auditor/llm.py --models                    # what is configured, and prices
@@ -126,8 +126,8 @@ models or reasoning levels are not comparable.
 
 ## Learned memory
 
-Off unless you point it at storage you own. Nothing is stored in your repository
-or inside the action's image, and no history ships with the tool.
+Off unless you point it at storage you own. Nothing is kept in your repository or
+inside the action's image, and no history ships with the tool.
 
 ```bash
 export AUDITOR_MEMORY_URL=s3://my-bucket/contract-auditor
@@ -146,8 +146,8 @@ python3 auditor/memory/store.py --check     # write a probe, read it back
 
 Every run appends each claim and its gate verdict, refuted claims included. Later
 runs read it back: similar past refutations go into the prompt, and per-kind
-survival rates order the report. Memory never suppresses a claim. The gate
-still decides.
+survival rates decide the order of the report. Memory never suppresses a claim;
+the gate still decides.
 
 ```bash
 python3 auditor/memory/ledger.py --verdict refuted     # the labelled false positives

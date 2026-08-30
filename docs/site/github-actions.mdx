@@ -88,9 +88,9 @@ If a first run reports that **every** route is missing from the spec,
 
 Most codebases register two APIs in one place: the one integrators hold an API
 key for, and the one a dashboard or admin console talks to with a session token.
-Only the first was ever promised to anyone, and they are not told apart by their
-paths - which is why a list of path globs goes stale the week after it is
-written. They are told apart by which guard they sit behind.
+Only the first was ever promised to anyone. Their paths do not separate them,
+which is why a list of path globs goes stale the week after it is written. What
+separates them is which guard they sit behind.
 
 ```yaml
       - uses: samso9th/contract-auditor@v1
@@ -101,10 +101,10 @@ written. They are told apart by which guard they sit behind.
           contract-middleware: authenticate
 ```
 
-Only routes registered with that middleware are audited, on both sides: an
-operation the spec documents and a non-contract guard protects does not then
-read as missing from the code. A route added next week lands on the right side
-without anyone editing a list.
+Only routes registered with that middleware are audited, on both sides. An
+operation that the spec documents and a non-contract guard protects will not then
+read as missing from the code, and a route added next week lands on the right
+side without anyone editing a list.
 
 Both registration styles are read:
 
@@ -116,15 +116,15 @@ router.get("/stats", adminAuthenticate, getStats); // out of it
 
 <Note>
 Route middleware is extracted for TypeScript today. Where a language supplies
-none, the run fails with that explanation rather than silently excluding every
-route - use `exclude-paths` there instead.
+none, the run fails and says so instead of quietly excluding every route. Use
+`exclude-paths` there instead.
 </Note>
 
 ## Routes that are not part of the contract
 
 Most codebases register endpoints no integrator was ever promised: a dashboard's
-own session routes, internal health checks, an admin surface. Reported as drift
-they are not wrong, only irrelevant, and a report that is mostly irrelevant stops
+own session routes, internal health checks, an admin surface. Reporting them as
+drift is not wrong, just irrelevant, and a report that is mostly irrelevant stops
 being read.
 
 ```yaml
@@ -144,9 +144,9 @@ Patterns are matched against the path **as your spec writes it**, so after
 `/auth/*` also excludes `/auth` while leaving `/authorize` alone. Commas work as
 well as newlines, for a short list on one line.
 
-An excluded path leaves the audit in **both** directions. It is neither missing
-from the spec nor missing from the code, because a route you have declared
-internal is not something the specification is wrong to stay quiet about.
+An excluded path leaves the audit in **both** directions. It counts as neither
+missing from the spec nor missing from the code, because the spec is not wrong to
+stay quiet about a route you have declared internal.
 
 <Note>
 Excluding every endpoint fails the run rather than reporting a clean audit. The
@@ -157,10 +157,10 @@ applied.
 
 ## Adding the judgment pass
 
-The deterministic rules settle what is mechanical. Three kinds of drift need
-reading comprehension: a handler requiring a field the spec calls optional, a
-default that quietly changed, a validation bound loosened below what is
-documented.
+The deterministic rules settle everything mechanical. Three kinds of drift need
+reading comprehension instead: a handler that requires a field the spec calls
+optional, a default that quietly changed, and a validation bound loosened below
+what is documented.
 
 ```yaml
       - id: audit
@@ -182,8 +182,8 @@ Any OpenAI-compatible endpoint works; set `base-url` to point elsewhere.
 Every claim, from the rules and the model alike, is executed against your handler
 before it reaches the report. In the project's own evaluation the model's raw
 precision was **0.23**; the gate refuted every false claim and the report came out
-at precision **1.0**. You read verified findings, not a model's opinion. See
-[the verification gate](/verification-gate).
+at precision **1.0**. What you end up reading has been checked against your own
+code. See [the verification gate](/verification-gate).
 </Note>
 
 Cost across the full 16-case evaluation was **$0.044 for 159 model calls**. One
@@ -192,9 +192,9 @@ repository audit is a fraction of that.
 ## Handing findings to a coding agent
 
 Every run produces a fix brief: one document covering every finding, what was
-observed, and the test that proved it. There are three ways to use it, and no
-storage to set up for any of them. The files are uploaded as a GitHub Actions
-artifact, which needs no bucket, no account and no credentials.
+observed, and the test that proved it. There are three ways to use it, and none
+of them need storage set up. The files are uploaded as a GitHub Actions artifact,
+which needs no bucket, no account and no credentials.
 
 ```yaml
       - uses: actions/upload-artifact@v7
@@ -221,15 +221,15 @@ artifact, which needs no bucket, no account and no credentials.
     `<name>_brief.zip` contains the brief and a `tests/` directory holding every
     generated test as a runnable file.
 
-    This is the strongest option. The agent does not have to be told what
+    This is the most useful option. You do not have to tell the agent what
     "fixed" means, because each test already asserts what the specification
     promises and currently fails. When it passes, that finding is resolved.
   </Tab>
 </Tabs>
 
 <Note>
-The brief opens by telling the agent the one judgement the tool deliberately does
-not make: whether the code drifted or the document went stale. Getting that
+The brief opens by telling the agent the one judgement the tool deliberately
+leaves alone: whether the code drifted or the document went stale. Getting that
 backwards turns a documentation edit into a breaking change for everyone already
 integrated, so the brief asks the agent to decide explicitly and say why.
 </Note>
@@ -266,8 +266,8 @@ integrated, so the brief asks the agent to decide explicitly and say why.
 
 ## Turning on self-improvement
 
-The auditor can learn from its own mistakes across runs, but only where you tell
-it to keep the record. There is no default location and no shared store: leave
+The auditor can learn from its own mistakes across runs, but only if you tell it
+where to keep the record. There is no default location and no shared store. Leave
 `memory-url` out and it keeps no memory at all.
 
 ```yaml
@@ -298,18 +298,18 @@ Other backends, same shape:
 
 <Note>
 Two things change when you set this. Each run reads the ledger before auditing
-and appends to it afterwards, so the store must be reachable from the runner.
-And the verification gate runs against your repository, because a claim with no
-verdict teaches nothing: a temporary test is written next to your code, executed,
-and deleted. A claim its test disproves is dropped from the report; one whose
-test cannot be built is kept and marked, never silently lost.
+and appends to it afterwards, so the store has to be reachable from the runner.
+And the verification gate starts running against your repository, because a claim
+with no verdict teaches nothing: a temporary test is written next to your code,
+executed, and deleted. A claim its test disproves is dropped from the report. One
+whose test cannot be built is kept and marked, never silently lost.
 </Note>
 
 Memory only ever adjusts priors. It changes which past mistakes the model is
 shown and how findings are ranked, and it can never suppress a finding: if the
 generated test still fails, the finding ships. About one endpoint in twenty is
-audited with memory disabled on purpose, so a wrong assumption keeps being
-tested rather than becoming permanent.
+audited with memory disabled on purpose, so a wrong assumption keeps getting
+tested instead of settling in permanently.
 
 Nothing is written into your checkout, and no ledger ships inside the action's
 image: the build deletes any that reaches it and fails if one remains.
@@ -374,7 +374,7 @@ Two different jobs, deliberately separate.
   </Tab>
 </Tabs>
 
-## An adoption order that survives contact with a team
+## Rolling it out to a team
 
 <Steps>
   <Step title="Report only">
@@ -384,9 +384,9 @@ Two different jobs, deliberately separate.
     Add the SARIF upload, so they appear where people already look.
   </Step>
   <Step title="Clear the backlog">
-    Fix what is real. Record intentional divergence in
+    Fix what is real. Record deliberate differences in
     `auditor/memory/allowlist.json`. Each entry needs a reason and a date, so the
-    allowlist does not become a place findings go to be forgotten.
+    allowlist does not become a place where findings go to be forgotten.
   </Step>
   <Step title="Tighten">
     `fail-on: critical`, then `high` once the signal is trusted.
@@ -394,13 +394,15 @@ Two different jobs, deliberately separate.
 </Steps>
 
 <Warning>
-Blocking merges on day one is how a tool gets uninstalled in week two.
+Do not block merges on day one. That is the quickest way to get the tool
+removed in week two.
 </Warning>
 
 ## Scheduled audits
 
-Pull request runs catch drift as it is introduced. A weekly run catches drift
-that predates adoption, and drift in the spec itself.
+Pull request runs catch drift as it is introduced. A weekly run catches the drift
+that was already there before you adopted the tool, and drift in the spec
+itself.
 
 ```yaml
 on:
@@ -436,18 +438,18 @@ on:
   </Accordion>
   <Accordion title="Findings show verdict: error">
     The gate could not compile or run its generated test, usually a Go toolchain
-    mismatch: the image pins Go 1.24. These findings are **kept and flagged,
-    never silently dropped**, because an infrastructure failure must never look
-    like a clean bill of health. Deterministic findings are unaffected; they
-    execute nothing.
+    mismatch: the image pins Go 1.24. These findings are kept and flagged, never
+    silently dropped, because a broken toolchain must never look like a clean
+    bill of health. Deterministic findings are unaffected; they execute nothing.
   </Accordion>
   <Accordion title="The run reported unread_endpoints">
     The model returned something unparseable for those endpoints even after a
-    retry, so the judgment pass did not read them. This is surfaced rather than
-    hidden: an endpoint nobody read is not an endpoint with no drift.
+    retry, so the judgment pass did not read them. That gets reported rather than
+    hidden, because an endpoint nobody read is not the same as an endpoint with
+    no drift.
   </Accordion>
   <Accordion title="TypeScript findings show unsupported">
     Route extraction works for TypeScript; the verification gate does not yet.
-    Rather than let unverified claims through, they are reported as unsupported.
+    Unverified claims are not let through, so they are reported as unsupported.
   </Accordion>
 </AccordionGroup>

@@ -28,6 +28,7 @@ the generated file as a comment, so the output is reviewable rather than magic:
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import pathlib
 import re
@@ -38,7 +39,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 
 import languages  # noqa: E402
-from diff import auth_header_names  # noqa: E402
+from diff import auth_header_names, guards_reading  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 
 # Directories that never hold a project's own route registrations, and are large
@@ -223,26 +224,12 @@ def pick_source(root, adapter, prefix):
     return best
 
 
-# A middleware has to be exported to be imported by the file that registers the
-# route, and it has to be declared at the top level to be exported. Both halves
-# matter: without the export test, `const payload = jwt.verify(...)` inside a
-# session guard reads as a middleware named `payload`, because it sits in a file
-# that does mention the header.
-DEFINITION = (
-    r"^export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class)\s+{name}\b"
-    r"|^export\s*\{{[^}}]*\b{name}\b[^}}]*\}}"
-    r"|^(?:module\.)?exports\.{name}\s*="
-    r"|^def\s+{name}\b"
-    r"|^func\s+(?:\([^)]*\)\s*)?{name}\b"
-)
-
-
 def contract_guards(root, table, headers):
     """Middleware whose source reads a credential the spec promises integrators.
 
     The spec is the authority on what the contract's credential is: an apiKey
     security scheme names the header, and http auth means Authorization. A file
-    that reads that header and defines a middleware the routes use is the guard
+    that reads that header and exports a middleware the routes use is the guard
     that separates the promised API from everything else in the same codebase.
     """
     used = sorted({m for route in table["routes"] for m in (route.get("middleware") or [])})
@@ -252,36 +239,7 @@ def contract_guards(root, table, headers):
     # Authorization is worth almost nothing on its own: a session guard reads it
     # too. It only discriminates when the spec offers no better credential.
     strong = {h for h in headers if h.lower() != "authorization"}
-    wanted = strong or headers
-
-    candidates = []
-    for path in walk(root):
-        if path.suffix.lower() not in (".ts", ".js", ".mjs", ".tsx", ".go", ".py", ".php"):
-            continue
-        try:
-            text = path.read_text(errors="ignore")
-        except OSError:
-            continue
-        if any(header.lower() in text.lower() for header in wanted):
-            candidates.append(text)
-
-    guards = []
-    for name in used:
-        bare = name[:-2] if name.endswith("()") else name
-        if not bare.isidentifier():
-            continue
-        pattern = re.compile(DEFINITION.format(name=re.escape(bare)), re.M)
-        if any(pattern.search(text) for text in candidates):
-            guards.append(bare)
-    return guards, used
-
-
-def comment(text, indent="          "):
-    """A reason, wrapped. A derivation worth writing down is worth reading, and
-    a 200 character line in a workflow file is not read by anybody."""
-    import textwrap
-    return [f"{indent}# {line}" for line in
-            textwrap.wrap(text, width=72 - len(indent)) or [""]]
+    return sorted(guards_reading(root, used, strong or headers)), used
 
 
 def render(findings):
@@ -448,9 +406,26 @@ def render(findings):
         "        run: |",
         "          set -euo pipefail",
         '          cp "$SUMMARY" contract-audit-comment.md',
-        '          [ -z "$BRIEF_URL" ] || \\',
-        "            printf '\\n**[Download the fix brief](%s)**\\n' "
-        '"$BRIEF_URL" >> contract-audit-comment.md',
+        "          # The link is for a person with a browser session behind it.",
+        "          # An agent has neither, and the artifact URL is not fetchable",
+        "          # with curl, so the block below is what gets handed to one:",
+        "          # GitHub puts a copy button on a fenced block, and gh unzips",
+        "          # as it downloads, so there is no zip to extract by hand.",
+        '          if [ -n "$BRIEF_URL" ]; then',
+        "            {",
+        "              printf '\\n**[Download the fix brief](%s)** - a zip of "
+        "the brief and its tests.\\n' \"$BRIEF_URL\"",
+        "              printf '\\nOr copy this and hand it to a coding agent, "
+        "which downloads and unzips it:\\n\\n'",
+        "              printf '```bash\\n'",
+        "              printf 'gh run download %s -R %s -n contract-audit-brief "
+        "-D contract-audit-brief\\n' \\",
+        '                "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY"',
+        "              printf 'cat contract-audit-brief/*_brief.md   # then "
+        "apply what it lists\\n'",
+        "              printf '```\\n'",
+        "            } >> contract-audit-comment.md",
+        "          fi",
         '          echo "path=contract-audit-comment.md" >> "$GITHUB_OUTPUT"',
         "",
         "      - name: Comment the summary on the pull request",
@@ -581,9 +556,25 @@ def main():
         if not path.is_absolute():
             path = pathlib.Path(args.repo).resolve() / path
         if path.exists() and not args.force:
-            raise SystemExit(
-                f"{path} already exists. Read it, then pass --force to replace it, "
-                f"or --stdout to print the generated one and merge by hand.")
+            # A diff, not an instruction to go and read two files. The question
+            # anyone has here is what would change, and printing the whole
+            # generated workflow to answer it makes them do the comparing.
+            current = path.read_text()
+            if current == workflow:
+                print(f"{path} is already exactly what init would write.",
+                      file=sys.stderr)
+                return
+            sys.stdout.writelines(difflib.unified_diff(
+                current.splitlines(keepends=True),
+                workflow.splitlines(keepends=True),
+                fromfile=f"{args.out} (yours)", tofile=f"{args.out} (init)", n=2))
+            # stderr is unbuffered and stdout is not, so without this the
+            # summary prints above the diff it is summarising.
+            sys.stdout.flush()
+            print(f"\n{path} was left alone. --force replaces it, --out PATH "
+                  f"writes elsewhere, --stdout prints without comparing.",
+                  file=sys.stderr)
+            raise SystemExit(1)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(workflow)
         print(f"wrote {path}", file=sys.stderr)

@@ -22,6 +22,7 @@ import argparse
 import fnmatch
 import json
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -60,6 +61,8 @@ SEVERITY = {
     "status_code_mismatch": "medium",
     "undocumented_status": "medium",
     "auth_mismatch": "critical",
+    "auth_guard_missing": "critical",
+    "auth_guard_undocumented": "high",
 }
 
 # Field names whose type changing silently corrupts value rather than just
@@ -173,6 +176,56 @@ def parse_excludes(raw):
         # rejecting it teaches nothing that accepting it would not.
         out.append(pattern if pattern.startswith("/") else "/" + pattern)
     return tuple(out)
+
+
+# A middleware has to be exported to be imported by the file registering the
+# route, and declared at the top level to be exported. Both halves matter:
+# without the export test, `const payload = jwt.verify(...)` inside a guard reads
+# as a middleware named `payload`.
+GUARD_DEFINITION = (
+    r"^export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class)\s+{name}\b"
+    r"|^export\s*\{{[^}}]*\b{name}\b[^}}]*\}}"
+    r"|^(?:module\.)?exports\.{name}\s*="
+    r"|^def\s+{name}\b"
+    r"|^func\s+(?:\([^)]*\)\s*)?{name}\b"
+)
+
+GUARD_SUFFIXES = (".ts", ".js", ".mjs", ".tsx", ".go", ".py", ".php")
+GUARD_SKIP = {".git", "node_modules", "vendor", "dist", "build", "__pycache__",
+              ".venv", "venv", ".next", "target", "coverage"}
+
+
+def guards_reading(root, names, headers):
+    """Of `names`, those defined in a file that reads one of `headers`.
+
+    The spec is the authority on what a credential is: an apiKey scheme names
+    the header, http auth means Authorization. A middleware whose source reads
+    one of them is an authentication guard, whatever it happens to be called.
+    """
+    names = [n[:-2] if n.endswith("()") else n for n in names]
+    names = sorted({n for n in names if n.isidentifier()})
+    if not names or not headers:
+        return set()
+
+    sources = []
+    for path in pathlib.Path(root).rglob("*"):
+        if path.is_dir() or path.suffix.lower() not in GUARD_SUFFIXES:
+            continue
+        if any(part in GUARD_SKIP for part in path.parts):
+            continue
+        try:
+            text = path.read_text(errors="ignore")
+        except OSError:
+            continue
+        if any(h.lower() in text.lower() for h in headers):
+            sources.append(text)
+
+    found = set()
+    for name in names:
+        pattern = re.compile(GUARD_DEFINITION.format(name=re.escape(name)), re.M)
+        if any(pattern.search(text) for text in sources):
+            found.add(name)
+    return found
 
 
 def parse_names(raw):
@@ -305,6 +358,46 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
             f"{route['file']}::{route['handler']}") or handlers.get(route["handler"])
         findings.extend(_operation_rules(path, method, route, operation, spec,
                                          facts, structs, auth_headers))
+
+    # R9/R10 - the route's guard against the security the spec declares.
+    #
+    # Only where the language records route middleware. R8 below reads the
+    # handler, and notes that a handler which does not read a header proves
+    # nothing, because auth is usually middleware. This is that missing half.
+    #
+    # Reported per file, and only for files that guard something: a project
+    # applying auth once at app level registers no middleware here, and calling
+    # every one of its routes unguarded would be a page of false alarms rather
+    # than a finding.
+    if any(r.get("middleware") for r in extracted):
+        every = {m for r in extracted for m in (r.get("middleware") or [])}
+        guard_names = guards_reading(source_dir, every, auth_headers)
+        guarded_files = {r["file"] for r in extracted
+                         if guard_names & set(r.get("middleware") or ())}
+
+        for key in sorted(set(routes) & spec_keys):
+            path, method = key
+            route, operation = routes[key], spec[key]
+            on_route = guard_names & set(route.get("middleware") or ())
+
+            if operation["security"] and not on_route and route["file"] in guarded_files:
+                findings.append(finding(
+                    path, method, "auth_guard_missing", "",
+                    f"{route['file']}:{route['line']} registers {method.upper()} {path} "
+                    f"with no authentication middleware, while the spec declares "
+                    f"{', '.join(operation['security'])} for it. Other routes in the "
+                    f"same file are guarded by "
+                    f"{', '.join(sorted(guard_names)) or 'a guard'}",
+                    "R9", file=route["file"], line=route["line"]))
+
+            if operation["security"] == [] and on_route:
+                findings.append(finding(
+                    path, method, "auth_guard_undocumented", "",
+                    f"{route['file']}:{route['line']} guards {method.upper()} {path} "
+                    f"with {', '.join(sorted(on_route))}, while the spec documents it "
+                    f"as needing no authentication. An integrator following the spec "
+                    f"is answered 401",
+                    "R10", file=route["file"], line=route["line"]))
 
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     findings.sort(key=lambda f: (order.get(f["severity"], 9), f["path"], f["method"]))

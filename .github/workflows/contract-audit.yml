@@ -120,11 +120,26 @@ jobs:
         env:
           SUMMARY: ${{ steps.audit.outputs.summary }}
           BRIEF_URL: ${{ steps.brief.outputs.artifact-url }}
+          BRIEF_NAME: contract-audit-brief-${{ env.CASE }}
         run: |
           set -euo pipefail
           cp "$SUMMARY" contract-audit-comment.md
-          [ -z "$BRIEF_URL" ] || \
-            printf '\n**[Download the fix brief](%s)**\n' "$BRIEF_URL" >> contract-audit-comment.md
+          # The link is for a person with a browser session behind it. An agent
+          # has neither, and the artifact URL is not fetchable with curl, so the
+          # block below is what gets handed to one: GitHub puts a copy button on
+          # a fenced block, and gh unzips as it downloads, so there is no zip to
+          # extract by hand.
+          if [ -n "$BRIEF_URL" ]; then
+            {
+              printf '\n**[Download the fix brief](%s)** - a zip of the brief and its tests.\n' "$BRIEF_URL"
+              printf '\nOr copy this and hand it to a coding agent, which downloads and unzips it:\n\n'
+              printf '```bash\n'
+              printf 'gh run download %s -R %s -n %s -D contract-audit-brief\n' \
+                "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" "$BRIEF_NAME"
+              printf 'cat contract-audit-brief/*_brief.md   # then apply what it lists\n'
+              printf '```\n'
+            } >> contract-audit-comment.md
+          fi
           echo "path=contract-audit-comment.md" >> "$GITHUB_OUTPUT"
 
       - name: Comment the summary on the pull request

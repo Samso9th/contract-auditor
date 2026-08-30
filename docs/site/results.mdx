@@ -3,9 +3,9 @@ title: "Results"
 description: "Measured against injected drift with known ground truth."
 ---
 
-Evaluation runs against synthetic APIs whose specs match the code exactly in the
-clean state. Drift is then injected, so ground truth is known by construction
-rather than argued about.
+Evaluation runs against synthetic APIs whose specs match the code exactly to
+begin with. Drift is then injected, so the correct answer for every case is known
+in advance.
 
 ## Go suite, full pipeline
 
@@ -33,8 +33,8 @@ Targets were committed in writing before the first run: recall ≥ 0.80, precisi
   confirmed all three true ones.
 </Card>
 
-That is the difference between the two columns above. Ungated, the agent would
-have made the report worse than the deterministic layer alone.
+That is the difference between the two columns above. Without the gate, the agent
+would have made the report worse than the deterministic layer on its own.
 
 ## Without any AI at all
 
@@ -49,7 +49,7 @@ under a second.
 | **PHP** (Laravel) | 6 | 100% | 70% | **0.824** |
 
 Everything it reported was real, in every language, with no false alarms, and it
-never raised a complaint about the sample applications deliberately left
+never raised a complaint about the sample applications we deliberately left
 correct.
 
 ```bash
@@ -72,7 +72,7 @@ a perfect run and should return precision 1.0, recall 1.0, decoys 4/4. Anything
 else means the scorer is broken, not the auditor.
 
 <Note>
-  These numbers come from synthetic fixtures with injected drift, which is what
-  makes them checkable by anyone. A real repository has no ground truth, so
-  auditing one produces a ranked report rather than a score.
+  These numbers come from synthetic fixtures with injected drift, which is why
+  anyone can check them. A real repository has no known list of correct answers,
+  so auditing one gives you a ranked report instead of a score.
 </Note>
