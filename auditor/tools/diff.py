@@ -105,13 +105,26 @@ def _location_from(evidence):
 
 def auth_header_names(spec):
     """Header names that carry authentication, read from the spec's own
-    securitySchemes rather than hardcoded, so this generalises past the fixture."""
-    schemes = spec.document.get("components", {}).get("securitySchemes", {})
+    declaration rather than hardcoded, so this generalises past the fixture.
+
+    Both spellings, because both are in circulation: OpenAPI 3 declares them
+    under components.securitySchemes, Swagger 2.0 at the top level as
+    securityDefinitions. Reading only the newer one left every 2.0 document
+    looking as though it promised integrators no credential at all - which is
+    what `swaggo` emits, and so most annotated Go - and with no credential named
+    there is nothing to identify the contract guard by.
+    """
+    schemes = dict(spec.document.get("securityDefinitions") or {})
+    schemes.update((spec.document.get("components") or {}).get("securitySchemes") or {})
     names = set()
     for scheme in schemes.values():
+        if not isinstance(scheme, dict):
+            continue
         if scheme.get("type") == "apiKey" and scheme.get("in") == "header":
             names.add(scheme.get("name", ""))
-        if scheme.get("type") == "http":
+        # `http` is OpenAPI 3; 2.0 spells the same thing `basic`. Either way the
+        # credential travels in Authorization.
+        if scheme.get("type") in ("http", "basic"):
             names.add("Authorization")
     names.discard("")
     return names
@@ -200,15 +213,55 @@ GUARD_SKIP = {".git", "node_modules", "vendor", "dist", "build", "__pycache__",
               ".venv", "venv", ".next", "target", "coverage"}
 
 
+# Where a middleware's own definition starts. Narrower than GUARD_DEFINITION,
+# which also accepts an export statement: an export tells you a name leaves the
+# file, not what the function does.
+GUARD_BODY = (
+    r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+{name}\b"
+    r"|^(?:export\s+)?(?:const|let|var)\s+{name}\s*="
+    r"|^def\s+{name}\b"
+    r"|^func\s+(?:\([^)]*\)\s*)?{name}\b"
+)
+
+# The start of the next top-level definition, which is where the previous one's
+# body ends closely enough for a text scan.
+NEXT_DEFINITION = re.compile(
+    r"^(?:export\s|(?:module\.)?exports\b|func\s|def\s|class\s|"
+    r"(?:async\s+)?function\s|const\s|let\s|var\s)", re.M)
+
+
+def strip_factory(name):
+    """`validate(schema)` and `validate` are the same guard under two spellings;
+    the route table keeps the parentheses so a reader can tell them apart."""
+    return name[:-2] if name.endswith("()") else name
+
+
+def _definition_body(text, start):
+    """From a definition to the start of the next one at the top level."""
+    following = NEXT_DEFINITION.search(text, start)
+    return text[start:following.start()] if following else text[start:]
+
+
 def guards_reading(root, names, headers):
-    """Of `names`, those defined in a file that reads one of `headers`.
+    """Of `names`, those that authenticate: the ones whose own definition reads
+    one of `headers`.
 
     The spec is the authority on what a credential is: an apiKey scheme names
-    the header, http auth means Authorization. A middleware whose source reads
-    one of them is an authentication guard, whatever it happens to be called.
+    the header, http auth means Authorization. A middleware that reads one of
+    them is an authentication guard, whatever it happens to be called.
+
+    The test is the function's own body, not its file. A file-wide match was the
+    first version and it does not discriminate: a router's middleware are
+    usually declared together, so one auth guard among them makes the whole file
+    mention Authorization and every logging, tracing and content-type middleware
+    beside it qualifies. On a real repository that produced four "contract
+    guards", none of which authenticated anything.
+
+    The file-wide test survives as a fallback, for the languages where the
+    definition and the export are far apart and only the export can be found.
     """
-    names = [n[:-2] if n.endswith("()") else n for n in names]
-    names = sorted({n for n in names if n.isidentifier()})
+    names = sorted({strip_factory(n) for n in names})
+    names = [n for n in names if n.isidentifier()]
     if not names or not headers:
         return set()
 
@@ -225,12 +278,22 @@ def guards_reading(root, names, headers):
         if any(h.lower() in text.lower() for h in headers):
             sources.append(text)
 
-    found = set()
+    def reads(text, start):
+        body = _definition_body(text, start)
+        return any(h.lower() in body.lower() for h in headers)
+
+    found, exported = set(), set()
     for name in names:
-        pattern = re.compile(GUARD_DEFINITION.format(name=re.escape(name)), re.M)
-        if any(pattern.search(text) for text in sources):
-            found.add(name)
-    return found
+        body_pattern = re.compile(GUARD_BODY.format(name=re.escape(name)), re.M)
+        any_pattern = re.compile(GUARD_DEFINITION.format(name=re.escape(name)), re.M)
+        for text in sources:
+            match = body_pattern.search(text)
+            if match and reads(text, match.end()):
+                found.add(name)
+                break
+            if any_pattern.search(text):
+                exported.add(name)
+    return found or exported
 
 
 def parse_names(raw):
@@ -397,7 +460,42 @@ def reconcile(route_keys, spec_keys):
         for spec_key in sorted(key for key in spec_left if serves(key)):
             take(route_key, spec_key)
 
+    # A parameter in the code covering a literal in the document:
+    #
+    #   code  PUT /resources/{id}/{vote_direction}
+    #   spec  PUT /resources/{id}/upvote
+    #         PUT /resources/{id}/downvote
+    #
+    # One handler serving several documented paths, the same relation the splat
+    # pass covers and for the same reason. Reporting it as one undocumented
+    # route plus two unimplemented operations describes an API that works as
+    # three faults.
+    #
+    # Last, so a route matching a literal exactly has already claimed it: only
+    # what nothing more specific wanted is offered to the general case.
+    for route_key in sorted(routes_left):
+        path, method = route_key
+        segments = _canonical(path).split("/")
+        matched = []
+        for spec_key in sorted(spec_left):
+            spec_path, spec_method = spec_key
+            if spec_method != method:
+                continue
+            spec_segments = _canonical(spec_path).split("/")
+            if len(spec_segments) != len(segments):
+                continue
+            if any(ours != theirs and not _is_parameter(ours)
+                   for ours, theirs in zip(segments, spec_segments)):
+                continue
+            matched.append(spec_key)
+        for spec_key in matched:
+            take(route_key, spec_key)
+
     return pairs, routes_left, spec_left
+
+
+def _is_parameter(segment):
+    return segment.startswith("{") and segment.endswith("}")
 
 
 # Paths that are undocumented on purpose in nearly every project: the docs UI
@@ -522,7 +620,10 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
                 "middleware, so every route would fall outside the contract. Route "
                 "middleware is extracted for TypeScript today; leave the input unset "
                 "for other languages and use exclude-paths instead.")
-        wanted = set(contract_middleware)
+        # strip_factory on both sides: a guard built by a factory keeps its
+        # parentheses in the route table - RequireAuth(logger) is recorded as
+        # RequireAuth() - while the input names it without them.
+        wanted = {strip_factory(n) for n in contract_middleware}
         # An endpoint the spec documents is inside the contract whatever guards
         # it, because the spec is the contract. Dropping it for carrying the
         # wrong guard would silently delete the two findings this input exists
@@ -531,7 +632,8 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
         documented = {route_key for route_key, _ in
                       reconcile(set(routes), spec_keys)[0]}
         outside = {key for key, route in routes.items()
-                   if not wanted & set(route.get("middleware") or ())
+                   if not wanted & {strip_factory(m)
+                                    for m in (route.get("middleware") or ())}
                    and key not in documented}
         if not set(routes) - outside:
             raise RouteExtractionError(
@@ -601,7 +703,14 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
         guarded_files = {r["file"] for r in extracted
                          if guard_names & set(r.get("middleware") or ())}
 
+        # Once per route, not once per pair. R9 and R10 are statements about
+        # the registration - what guards it - and a route serving several
+        # documented operations has one registration, not several.
+        seen_routes = set()
         for route_key, spec_key in sorted(paired):
+            if route_key in seen_routes:
+                continue
+            seen_routes.add(route_key)
             path, method = route_key
             route, operation = routes[route_key], spec[spec_key]
             on_route = guard_names & set(route.get("middleware") or ())
@@ -659,8 +768,21 @@ def _operation_rules(path, method, route, operation, spec, facts, structs,
         actual = None
         if struct and comparable_struct(struct):
             actual = wire_fields(struct)
-        elif facts and facts.get("response_complete") and facts.get("response_fields"):
+            # A struct found by the spec's schema name is an assumption: that
+            # the document names its schemas after the types behind them. True
+            # of a generated spec, and a coincidence waiting to happen in a
+            # hand-written one. Sharing not a single field name is the signature
+            # of that coincidence rather than of drift - drift renames a field
+            # or adds one, it does not replace every field at once - and a real
+            # project was reported on exactly this: a spec schema named
+            # ForwardDest against a Go config struct of the same name, where the
+            # response type actually wrapped the config as one of its fields.
+            if documented and not (set(documented) & set(actual)):
+                actual = None
+        if actual is None and facts and facts.get("response_complete") \
+                and facts.get("response_fields"):
             actual = facts["response_fields"]
+            struct = None
 
         if actual and documented and not response["composed"]:
 

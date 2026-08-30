@@ -46,7 +46,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 
 import languages  # noqa: E402
-from diff import auth_header_names, guards_reading  # noqa: E402
+from diff import auth_header_names, guards_reading, strip_factory  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 
 # Directories that never hold a project's own route registrations, and are large
@@ -431,10 +431,15 @@ def contract_guards(root, table, headers, spec_keys=frozenset()):
     if not reading or not spec_keys:
         return reading, used, {}
 
+    # strip_factory on both sides: the route table keeps a factory guard's
+    # parentheses - validate(schema) reads differently from validate - and the
+    # names coming back from guards_reading have already lost them. Comparing
+    # the two spellings directly scored every factory guard at zero coverage.
     documented = {
         name: len({(r["path"], r["method"].lower())
                    for r in table["routes"]
-                   if name in (r.get("middleware") or [])} & spec_keys)
+                   if name in {strip_factory(m) for m in (r.get("middleware") or [])}}
+                  & spec_keys)
         for name in reading
     }
     # Half is the line because a guard covering less than half of what the spec

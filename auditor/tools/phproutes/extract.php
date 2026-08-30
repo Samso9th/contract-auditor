@@ -194,6 +194,154 @@ function implicitPrefix(string $absolute): string
  * at its matching bracket, so a 'prefix' key belonging to something nested
  * cannot be mistaken for this group's own.
  */
+/**
+ * The guards named by a middleware(...) call starting at $i.
+ *
+ * Accepts both spellings Laravel takes: middleware('auth:sanctum') and
+ * middleware(['auth:sanctum', 'throttle:api']). A guard written as
+ * 'auth:sanctum' keeps only the part before the colon, because the argument
+ * after it is a parameter to the guard rather than a different guard.
+ */
+/**
+ * Laravel's alias map: the short names a route uses, and the classes behind them.
+ *
+ * A Laravel route never names its guard in code. It writes 'auth:sanctum' or
+ * 'api.ability', and the class that actually reads the credential is bound to
+ * that string somewhere else - $middlewareAliases in app/Http/Kernel.php before
+ * Laravel 11, $middleware->alias([...]) in bootstrap/app.php since. Left
+ * unresolved there is nothing for the auditor to look up, so a Laravel project
+ * could never have its contract guard identified, however plainly the code
+ * reads the header.
+ */
+function laravelAliases(string $absolute): array
+{
+    static $cache = [];
+
+    $dir = dirname($absolute);
+    for ($up = 0; $up < 8; $up++) {
+        if (is_file($dir . '/artisan') || is_file($dir . '/composer.json')) {
+            break;
+        }
+        $parent = dirname($dir);
+        if ($parent === $dir) {
+            return [];
+        }
+        $dir = $parent;
+    }
+    if (array_key_exists($dir, $cache)) {
+        return $cache[$dir];
+    }
+
+    $aliases = [];
+    foreach (['/app/Http/Kernel.php', '/bootstrap/app.php'] as $candidate) {
+        $source = @file_get_contents($dir . $candidate);
+        if ($source === false) {
+            continue;
+        }
+        if (preg_match_all('/[\'"]([A-Za-z0-9_.\-]+)[\'"]\s*=>\s*([A-Za-z0-9_\\\\]+)::class/', $source, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $class = $match[2];
+                $short = substr($class, strrpos($class, '\\') === false ? 0 : strrpos($class, '\\') + 1);
+                $aliases[$match[1]] = $short;
+            }
+        }
+    }
+
+    $cache[$dir] = $aliases;
+    return $aliases;
+}
+
+function middlewareNamesAt(array $tokens, int $i): array
+{
+    if (($tokens[$i + 1]['text'] ?? '') !== '(') {
+        return [];
+    }
+    $out = [];
+    $depth = 0;
+    for ($j = $i + 1, $count = count($tokens); $j < $count; $j++) {
+        $text = $tokens[$j]['text'];
+        if ($text === '(' || $text === '[') {
+            $depth++;
+            continue;
+        }
+        if ($text === ')' || $text === ']') {
+            $depth--;
+            if ($depth <= 0) {
+                break;
+            }
+            continue;
+        }
+        $literal = stringValue($tokens[$j]);
+        if ($literal !== null && $literal !== '') {
+            $out[] = explode(':', $literal)[0];
+        }
+    }
+    return $out;
+}
+
+/**
+ * The guards inside `Route::group(['middleware' => [...], ...], ...)`.
+ */
+/**
+ * The guards a route attaches after the fact:
+ *
+ *   Route::get('/x', [C::class, 'm'])->middleware('auth:sanctum');
+ *
+ * Laravel chains these behind the registration, so they are not visible when
+ * the route is emitted and have to be read forward to the end of the statement.
+ * Stopping at the semicolon matters: without it a guard belonging to the next
+ * route, or to a group opened below, would be attributed to this one.
+ */
+/**
+ * Alias names replaced by the class behind them, so the auditor has something
+ * it can find in the source. An alias with no binding keeps its own name: it is
+ * still what the route says, and saying nothing would be worse.
+ */
+function resolveAliases(array $names, string $absolute): array
+{
+    $aliases = laravelAliases($absolute);
+    $out = [];
+    foreach (array_unique($names) as $name) {
+        $out[] = $aliases[$name] ?? $name;
+    }
+    return array_values(array_unique($out));
+}
+
+function trailingMiddleware(array $tokens, int $i): array
+{
+    $out = [];
+    $depth = 0;
+    for ($j = $i + 1, $count = count($tokens); $j < $count; $j++) {
+        $text = $tokens[$j]['text'];
+        if ($text === '(' || $text === '[') { $depth++; continue; }
+        if ($text === ')' || $text === ']') { $depth--; continue; }
+        if ($text === ';' && $depth <= 0) { break; }
+        if ($depth === 0 && $tokens[$j]['type'] === T_STRING
+            && strtolower($tokens[$j]['text']) === 'middleware') {
+            $out = array_merge($out, middlewareNamesAt($tokens, $j));
+        }
+    }
+    return $out;
+}
+
+function groupArrayMiddleware(array $tokens, int $i): array
+{
+    if (($tokens[$i + 1]['text'] ?? '') !== '(' || ($tokens[$i + 2]['text'] ?? '') !== '[') {
+        return [];
+    }
+    $depth = 0;
+    for ($j = $i + 2, $count = count($tokens); $j < $count; $j++) {
+        $text = $tokens[$j]['text'];
+        if ($text === '[') { $depth++; continue; }
+        if ($text === ']') { $depth--; if ($depth === 0) { return []; } continue; }
+        if ($depth !== 1) { continue; }
+        if (stringValue($tokens[$j]) === 'middleware' && ($tokens[$j + 1]['text'] ?? '') === '=>') {
+            return middlewareNamesAt($tokens, $j + 1);
+        }
+    }
+    return [];
+}
+
 function groupArrayPrefix(array $tokens, int $i): ?string
 {
     if (($tokens[$i + 1]['text'] ?? '') !== '(' || ($tokens[$i + 2]['text'] ?? '') !== '[') {
@@ -232,9 +380,10 @@ function collectRoutes(array $tokens, string $rel, string $strip, string $absolu
     // The absolute path, because the implicit prefix is decided by the file's
     // place in the project and --dir may already point inside routes/.
     $implicit = implicitPrefix($absolute !== '' ? $absolute : $rel);
-    $prefixStack = [];        // ['prefix' => string, 'depth' => int]
+    $prefixStack = [];        // ['prefix' => string, 'middleware' => string[], 'depth' => int]
     $depth = 0;
     $pendingPrefix = '';
+    $pendingMiddleware = [];
     $count = count($tokens);
 
     for ($i = 0; $i < $count; $i++) {
@@ -259,11 +408,25 @@ function collectRoutes(array $tokens, string $rel, string $strip, string $absolu
             continue;
         }
 
-        if ($token['type'] !== T_STRING) {
+        // T_MATCH as well as T_STRING: PHP 8 made `match` a reserved keyword,
+        // so Route::match() does not tokenise as an ordinary method name and
+        // was skipped before it could be recognised at all.
+        if ($token['type'] !== T_STRING && $token['type'] !== T_MATCH) {
             continue;
         }
 
         $name = strtolower($token['text']);
+
+        // Route::middleware('auth')->group(...) and ->middleware('auth') on a
+        // single route. Which of the two it is depends on what follows, so both
+        // are collected here and the group handler below claims them if a group
+        // opens; otherwise the next route registration takes them.
+        if ($name === 'middleware' && isset($tokens[$i + 1]) && $tokens[$i + 1]['text'] === '(') {
+            foreach (middlewareNamesAt($tokens, $i) as $guard) {
+                $pendingMiddleware[] = $guard;
+            }
+            continue;
+        }
 
         // Route::prefix('v1') and ->prefix('v1'), whether chained or not.
         if ($name === 'prefix' && isset($tokens[$i + 1]) && $tokens[$i + 1]['text'] === '(') {
@@ -288,21 +451,60 @@ function collectRoutes(array $tokens, string $rel, string $strip, string $absolu
                     $pendingPrefix = $fromArray;
                 }
             }
+            foreach (groupArrayMiddleware($tokens, $i) as $guard) {
+                $pendingMiddleware[] = $guard;
+            }
             $inherited = $prefixStack ? end($prefixStack)['prefix'] : '';
-            $prefixStack[] = ['prefix' => $inherited . $pendingPrefix, 'depth' => $depth];
+            $inheritedMw = $prefixStack ? end($prefixStack)['middleware'] : [];
+            $prefixStack[] = [
+                'prefix' => $inherited . $pendingPrefix,
+                'middleware' => array_values(array_unique(array_merge($inheritedMw, $pendingMiddleware))),
+                'depth' => $depth,
+            ];
             $pendingPrefix = '';
+            $pendingMiddleware = [];
             continue;
         }
 
-        if (in_array($name, HTTP_METHODS, true) && isset($tokens[$i + 1]) && $tokens[$i + 1]['text'] === '(') {
-            $literal = stringValue($tokens[$i + 2] ?? ['type' => 0, 'text' => '']);
+        // Route::match(['get', 'post'], '/path', $action) puts the verbs in an
+        // array and the path second, so neither is where the single-verb form
+        // looks for them. The route then reads as never registered, and the
+        // operations documenting it as never implemented - two findings on one
+        // real project, both false.
+        $matchVerbs = null;
+        if ($name === 'match' && ($tokens[$i + 1]['text'] ?? '') === '('
+            && ($tokens[$i + 2]['text'] ?? '') === '[') {
+            $matchVerbs = [];
+            $j = $i + 3;
+            for ($count2 = count($tokens); $j < $count2; $j++) {
+                if ($tokens[$j]['text'] === ']') {
+                    break;
+                }
+                $verb = stringValue($tokens[$j]);
+                if ($verb !== null && in_array(strtolower($verb), HTTP_METHODS, true)) {
+                    $matchVerbs[] = strtolower($verb);
+                }
+            }
+            // The path follows the closing bracket and the comma after it.
+            $pathAt = $j + 2;
+        }
+
+        if (($matchVerbs !== null || in_array($name, HTTP_METHODS, true))
+            && isset($tokens[$i + 1]) && $tokens[$i + 1]['text'] === '(') {
+            $pathAt = $matchVerbs !== null ? $pathAt : $i + 2;
+            $literal = stringValue($tokens[$pathAt] ?? ['type' => 0, 'text' => '']);
             if ($literal === null) {
                 continue;
             }
             $prefix = $prefixStack ? end($prefixStack)['prefix'] : '';
+            $groupMiddleware = $prefixStack ? end($prefixStack)['middleware'] : [];
+            $routeMiddleware = trailingMiddleware($tokens, $pathAt);
+            // A route's own guards belong to it and to nothing after it. Left
+            // pending, they would be inherited by the next group that opened.
+            $pendingMiddleware = [];
             $handler = '';
             // [UserController::class, 'index'] or 'UserController@index'
-            for ($j = $i + 3; $j < min($i + 14, $count); $j++) {
+            for ($j = $pathAt + 1; $j < min($pathAt + 12, $count); $j++) {
                 $candidate = stringValue($tokens[$j]);
                 if ($candidate !== null && $candidate !== $literal) {
                     $handler = str_contains($candidate, '@')
@@ -311,15 +513,20 @@ function collectRoutes(array $tokens, string $rel, string $strip, string $absolu
                     break;
                 }
             }
+            foreach ($matchVerbs ?? [$name] as $verb) {
             $routes[] = [
-                'method' => strtoupper($name === 'any' ? 'GET' : $name),
+                'method' => strtoupper($verb === 'any' ? 'GET' : $verb),
                 'path' => normalisePath($implicit . $prefix . '/' . ltrim($literal, '/'), $strip),
+                'middleware' => resolveAliases(
+                    array_merge($groupMiddleware, $routeMiddleware),
+                    $absolute !== '' ? $absolute : $rel),
                 'handler' => $handler,
                 'file' => $rel,
                 'line' => $token['line'],
                 'style' => 'laravel',
                 'annotation' => null,
             ];
+            }
         }
     }
     return $routes;

@@ -36,13 +36,30 @@ import (
 
 // Route is one registered HTTP endpoint found in the source.
 type Route struct {
-	Method     string      `json:"method"`
-	Path       string      `json:"path"`
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	// Middleware names the guards standing in front of this route, in the same
+	// shape the TypeScript extractor emits. Without it contract-middleware
+	// could not be used on a Go project at all, so a repository registering its
+	// public API and its dashboard in one binary had no way to tell the auditor
+	// which was which - and every dashboard route read as an undocumented part
+	// of the published contract.
+	Middleware []string    `json:"middleware"`
 	Handler    string      `json:"handler"`
 	File       string      `json:"file"`
 	Line       int         `json:"line"`
 	Style      string      `json:"style"`
 	Annotation *Annotation `json:"annotation"`
+}
+
+// scoped is middleware attached to a router variable by r.Use(...), with the
+// line it was attached on. Order matters and is not cosmetic: chi and gin both
+// apply Use() only to what is registered after it, so a webhook registered
+// above the line is open, and calling it guarded would hide exactly the thing
+// an auth rule exists to find.
+type scoped struct {
+	name string
+	line int
 }
 
 // Annotation is the swag contract claim written above a handler.
@@ -216,6 +233,71 @@ func collectHandlerDocs(fset *token.FileSet, files map[string]*ast.File, root st
 	return docs
 }
 
+// echoStyle reports whether a file drives echo, which is the one supported
+// router that puts the handler before its middleware:
+//
+//	echo:      e.GET("/x", handler, mw...)
+//	gin, chi:  r.GET("/x", mw..., handler)
+//
+// Guessing wrong swaps a guard for the handler, so this is read from the file's
+// own imports rather than inferred from the shape of the call.
+func echoStyle(file *ast.File) bool {
+	for _, imported := range file.Imports {
+		if imported.Path != nil && strings.Contains(imported.Path.Value, "labstack/echo") {
+			return true
+		}
+	}
+	return false
+}
+
+// argNames is every argument that names something, which is what a guard looks
+// like. A function literal is a handler written inline, never a named guard.
+func argNames(args []ast.Expr) []string {
+	out := []string{}
+	for _, arg := range args {
+		if name := exprName(arg); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func exprName(expr ast.Expr) string {
+	switch node := expr.(type) {
+	case *ast.Ident:
+		return node.Name
+	case *ast.SelectorExpr:
+		return node.Sel.Name
+	case *ast.CallExpr:
+		// A guard built by a factory keeps its parentheses, so a reader can tell
+		// RequireAuth() from RequireAuth in the route table.
+		switch fn := node.Fun.(type) {
+		case *ast.Ident:
+			return fn.Name + "()"
+		case *ast.SelectorExpr:
+			return fn.Sel.Name + "()"
+		}
+	}
+	return ""
+}
+
+// withChain is the guards attached by chi's .With(...), which may be chained.
+func withChain(expr ast.Expr) []string {
+	out := []string{}
+	for {
+		call, ok := expr.(*ast.CallExpr)
+		if !ok {
+			return out
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "With" {
+			return out
+		}
+		out = append(argNames(call.Args), out...)
+		expr = sel.X
+	}
+}
+
 func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string) []Route {
 	// Initialised, not nil: a nil slice marshals to JSON `null`, and a consumer
 	// that expects a list then fails with a type error instead of reporting that
@@ -232,10 +314,46 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 		// Group prefixes are per file; ast.Inspect walks in source order, so an
 		// assignment is always seen before the calls that use it.
 		prefixes := map[string]string{}
+		// Guards a router variable carries: inherited from the group it was
+		// opened in, plus whatever r.Use() has attached to it so far.
+		inherited := map[string][]string{}
+		attached := map[string][]scoped{}
+		echo := echoStyle(files[path])
 
-		ast.Inspect(files[path], func(n ast.Node) bool {
+		guardsFor := func(receiver string, line int) []string {
+			out := append([]string{}, inherited[receiver]...)
+			for _, use := range attached[receiver] {
+				if use.line < line {
+					out = append(out, use.name)
+				}
+			}
+			return out
+		}
+
+		// Routers handed to a function, by callee name. See followMounts below.
+		bindings := map[string]string{}
+		bindingGuards := map[string][]string{}
+
+		var visit func(n ast.Node) bool
+		visit = func(n ast.Node) bool {
 			if assign, ok := n.(*ast.AssignStmt); ok {
 				recordGroup(assign, prefixes)
+				// gin and echo open a group with its guards in the same call:
+				// v1 := r.Group("/v1", RequireAPIKey). The prefix half of that
+				// is recordGroup's job; this is the other half.
+				if len(assign.Lhs) == 1 && len(assign.Rhs) == 1 {
+					if ident, isIdent := assign.Lhs[0].(*ast.Ident); isIdent {
+						if call, isCall := assign.Rhs[0].(*ast.CallExpr); isCall {
+							if sel, isSel := call.Fun.(*ast.SelectorExpr); isSel &&
+								(sel.Sel.Name == "Group" || sel.Sel.Name == "Route") &&
+								len(call.Args) > 1 {
+								parent := receiverName(sel.X)
+								group := append([]string{}, guardsFor(parent, fset.Position(call.Pos()).Line)...)
+								inherited[ident.Name] = append(group, argNames(call.Args[1:])...)
+							}
+						}
+					}
+				}
 				return true
 			}
 
@@ -243,16 +361,32 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 			if !ok {
 				return true
 			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
+			sel, isSel := call.Fun.(*ast.SelectorExpr)
+			if !isSel {
+				// A router passed to a plain function: mountRoutes(v1, h).
+				if fn, isIdent := call.Fun.(*ast.Ident); isIdent {
+					recordBinding(fn.Name, call, prefixes, guardsFor, bindings, bindingGuards, fset.Position(call.Pos()).Line)
+				}
 				return true
 			}
 
 			name := sel.Sel.Name
 			pos := fset.Position(call.Pos())
-			prefix := prefixes[receiverName(sel.X)]
+			receiver := receiverName(sel.X)
+			prefix := prefixes[receiver]
+
+			if !httpMethods[strings.ToUpper(name)] && name != "Use" && name != "With" &&
+				name != "Group" && name != "Route" && name != "Handle" && name != "HandleFunc" {
+				recordBinding(name, call, prefixes, guardsFor, bindings, bindingGuards, pos.Line)
+			}
 
 			switch {
+			// r.Use(mw) guards everything registered on r after this line.
+			case name == "Use" && len(call.Args) >= 1:
+				for _, guard := range argNames(call.Args) {
+					attached[receiver] = append(attached[receiver], scoped{guard, pos.Line})
+				}
+				return true
 			// Router style. Two structural guards keep this from swallowing
 			// unrelated calls that merely share a method name - net/http's
 			// Header.Get and Values.Get being the ones that actually bite, and
@@ -265,12 +399,32 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 			// those, and they are real routes.
 			case httpMethods[strings.ToUpper(name)] && len(call.Args) >= 2:
 				lit, ok := stringArg(call.Args[0])
-				if ok && (lit == "" || strings.HasPrefix(lit, "/")) {
+				// A path without a leading slash is only accepted on a receiver
+				// already known to be a router. Without that condition an
+				// outbound client call - http.Post("https://...", ...) - reads
+				// as a route registration, which is why the slash was required
+				// in the first place.
+				_, known := prefixes[receiver]
+				if ok && lit != "" && !strings.HasPrefix(lit, "/") {
+					ok = known && !strings.Contains(lit, "://") && !strings.Contains(lit, " ")
+				}
+				if ok {
+					// Everything between the path and the handler is a guard.
+					// Which end the handler sits at is the framework's choice,
+					// which is why echoStyle read it from the imports.
+					var extra []ast.Expr
+					if echo {
+						extra = call.Args[min(2, len(call.Args)):]
+					} else {
+						extra = call.Args[1 : len(call.Args)-1]
+					}
+					guards := append(guardsFor(receiver, pos.Line), withChain(sel.X)...)
 					routes = append(routes, Route{
-						Method:  strings.ToUpper(name),
-						Path:    prefix + lit,
-						Handler: handlerName(call.Args),
-						File:    rel(root, path), Line: pos.Line, Style: "router",
+						Method:     strings.ToUpper(name),
+						Path:       joinPath(prefix, lit),
+						Middleware: append(guards, argNames(extra)...),
+						Handler:    handlerName(call.Args, echo),
+						File:       rel(root, path), Line: pos.Line, Style: "router",
 					})
 				}
 
@@ -287,16 +441,20 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 			// 68 documented operations.
 			case (name == "Route" || name == "Group") && len(call.Args) >= 1:
 				inner, ok := prefix, true
+				guards := guardsFor(receiver, pos.Line)
 				if name == "Route" {
 					var lit string
 					lit, ok = stringArg(call.Args[0])
 					inner = prefix + lit
+					guards = append(guards, argNames(call.Args[1:len(call.Args)-1])...)
 				}
 				if ok {
 					if fn, isFunc := call.Args[len(call.Args)-1].(*ast.FuncLit); isFunc {
 						params := fn.Type.Params
 						if params != nil && len(params.List) == 1 && len(params.List[0].Names) == 1 {
-							prefixes[params.List[0].Names[0].Name] = inner
+							param := params.List[0].Names[0].Name
+							prefixes[param] = inner
+							inherited[param] = guards
 						}
 					}
 				}
@@ -305,17 +463,140 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 				if lit, ok := stringArg(call.Args[0]); ok {
 					method, routePath := splitPattern(lit)
 					routes = append(routes, Route{
-						Method:  method,
-						Path:    prefix + routePath,
-						Handler: handlerName(call.Args),
-						File:    rel(root, path), Line: pos.Line, Style: "stdlib",
+						Method:     method,
+						Path:       prefix + routePath,
+						Middleware: guardsFor(receiver, pos.Line),
+						Handler:    handlerName(call.Args, echo),
+						File:       rel(root, path), Line: pos.Line, Style: "stdlib",
 					})
 				}
 			}
 			return true
-		})
+		}
+		ast.Inspect(files[path], visit)
+
+		// Second pass over the functions a router was handed to. Seeding the
+		// parameter with the caller's prefix and walking the body again is what
+		// puts those routes at the path they actually serve; the bare-path
+		// copies collected by the first pass are dropped below.
+		for _, decl := range files[path].Decls {
+			fn, isFunc := decl.(*ast.FuncDecl)
+			if !isFunc || fn.Body == nil {
+				continue
+			}
+			prefix, bound := bindings[fn.Name.Name]
+			if !bound || fn.Type.Params == nil || len(fn.Type.Params.List) == 0 {
+				continue
+			}
+			names := fn.Type.Params.List[0].Names
+			if len(names) != 1 {
+				continue
+			}
+			prefixes[names[0].Name] = prefix
+			inherited[names[0].Name] = bindingGuards[fn.Name.Name]
+			ast.Inspect(fn.Body, visit)
+		}
 	}
-	return routes
+	return dropShadowed(routes)
+}
+
+// joinPath puts one path segment after another, tolerating a missing slash.
+//
+// gin accepts a group and a route written without one - Group("api") then
+// POST("createApi", h) - and it is a common house style. Requiring the slash
+// dropped every route in such a project: one real repository extracted a single
+// route out of 258 documented operations.
+// recordBinding notes that a router variable was handed to a function:
+//
+//	a.mountEventIntakeRoutes(v1Router, handler)
+//
+// which is the most common way a Go service splits its routing up. The
+// parameter inside that function carries the caller's prefix, and nothing in
+// the callee's own text says so. Without following it those routes come out at
+// their bare path and read as documented but never implemented - five findings
+// on one real repository, every one of them false.
+func recordBinding(callee string, call *ast.CallExpr, prefixes map[string]string,
+	guardsFor func(string, int) []string, bindings map[string]string,
+	bindingGuards map[string][]string, line int) {
+	if len(call.Args) == 0 {
+		return
+	}
+	arg, isIdent := call.Args[0].(*ast.Ident)
+	if !isIdent {
+		return
+	}
+	prefix, tracked := prefixes[arg.Name]
+	if !tracked {
+		return
+	}
+	// First call site wins, deterministically. A router mounted twice under two
+	// prefixes cannot be resolved to one path, and guessing would be worse than
+	// reporting the first.
+	if _, seen := bindings[callee]; seen {
+		return
+	}
+	bindings[callee] = prefix
+	// Everything guarding the router at the call site, r.Use() included. Taking
+	// only what it inherited missed the guard applied on the line above the
+	// call, and the routes inside then read as registered with no auth at all -
+	// a critical finding, and wrong.
+	bindingGuards[callee] = guardsFor(arg.Name, line)
+}
+
+// dropShadowed removes a route collected at a bare path when the same
+// registration was also collected under a prefix. One registration, seen twice
+// because the function holding it was walked once on its own and once as a
+// mount target; the longer path is the one it serves.
+func dropShadowed(routes []Route) []Route {
+	best := map[string]string{}
+	for _, route := range routes {
+		key := fmt.Sprintf("%s:%d:%s", route.File, route.Line, route.Method)
+		if len(route.Path) > len(best[key]) {
+			best[key] = route.Path
+		}
+	}
+	out := routes[:0]
+	for _, route := range routes {
+		key := fmt.Sprintf("%s:%d:%s", route.File, route.Line, route.Method)
+		if route.Path == best[key] {
+			out = append(out, route)
+		}
+	}
+	return out
+}
+
+func joinPath(prefix, segment string) string {
+	if segment == "" {
+		return prefix
+	}
+	if !strings.HasPrefix(segment, "/") {
+		segment = "/" + segment
+	}
+	return prefix + segment
+}
+
+// groupCall finds the Group/Route call on the right of an assignment, looking
+// through the middleware chained onto it:
+//
+//	apiRouter := Router.Group("api").Use(Auth())
+func groupCall(expr ast.Expr) *ast.CallExpr {
+	for {
+		call, ok := expr.(*ast.CallExpr)
+		if !ok {
+			return nil
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return nil
+		}
+		if (sel.Sel.Name == "Group" || sel.Sel.Name == "Route") && len(call.Args) > 0 {
+			return call
+		}
+		if sel.Sel.Name != "Use" && sel.Sel.Name != "With" {
+			return nil
+		}
+		expr = sel.X
+	}
 }
 
 // recordGroup tracks `v1 := r.Group("/v1")` so nested prefixes resolve.
@@ -327,19 +608,16 @@ func recordGroup(assign *ast.AssignStmt, prefixes map[string]string) {
 	if !ok {
 		return
 	}
-	call, ok := assign.Rhs[0].(*ast.CallExpr)
-	if !ok {
+	call := groupCall(assign.Rhs[0])
+	if call == nil {
 		return
 	}
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || (sel.Sel.Name != "Group" && sel.Sel.Name != "Route") || len(call.Args) == 0 {
-		return
-	}
+	sel := call.Fun.(*ast.SelectorExpr)
 	lit, ok := stringArg(call.Args[0])
 	if !ok {
 		return
 	}
-	prefixes[ident.Name] = prefixes[receiverName(sel.X)] + lit
+	prefixes[ident.Name] = joinPath(prefixes[receiverName(sel.X)], lit)
 }
 
 // splitPattern handles the Go 1.22 "METHOD /path" ServeMux pattern. A pattern
@@ -400,11 +678,17 @@ func stringArg(expr ast.Expr) (string, bool) {
 // handlerName reports the handler as written. A handler built inline by a
 // wrapper is reported as its expression rather than resolved, so the output
 // never implies more certainty than the AST supports.
-func handlerName(args []ast.Expr) string {
+func handlerName(args []ast.Expr, echo bool) string {
 	if len(args) < 2 {
 		return ""
 	}
-	switch h := args[len(args)-1].(type) {
+	// echo takes the handler first and its middleware after; every other
+	// supported router takes the handler last.
+	pick := len(args) - 1
+	if echo {
+		pick = 1
+	}
+	switch h := args[pick].(type) {
 	case *ast.Ident:
 		return h.Name
 	case *ast.SelectorExpr:

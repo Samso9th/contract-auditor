@@ -122,7 +122,14 @@ class Spec:
     # -- indexing --------------------------------------------------------
 
     def _index(self):
-        global_security = self._security_names(self.document.get("security", []))
+        # No default. A document with no `security` key has not declared its
+        # operations public - it has said nothing about authentication at all,
+        # and the two are opposite claims. Defaulting to [] read every such
+        # document as "everything here is public", so every guarded route in it
+        # became an endpoint the spec supposedly promised needed no credential.
+        # Specs that declare securitySchemes and then never reference them are
+        # common, which is exactly where this fired.
+        global_security = self._security_names(self.document.get("security"))
 
         for path, item in self.document.get("paths", {}).items():
             if not isinstance(item, dict):

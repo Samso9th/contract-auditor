@@ -53,6 +53,42 @@ def literal(node):
     return None
 
 
+def depends_names(node):
+    """The guards named inside a `dependencies=[Depends(verify_key), ...]` list.
+
+    FastAPI has no middleware argument; a route, a router or a mount declares
+    what protects it as a dependency, and `Depends(x)` is how it names x. The
+    route table calls these middleware because that is what they are for the
+    audit's purpose: the thing standing between a caller and the handler.
+    """
+    out = []
+    for keyword in getattr(node, "keywords", []):
+        if keyword.arg != "dependencies" or not isinstance(keyword.value, (ast.List, ast.Tuple)):
+            continue
+        for element in keyword.value.elts:
+            if isinstance(element, ast.Call):
+                inner = element.args[0] if element.args else None
+                name = _name_of(inner) or _name_of(element.func)
+                if name:
+                    out.append(name)
+            else:
+                name = _name_of(element)
+                if name:
+                    out.append(name)
+    return out
+
+
+def _name_of(node):
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Call):
+        inner = _name_of(node.func)
+        return f"{inner}()" if inner else ""
+    return ""
+
+
 def keyword_value(call, name):
     for kw in call.keywords:
         if kw.arg == name:
@@ -192,6 +228,7 @@ def collect(root):
 
         rel = str(path.relative_to(root))
         routes, mounts, imports, own_prefixes = [], [], {}, {}
+        own_guards, mount_guards = {}, {}
 
         for node in ast.walk(tree):
             # `from .customers import router as customers_router`
@@ -214,18 +251,25 @@ def collect(root):
                 if constructor in ("APIRouter", "Blueprint"):
                     own = (keyword_value(node.value, "prefix")
                            or keyword_value(node.value, "url_prefix") or "")
-                    if isinstance(own, str) and own:
-                        for target in node.targets:
-                            if isinstance(target, ast.Name):
-                                own_prefixes[target.id] = own
+                    guards = depends_names(node.value)
+                    for target in node.targets:
+                        if not isinstance(target, ast.Name):
+                            continue
+                        if isinstance(own, str) and own:
+                            own_prefixes[target.id] = own
+                        if guards:
+                            own_guards[target.id] = guards
 
             # include_router / register_blueprint carry the prefix.
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 name = node.func.attr
                 if name in ("include_router", "register_blueprint") and node.args:
                     prefix = keyword_value(node, "prefix") or keyword_value(node, "url_prefix") or ""
-                    mounts.append({"prefix": prefix or "",
-                                   "target": receiver(node.args[0])})
+                    target = receiver(node.args[0])
+                    mounts.append({"prefix": prefix or "", "target": target})
+                    guards = depends_names(node)
+                    if guards and target:
+                        mount_guards.setdefault(target, []).extend(guards)
 
             # Decorated handlers.
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -251,6 +295,17 @@ def collect(root):
                         continue
 
                     status = keyword_value(decorator, "status_code")
+                    # Two ways a handler is guarded: the route decorator's own
+                    # dependencies, and - the Flask idiom, which has no such
+                    # argument - the decorators stacked between the route and
+                    # the function.
+                    guards = depends_names(decorator)
+                    for other in node.decorator_list:
+                        if other is decorator:
+                            continue
+                        name_of_other = _name_of(other)
+                        if name_of_other:
+                            guards.append(name_of_other)
                     # The generated test calls the handler directly, so it needs
                     # the real parameter names; guessing them produces a
                     # TypeError that looks like a failed verification.
@@ -262,11 +317,13 @@ def collect(root):
                             "handler": node.name, "line": node.lineno,
                             "status_code": status,
                             "is_async": isinstance(node, ast.AsyncFunctionDef),
+                            "guards": guards,
                             "args": arg_names,
                         })
 
         per_file[rel] = {"routes": routes, "mounts": mounts, "imports": imports,
-                         "own_prefixes": own_prefixes, "tree": tree, "path": path}
+                         "own_prefixes": own_prefixes, "own_guards": own_guards,
+                         "mount_guards": mount_guards, "tree": tree, "path": path}
     return per_file
 
 
@@ -368,10 +425,13 @@ def main():
     # covers the common single-mount case without pretending to resolve
     # cross-module aliasing the AST cannot settle.
     prefixes = {}
+    mounted_guards = {}
     for data in per_file.values():
         for mount in data["mounts"]:
             if mount["target"]:
                 prefixes.setdefault(mount["target"], mount["prefix"])
+        for target, guards in data["mount_guards"].items():
+            mounted_guards.setdefault(target, guards)
 
     routes, seen = [], set()
     for rel, data in sorted(per_file.items()):
@@ -379,12 +439,19 @@ def main():
             prefix = prefixes.get(route["owner"], "")
             own = data["own_prefixes"].get(route["owner"], "")
             full = normalise(prefix + own + route["path"], args.strip_prefix)
+            # Everything standing in front of this handler: what the mount
+            # declared, what the router declared, and what the route declared.
+            guards = list(dict.fromkeys(
+                mounted_guards.get(route["owner"], [])
+                + data["own_guards"].get(route["owner"], [])
+                + route.get("guards", [])))
             key = (route["method"], full)
             if key in seen:
                 continue
             seen.add(key)
             routes.append({
                 "method": route["method"], "path": full,
+                "middleware": guards,
                 "handler": route["handler"], "file": rel, "line": route["line"],
                 "style": "python", "annotation": None,
                 "status_code": route["status_code"], "is_async": route["is_async"],

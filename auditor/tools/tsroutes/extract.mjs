@@ -150,6 +150,41 @@ function sourceFiles(dir) {
 const literal = (node) =>
   node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
 
+// Top-level string constants, by name, across every file. A name declared twice
+// with different values is dropped rather than guessed at - the same discipline
+// the route table uses everywhere else.
+const constants = new Map();
+const clashedConstants = new Set();
+
+function recordConstant(node) {
+  if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name)) return;
+  const value = literal(node.initializer);
+  if (value === null) return;
+  if (constants.has(node.name.text) && constants.get(node.name.text) !== value) {
+    clashedConstants.add(node.name.text);
+  }
+  constants.set(node.name.text, value);
+}
+
+// A path written as a template, resolved against those constants:
+//
+//   app.get(`/${CERT_NAME}`, handler)
+//
+// Common wherever a base path or a filename is declared once and reused. The
+// path is not a string literal, so it read as no path at all and the route was
+// dropped - which understates the API surface, the one error this must not make.
+// Anything the constants cannot settle stays dropped rather than guessed.
+function templatePath(node) {
+  if (!node || !ts.isTemplateExpression(node)) return null;
+  let out = node.head.text;
+  for (const span of node.templateSpans) {
+    const name = ts.isIdentifier(span.expression) ? span.expression.text : "";
+    if (!name || clashedConstants.has(name) || !constants.has(name)) return null;
+    out += constants.get(name) + span.literal.text;
+  }
+  return out;
+}
+
 // Express ':id' and '*' become OpenAPI '{id}', so paths compare to a spec.
 function normalisePath(p) {
   let out = p.replace(/:([A-Za-z_][A-Za-z0-9_]*)\??/g, "{$1}").replace(/\/\*$/, "/{wildcard}");
@@ -454,6 +489,8 @@ for (const file of files) {
       }
     }
 
+    recordConstant(node);
+
     if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
       const target = resolveImport(literal(node.moduleSpecifier) ?? "");
       if (target) reexports.push(target);
@@ -482,7 +519,8 @@ for (const file of files) {
           }
         }
       } else if (HTTP_METHODS.has(method) && node.arguments.length >= 1) {
-        const routePath = node.arguments.length >= 2 ? literal(first) : null;
+        const routePath = node.arguments.length >= 2
+          ? (literal(first) ?? templatePath(first)) : null;
         // A route registration always takes a path string plus a handler. The
         // guard keeps unrelated .get()/.delete() calls - a Map, a cache, an ORM
         // query builder - out of the route table.
