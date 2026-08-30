@@ -61,139 +61,24 @@ matters because that is the normal state of a fresh checkout.
 
 ## Usage
 
-This runs automatically on every proposed change to your code. The smallest
-useful setup needs no account and no password: the no-AI part costs nothing and
-catches most problems by itself.
-
-```yaml
-name: Contract audit
-on: [pull_request]
-permissions:
-  contents: read
-  pull-requests: write
-
-jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - id: audit
-        uses: samso9th/contract-auditor@v1
-        continue-on-error: true
-        with:
-          # Your OpenAPI document: the file your integrators build against.
-          # Often openapi.json, docs/openapi.json, or api/openapi.yaml.
-          spec: openapi.json
-          # The directory your route registrations and handlers live in.
-          # This example is a Go layout; the table below has the other three.
-          source-dir: internal
-          # The path prefix your code registers but your spec leaves out.
-          # Check your spec's servers[].url if you are unsure.
-          strip-prefix: /v1
-          # Warn only, to start. Tighten once the first backlog is cleared.
-          fail-on: none
-      - id: brief
-        uses: actions/upload-artifact@v4
-        if: always() && steps.audit.outputs.brief-dir != ''
-        with:
-          name: contract-audit-brief
-          path: ${{ steps.audit.outputs.brief-dir }}
-          if-no-files-found: ignore
-      # The artifact id is minted by the upload, so the download link cannot
-      # come from the audit step. This is what makes the comment one click.
-      - id: body
-        if: always() && steps.audit.outputs.summary != ''
-        env:
-          SUMMARY: ${{ steps.audit.outputs.summary }}
-          BRIEF_URL: ${{ steps.brief.outputs.artifact-url }}
-        run: |
-          set -euo pipefail
-          cp "$SUMMARY" contract-audit-comment.md
-          [ -z "$BRIEF_URL" ] || \
-            printf '\n**[Download the fix brief](%s)**\n' "$BRIEF_URL" >> contract-audit-comment.md
-          echo "path=contract-audit-comment.md" >> "$GITHUB_OUTPUT"
-      - uses: marocchino/sticky-pull-request-comment@v2
-        if: always() && github.event_name == 'pull_request' && steps.body.outputs.path != ''
-        with:
-          header: contract-audit
-          path: ${{ steps.body.outputs.path }}
-```
-
-The comment is edited in place on every push, so a pull request carries one
-audit that is always current rather than a column of stale ones.
-
-Findings are also written to SARIF, if you would rather read them as annotations
-in the Security tab. Add the upload step and the permissions it needs:
-
-```yaml
-permissions:
-  contents: read
-  pull-requests: write
-  security-events: write   # upload the SARIF
-  actions: read            # required as well on a private repository
-
-    # ... after the audit step:
-      - uses: github/codeql-action/upload-sarif@v4
-        if: always() && steps.audit.outputs.sarif != ''
-        with:
-          sarif_file: ${{ steps.audit.outputs.sarif }}
-```
-
-Code scanning has to be enabled on the repository for that step to land, which
-on a private repository means GitHub Advanced Security. Without it the upload
-fails with `Resource not accessible by integration`, so leave the step out
-unless you want the annotations.
-
-Those three inputs are the ones that differ from project to project, and a first
-run that goes wrong almost always goes wrong on one of them. What to put depends
-on the language:
-
-| Your project | `source-dir` | `strip-prefix` | Detected by |
-|---|---|---|---|
-| **Go** (net/http, gin, chi, echo) | `internal`, `cmd`, or the module root | `/v1` | `go.mod`, or any `.go` file |
-| **TypeScript** (Express) | `src` | `/api/v1` | `package.json`, or any `.ts` file |
-| **Python** (FastAPI, Flask) | the package your app lives in, commonly `app` | `/api/v1` | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` |
-| **PHP** (Laravel) | the project root, so both `routes/api.php` and `app/Http/Controllers` are readable | `/api` | `artisan`, `composer.json`, `routes/api.php` |
-
-### Setting it up without reading the codebase
-
-The inputs above are the ones a newcomer to a repository cannot answer, and
-`contract-middleware` is worse: it needs knowing that `authenticate` guards the
-merchant API while `adminAuthenticate` guards the console. Let it read the
-repository instead.
+**Requirements:** Docker.
 
 ```bash
 docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
   ghcr.io/samso9th/contract-auditor:v1 init
 ```
 
-It writes `.github/workflows/contract-audit.yml`, and refuses to overwrite one
-that already exists — pass `--force` to replace it, or `--stdout` to print it and
-merge by hand.
+That reads your repository and writes `.github/workflows/contract-audit.yml`,
+with every value it derived and why. Commit it. From then on every pull request
+is audited, and the findings arrive as a comment on it.
 
-Nothing is guessed, and every value carries its derivation as a comment:
+Nothing else to configure. The spec, the source directory, the path prefix and
+the middleware that separates your public API from your dashboard are all worked
+out by reading the code, which is the part you would otherwise have to know.
 
-| Input | Derived from |
-|---|---|
-| `language` | the marker file that decided it |
-| `spec` | the candidate document with the most documented operations |
-| `strip-prefix` | the path component of the spec's own `servers[].url` |
-| `source-dir` | the candidate directory that yielded the most routes |
-| `contract-middleware` | the spec names the credential integrators were promised, in `components.securitySchemes`. The middleware whose source reads that header is the guard that defines the contract |
+### Running it without Docker
 
-That last row is the one that saves the reading. On a real payments API the
-chain runs: the spec declares `ApiKeyAuth` in header `x-api-key`, exactly one
-middleware file reads that header, it exports `authenticate`, so
-`contract-middleware: authenticate` — and the console's 37 routes and the
-trading product's 9 leave the audit without anyone naming them.
-
-Where a language records no route middleware, the generated file says so in a
-comment and leaves `exclude-paths` stubbed out instead of pretending.
-
-#### Running it without Docker
-
-Coming soon. Whoever has the codebase checked out already has one of these
-installed, which makes it the shortest path there is:
+Coming soon. Whoever has the codebase checked out already has one of these:
 
 | Runtime | Planned |
 |---|---|
@@ -203,128 +88,11 @@ installed, which makes it the shortest path there is:
 | Go | `go run github.com/samso9th/contract-auditor@latest init` |
 | Rust | `cargo run contract-auditor init` |
 
-Until then the image above is the way, and it needs nothing but Docker.
+### Everything else
 
-### Telling the contract apart from the dashboard
-
-Most codebases register two APIs in one place: the one integrators hold an API
-key for, and the one a dashboard or admin console talks to with a session token.
-Only the first was ever promised to anyone. They are not told apart by their
-paths, which is why a list of path globs goes stale the week after you write it.
-They are told apart by which guard they sit behind:
-
-```yaml
-          contract-middleware: authenticate
-```
-
-Only routes registered with that middleware are audited. A new admin route added
-next week is out of scope without anyone editing anything, and a new merchant
-route is in scope for the same reason. Names are the identifiers as they appear
-in the registration, and both styles are read: the per-route guard
-(`router.get("/x", authenticate, handler)`) and the router-level one
-(`router.use(authenticate)` at the top of the file).
-
-Route middleware is extracted for TypeScript today. Where a language supplies
-none, the run fails with that explanation rather than quietly excluding every
-route; use `exclude-paths` there instead.
-
-### Routes that are not part of the contract
-
-Most codebases register endpoints no integrator was ever promised: a dashboard's
-own session routes, internal health checks, an admin surface. Reported as drift
-they are not wrong, only irrelevant, and a report that is mostly irrelevant stops
-being read. Leave them out:
-
-```yaml
-          exclude-paths: |
-            /auth/*
-            /internal/*
-```
-
-Patterns are matched against the path as your spec writes it, so after
-`strip-prefix` has been removed, and `*` crosses slashes: `/auth/*` covers
-`/auth/me/password`. A trailing `/*` covers the collection itself too, so
-`/auth/*` also excludes `/auth`, while `/authorize` is left alone. An excluded
-path leaves the audit in both directions, so it is neither missing from the spec
-nor missing from the code.
-
-Excluding every endpoint fails the run rather than reporting a clean audit, which
-is what catches the usual first attempt of writing the prefix back in.
-
-You do not have to set `language`: it is detected from the markers in the last
-column. Set it explicitly only in a polyglot repository, where the first marker
-found wins and may not be the one you meant.
-
-`strip-prefix` is the one worth checking twice. It is whatever your code
-registers that your spec's paths do not repeat. If the code says
-`Route::prefix('v1')` or `router.post("/v1/payouts", ...)` while the spec
-documents `/payouts`, the prefix is `/v1`. Your spec's `servers[].url` usually
-spells it out. Get it wrong and the first run reports that *every* route is
-missing from the spec, which is the symptom to recognise.
-
-Anything found then shows up as a note attached to the exact line of code, right
-where the change is being reviewed.
-
-Three things are optional and off until you switch them on: the AI stage, the
-alerts, and the memory. Each is a few lines in the same `with:` block.
-
-**The AI stage, and which AI.** `api-key` turns it on. Nothing here is tied to
-one vendor or one model: set `model` to any model your endpoint serves, and
-`reasoning` to `off`, `low`, `medium` or `high` if you want it to deliberate
-before answering, which is slower and costs more.
-
-```yaml
-        with:
-          spec: openapi.json
-          api-key: ${{ secrets.OPENROUTER_API_KEY }}
-          model: deepseek/deepseek-v3.2
-          reasoning: medium
-```
-
-Locally the same two settings are `--model` and `--reasoning`, or `AUDITOR_MODEL`
-and `AUDITOR_REASONING` in `.env`. Left alone, the tool uses the model the
-[results](RESULTS.md) were measured with and sends no reasoning instruction at all.
-
-**Telling a human.** Slack and Telegram get a formatted message; `webhook-url`
-gets the raw JSON report, for a database or anything else that reads one. Only
-findings that survived the proving step are ever sent, and a clean run says
-nothing at all, which is what keeps the alert worth reading a month from now.
-
-```yaml
-        with:
-          spec: openapi.json
-          api-key: ${{ secrets.OPENROUTER_API_KEY }}
-          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          telegram-bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          telegram-chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
-          notify-min-severity: high
-          webhook-url: ${{ secrets.AUDIT_SINK_URL }}
-          webhook-secret: ${{ secrets.AUDIT_SINK_TOKEN }}
-```
-
-`notify-min-severity` is the bar for interrupting someone: `high` by default, so
-a low-severity default-value drift lands in the pull request without also
-pinging a channel. `webhook-secret` is sent as `X-Auditor-Token` so your receiver
-can tell a real POST from anyone else's.
-
-**Remembering what it got wrong.** Point `memory-url` at storage you own and
-every verdict is kept, so later runs know which kinds of complaint have been
-refuted before. Nothing is stored in your repository or inside the image, and
-there is no shared memory between projects.
-
-```yaml
-        with:
-          spec: openapi.json
-          api-key: ${{ secrets.OPENROUTER_API_KEY }}
-          memory-url: s3://my-bucket/contract-auditor
-          memory-key-id: ${{ secrets.MEMORY_KEY_ID }}
-          memory-secret: ${{ secrets.MEMORY_SECRET }}
-```
-
-Any S3-compatible bucket works, and so does a plain HTTPS endpoint, Cloudinary
-or IPFS. [How it gets better the more it is used](#how-it-gets-better-the-more-it-is-used)
-explains what is kept and what it changes.
-
+Inputs, excluding routes, adding the AI judgment pass, Slack and Telegram,
+memory, and troubleshooting are all documented at
+**[contract-auditor.mintlify.site](https://contract-auditor.mintlify.site/)**.
 
 ## What is the Problem and Who this is for
 
@@ -439,8 +207,9 @@ repository or inside the published image**. There is no shared memory, no
 history bundled with the tool, and no way for one project's statistics to end up
 as another project's assumptions.
 
-Turning it on is the three `memory-*` inputs shown in
-[Use it in your CI](#use-it-in-your-ci). Any S3-compatible bucket works (AWS,
+Turning it on is the three `memory-*` inputs documented at
+[contract-auditor.mintlify.site](https://contract-auditor.mintlify.site/). Any
+S3-compatible bucket works (AWS,
 Cloudflare R2, MinIO, Backblaze, Spaces), and so does a plain HTTPS endpoint,
 Cloudinary, or IPFS through a pinning service. Leave `memory-url` out and the
 tool behaves exactly as it always has.
