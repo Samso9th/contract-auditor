@@ -125,6 +125,32 @@ Different people edit each one, at different times. Code review asks whether the
 code is correct. It does not ask whether the code still matches what was promised
 months ago, so the two drift apart quietly.
 
+There is a second kind of drift, and it is the one nobody reviews: **who is
+allowed to call an endpoint.**
+
+Most codebases register two APIs in the same place. One is the public contract,
+opened with an API key that an integrator puts in a config file and leaves for
+years. The other is a dashboard or admin console, opened with a session token
+that expires in an hour. They sit in the same files and are separated only by
+which piece of middleware guards them.
+
+The moment one guard accepts both credentials — a function that takes an API key
+**or** a session token, which is an ordinary thing to write — every endpoint
+behind it accepts both. A key issued to move money also reaches account
+management. Nobody chose that, and because it was never written down, nothing
+contradicts it.
+
+This tool reads which guard protects which route, so it can answer a question
+code review never asks: what can this API key actually reach? Anything on that
+list you thought was dashboard-only is a finding about your architecture rather
+than your documentation. It also reports the two clear failures directly: an
+endpoint the documentation calls protected that is registered without a guard,
+and an endpoint the documentation calls public that answers 401.
+
+The payments company above found exactly this in its own code, using the tool
+while building it: its dashboard session endpoints answered to a merchant API
+key, because one guard served both.
+
 The measurements below come from that payments company's own codebase, which has
 roughly 324 files of code:
 

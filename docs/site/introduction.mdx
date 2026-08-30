@@ -24,6 +24,41 @@ Code review asks whether the code is correct. It does not ask whether the code
 still matches what was promised, so the difference tends to show up at
 integration time, in someone else's codebase.
 
+## The problem, second half: who can reach what
+
+Drift is not only what an endpoint returns. It is also **who is allowed to call
+it**, and that half is invisible in code review.
+
+Most codebases register two APIs in one place. One is the public contract, held
+open by an API key an integrator stores in a config file for years. The other is
+a dashboard or admin console, reached with a session token that expires. They
+live in the same router files, and are told apart only by which middleware they
+sit behind.
+
+Once one guard accepts both credentials — an `authenticate` that takes
+`x-api-key` **or** a bearer token, which is a very ordinary thing to write —
+every route behind it is reachable with either. A machine key scoped for
+payments now also reaches account management, and nobody decided that. It was
+never written down, so nothing contradicts it.
+
+The auditor makes that surface visible two ways:
+
+- **`contract-middleware`** restricts the audit to routes behind the guard that
+  reads the credential your spec promises integrators. What comes back is,
+  precisely, the set of endpoints your API key can reach. Anything in that list
+  you believed was dashboard-only is an architectural finding, and it is the
+  reason this section exists — it is how the payments API above discovered its
+  own session endpoints answered to a merchant key.
+- **`auth_guard_missing` and `auth_guard_undocumented`** compare each route's
+  guard against the security its spec declares, in both directions. Documented
+  as protected but registered open is critical. Guarded but documented public
+  answers an integrator 401 for following the documentation.
+
+Neither needs the application to run. Both read which middleware guards which
+route, which is why ordering matters: `router.use(mw)` protects only the routes
+registered after it, and a route above that line is open however protected the
+rest of the file looks.
+
 ## Measured on a real payments API
 
 | Signal | Value |
