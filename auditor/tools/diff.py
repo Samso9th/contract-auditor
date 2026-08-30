@@ -223,6 +223,10 @@ GUARD_BODY = (
     r"|^func\s+(?:\([^)]*\)\s*)?{name}\b"
 )
 
+# A custom header named in prose. Only x- names, for the same reason the rule
+# itself only reports those: anything else is too common a word to be a promise.
+CUSTOM_HEADER = re.compile(r"\bx-[a-z0-9]+(?:-[a-z0-9]+)*\b", re.I)
+
 # A called name inside a guard's body, and the words that are never a helper -
 # control flow, and the error-construction calls every guard makes.
 CALLED_NAME = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
@@ -609,9 +613,9 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
           contract_middleware=(), coverage=None):
     """Run every deterministic rule. Returns a list of findings.
 
-    A language whose adapter supplies no handler facts - TypeScript today - gets
-    the route-existence rules and nothing more. The body rules skip rather than
-    guess, so the findings that do appear are as trustworthy as they are in Go.
+    A language whose adapter supplies no handler facts gets the route-existence
+    rules and nothing more. The body rules skip rather than guess, so the
+    findings that do appear are as trustworthy as they are in Go.
     """
     table = extract(source_dir, strip_prefix=strip_prefix, language=language)
     spec = load_spec(spec_path)
@@ -656,9 +660,10 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
         if not any(r.get("middleware") for r in extracted):
             raise RouteExtractionError(
                 "contract-middleware is set, but no route in this table records any "
-                "middleware, so every route would fall outside the contract. Route "
-                "middleware is extracted for TypeScript today; leave the input unset "
-                "for other languages and use exclude-paths instead.")
+                "middleware, so every route would fall outside the contract. Either "
+                "this project applies its guards somewhere this parser does not read "
+                "them, or the names are wrong; leave the input unset and use "
+                "exclude-paths instead.")
         # strip_factory on both sides: a guard built by a factory keeps its
         # parentheses in the route table - RequireAuth(logger) is recorded as
         # RequireAuth() - while the input names it without them.
@@ -961,18 +966,36 @@ def _operation_rules(path, method, route, operation, spec, facts, structs,
             continue  # only contract-bearing custom headers, not Content-Type
         if header.lower() in declared or header.lower() in described:
             continue
-        # An extra header is not the same fault as a missing one, and the
-        # severity table cannot tell them apart because both are this kind.
-        # A header the spec promises and the code never sets breaks an
-        # integrator reading it; a header the code sets and the spec never
-        # mentions is only undocumented. Ranking the second as critical put 49
-        # copies of one shared pagination handler at the top of a real report,
-        # above everything that actually breaks.
+        # Two different faults arrive at this rule, and only one is breaking.
+        #
+        # If the operation promises headers and the code sets none of them, an
+        # undocumented header here is a rename: an integrator reading the header
+        # the spec named finds nothing. That is critical, and it is how the
+        # evaluation's header-rename case is caught.
+        #
+        # If the operation promises no headers at all, the code is merely
+        # returning more than the document mentions. Real, worth knowing, not
+        # breaking - and ranking it critical put 49 copies of one shared
+        # pagination handler above everything that does break.
+        # What this operation promises, from its headers block and from its
+        # prose - the fixture's own header-rename case names the header in the
+        # description rather than declaring it, and so do plenty of real specs.
+        promised = declared | set(CUSTOM_HEADER.findall(described))
+        # Prefix matching in both directions, because prose names a family as
+        # often as it names a header: vikunja documents "the x-pagination-*
+        # headers", which an exact test read as a promise of a header called
+        # x-pagination that nothing sets, and so as a rename.
+        set_headers = {h.lower() for h in facts["headers_set"]}
+        renamed = bool(promised) and not any(
+            name == h or h.startswith(name + "-") or name.startswith(h + "-")
+            for name in promised for h in set_headers)
         out.append(finding(
             path, method, "response_header_mismatch", header,
             f"{facts['file']}:{facts['line']} {facts['name']} sets {header},"
-            f" which appears nowhere in the documentation for this operation",
-            "R9", severity="medium"))
+            f" which appears nowhere in the documentation for this operation"
+            + (f"; the spec names {', '.join(sorted(promised))} here and the"
+               f" handler sets none of them" if renamed else ""),
+            "R9", severity="critical" if renamed else "medium"))
 
     return out
 

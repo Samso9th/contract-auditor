@@ -34,9 +34,9 @@ inputs:
       the registration. This is how an integrator-facing API is told apart from a
       dashboard or admin surface registered in the same codebase: they differ by
       which guard they sit behind, not by their path, so a route added next week
-      lands on the right side without anyone editing this list. Extracted for
-      TypeScript today; the run fails rather than silently excluding everything
-      where the language supplies no middleware.
+      lands on the right side without anyone editing this list. Read from the
+      source in every supported language; the run fails rather than silently
+      excluding everything where no middleware could be found.
     required: false
     default: ""
   exclude-paths:
