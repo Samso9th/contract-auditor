@@ -91,8 +91,8 @@ Coming soon. Whoever has the codebase checked out already has one of these:
 ### Everything else
 
 Inputs, excluding routes, adding the AI judgment pass, Slack and Telegram,
-memory, and troubleshooting are all documented at
-**[contract-auditor.mintlify.site](https://contract-auditor.mintlify.site/)**.
+memory, and troubleshooting are all documented at our
+**[ documentation](https://contract-auditor.mintlify.site/)**.
 
 ## What is the Problem and Who this is for
 
@@ -207,8 +207,8 @@ repository or inside the published image**. There is no shared memory, no
 history bundled with the tool, and no way for one project's statistics to end up
 as another project's assumptions.
 
-Turning it on is the three `memory-*` inputs documented at
-[contract-auditor.mintlify.site](https://contract-auditor.mintlify.site/). Any
+Turning it on is the three `memory-*` inputs documented at our
+[docs](https://contract-auditor.mintlify.site/). Any
 S3-compatible bucket works (AWS,
 Cloudflare R2, MinIO, Backblaze, Spaces), and so does a plain HTTPS endpoint,
 Cloudinary, or IPFS through a pinning service. Leave `memory-url` out and the
