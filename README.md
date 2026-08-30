@@ -102,8 +102,12 @@ memory, and troubleshooting are all covered in the
 
 ## What is the Problem and Who this is for
 
-Who: Any company that publishes software for other developers to use, and every
-developer building against it.
+Who: Any company that publishes software for other developers to use. Also
+anyone building against someone else's software, but only where they can read
+its code: another team's service inside the same company, an open source
+project, or a supplier's repository shared under contract. The tool reads source
+code and runs a test against it, so it has to sit where the code is. Being able
+to call the software over the network is not enough.
 
 The Problem: The case that prompted this is a payments company. Other financial
 companies read its published document, write code to move money through it, and go
@@ -121,6 +125,32 @@ Different people edit each one, at different times. Code review asks whether the
 code is correct. It does not ask whether the code still matches what was promised
 months ago, so the two drift apart quietly.
 
+There is a second kind of drift, and it is the one nobody reviews: **who is
+allowed to call an endpoint.**
+
+Most codebases register two APIs in the same place. One is the public contract,
+opened with an API key that an integrator puts in a config file and leaves for
+years. The other is a dashboard or admin console, opened with a session token
+that expires in an hour. They sit in the same files and are separated only by
+which piece of middleware guards them.
+
+The moment one guard accepts both credentials (a function that takes an API key
+**or** a session token, which is an ordinary thing to write), every endpoint
+behind it accepts both. A key issued to move money also reaches account
+management. Nobody chose that, and because it was never written down, nothing
+contradicts it.
+
+This tool reads which guard protects which route, so it can answer a question
+code review never asks: what can this API key actually reach? Anything on that
+list you thought was dashboard-only is a finding about your architecture rather
+than your documentation. It also reports the two clear failures directly: an
+endpoint the documentation calls protected that is registered without a guard,
+and an endpoint the documentation calls public that answers 401.
+
+The payments company above found exactly this in its own code, using the tool
+while building it: its dashboard session endpoints answered to a merchant API
+key, because one guard served both.
+
 The measurements below come from that payments company's own codebase, which has
 roughly 324 files of code:
 
@@ -137,10 +167,20 @@ look like request definitions, and misses 50 real ones written in a shorthand it
 cannot recognise. That gap between 805 and 841 is the argument for the whole tool.
 An approximate answer and a correct one are not the same answer.
 
-Not all 841 of those are meant to be public. Internal and staff-only functions
-are legitimately left undocumented, and working out which ones is part of the job.
-But nobody is going to compare 170 descriptions against 841 real ones by hand,
-which is why nobody had ever measured the gap.
+Not all 841 of those are meant to be public. The published document exists for
+outside developers holding a key the company issued them, so the only requests
+that belong in it are the ones that key is meant to reach. Everything reached
+some other way is out by design: staff screens, internal calls one service makes
+to another, health checks, operational tooling, and every request the company's
+own interface makes on behalf of somebody who has signed in, which carries a
+session token rather than a key. Publishing those would be a mistake, not a fix.
+The line to draw is the credential, not the feature.
+
+So the honest reading is that 841 requests exist, 170 are published, and nobody
+knows which of the remaining 671 should have been. Sorting the deliberately
+private from the accidentally missing is part of the job this tool does, not a
+step it skips. Nobody is going to do that by hand across 841 requests, which is
+why nobody had ever measured the gap.
 
 The cost of this problem is lopsided. It is nearly free to fix on the day someone
 introduces it, and expensive once an outside company has built against the wrong

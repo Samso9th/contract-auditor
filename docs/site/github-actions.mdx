@@ -120,6 +120,37 @@ none, the run fails and says so instead of quietly excluding every route. Use
 `exclude-paths` there instead.
 </Note>
 
+### What the guard tells you beyond the filter
+
+Restricting the audit to one guard also answers a question nobody asks in code
+review: **what can this credential actually reach?** The findings that come back
+are exactly the endpoints behind the guard that reads the credential your spec
+promises integrators. An endpoint you believed was dashboard-only appearing in
+that list is a finding about your architecture, not your documentation.
+
+It happens for an ordinary reason. A guard written to accept an API key **or** a
+session token protects every route behind it with both, so a key issued to move
+money also reaches account management. Nothing contradicts it, because nothing
+wrote it down.
+
+Two rules report the clear-cut cases directly, wherever route middleware is
+recorded:
+
+| Kind | Severity | Fires when |
+|---|---|---|
+| `auth_guard_missing` | **critical** | the spec declares security for the operation and the route carries no guard that reads any credential the spec names |
+| `auth_guard_undocumented` | high | the route is guarded and the spec documents the operation as public, so an integrator following it is answered 401 |
+
+Both are reported per file and only for files that guard something, so a project
+applying authentication once at application level gets silence rather than a page
+of false alarms.
+
+<Warning>
+`router.use(mw)` guards only the routes registered **after** it. A route above
+that line is open however protected the rest of the file looks, and that is the
+shape `auth_guard_missing` exists to catch.
+</Warning>
+
 ## Routes that are not part of the contract
 
 Most codebases register endpoints no integrator was ever promised: a dashboard's
@@ -242,7 +273,7 @@ integrated, so the brief asks the agent to decide explicitly and say why.
 | `source-dir` | `.` | Directory containing the API source. |
 | `language` | `auto` | `go`, `typescript`, or detect. |
 | `strip-prefix` | n/a | Prefix to strip so routes match spec paths. |
-| `contract-middleware` | n/a | Only audit routes guarded by these middleware, one name per line. TypeScript today. |
+| `contract-middleware` | n/a | Only audit routes guarded by these middleware, one name per line. TypeScript today. Also enables the two guard rules. |
 | `exclude-paths` | n/a | Globs to leave out of the audit, one per line. Matched after `strip-prefix` is removed. |
 | `api-key` | n/a | Omit for deterministic-only: no cost, no secret. |
 | `base-url` | OpenRouter | Any OpenAI-compatible endpoint. |
