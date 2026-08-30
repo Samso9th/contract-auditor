@@ -16,6 +16,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { execSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 const argOf = (flag, fallback = "") => {
@@ -43,8 +44,20 @@ function loadTypeScript() {
   // install layout, so the global root is tried explicitly rather than assumed -
   // a container that cannot parse TypeScript would otherwise fail at audit time
   // with a message that points nowhere useful.
+  // npm itself is the authority on where a global install landed. The paths
+  // below are only guesses, and they miss every layout that puts node
+  // somewhere else - nvm, volta, asdf, and actions/setup-node, which is how
+  // this is installed on a GitHub runner.
+  let npmRoot = "";
+  try {
+    npmRoot = execSync("npm root -g", {
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000,
+    }).trim();
+  } catch { /* npm may not be on PATH at all */ }
+
   const globalRoots = [
     process.env.NODE_PATH,
+    npmRoot,
     "/usr/local/lib/node_modules",
     "/usr/lib/node_modules",
     "/opt/homebrew/lib/node_modules",
