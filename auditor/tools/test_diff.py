@@ -10,7 +10,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from diff import audit, parse_excludes, path_excluded  # noqa: E402
+from diff import audit, parse_excludes, parse_names, path_excluded  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "eval" / "fixture"
@@ -97,6 +97,21 @@ def main():
     except Exception as exc:
         check("excluding every endpoint raises rather than reporting clean",
               "exclude-paths" in str(exc), str(exc)[:60])
+
+    # contract-middleware. The Go extractor records no middleware, so the guard
+    # is what stops the input silently emptying the audit on a language that
+    # cannot answer the question.
+    check("middleware names split on newlines and commas",
+          parse_names("a,b") == parse_names("a\nb") == ("a", "b"))
+    check("a middleware name is not turned into a path",
+          parse_names("authenticate") == ("authenticate",))
+    try:
+        audit(FIXTURE, FIXTURE / "spec" / "openapi.json", strip_prefix="/v1",
+              contract_middleware="authenticate")
+        check("contract-middleware raises where no middleware is extracted", False)
+    except Exception as exc:
+        check("contract-middleware raises where no middleware is extracted",
+              "records any middleware" in str(exc), str(exc)[:70])
 
     for case_id, kinds in sorted(EXPECTED_KINDS.items()):
         case = CASES / case_id

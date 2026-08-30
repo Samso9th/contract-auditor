@@ -30,7 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 from audit_endpoint import audit_endpoint  # noqa: E402
 from diff import audit as deterministic_audit  # noqa: E402
 from llm import DEFAULT_MODEL, DEFAULT_REASONING, REASONING_LEVELS  # noqa: E402
-from diff import extract, parse_excludes, path_excluded  # noqa: E402
+from diff import extract, parse_excludes, parse_names, path_excluded  # noqa: E402
 import languages  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 from verify import verify_claim  # noqa: E402
@@ -272,6 +272,9 @@ def main():
                              "and dearer on every endpoint; omitted, the model's "
                              "own default applies (set by AUDITOR_REASONING)")
     parser.add_argument("--strip-prefix", default="/v1")
+    parser.add_argument("--contract-middleware", default="",
+                        help="only audit routes guarded by these middleware, newline "
+                             "or comma separated, e.g. 'authenticate'")
     parser.add_argument("--exclude-paths", default="",
                         help="glob(s) to leave out of the audit, newline or comma "
                              "separated, e.g. '/auth/*,/internal/*'")
@@ -326,9 +329,17 @@ def main():
             log(f"exclude-paths: {len(table.get('routes') or []) - len(kept)} "
                 f"route(s) left out of the audit")
             table["routes"] = kept
+        wanted = set(parse_names(args.contract_middleware))
+        if wanted:
+            kept = [r for r in (table.get("routes") or [])
+                    if wanted & set(r.get("middleware") or ())]
+            log(f"contract-middleware: {len(table.get('routes') or []) - len(kept)} "
+                f"route(s) outside the contract left out of the audit")
+            table["routes"] = kept
         mechanical = deterministic_audit(api, args.spec, strip_prefix=args.strip_prefix,
                                          language=args.language,
-                                         exclude=args.exclude_paths)
+                                         exclude=args.exclude_paths,
+                                         contract_middleware=args.contract_middleware)
         log(f"deterministic: {len(mechanical)} finding(s)")
         adapter = languages.get(args.language) if args.language else languages.detect(api)
         judged, usage = agent_pass(api, spec, table, mechanical, args.model, pool,

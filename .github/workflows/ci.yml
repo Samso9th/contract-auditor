@@ -55,6 +55,34 @@ jobs:
       - name: Node syntax
         run: node --check auditor/tools/tsroutes/extract.mjs
 
+      # Route middleware is what tells an integrator-facing API apart from an
+      # admin surface registered in the same codebase, so contract-middleware
+      # is only as good as this extraction. Both registration styles are
+      # checked: the per-route guard and the router-level router.use(mw).
+      - name: The extractor records route middleware
+        run: |
+          set -e
+          mkdir -p /tmp/mw/src
+          cat > /tmp/mw/src/routes.js <<'EOF'
+          import { Router } from "express";
+          import { authenticate } from "./auth.js";
+          import { adminAuthenticate } from "./adminAuth.js";
+          const router = Router();
+          router.use(authenticate);
+          router.get("/orders", listOrders);
+          router.get("/stats", adminAuthenticate, getStats);
+          export default router;
+          EOF
+          node auditor/tools/tsroutes/extract.mjs --dir /tmp/mw > /tmp/mw/table.json
+          python3 - <<'EOF'
+          import json
+          routes = {r["path"]: r.get("middleware") or [] for r in
+                    json.load(open("/tmp/mw/table.json"))["routes"]}
+          assert routes.get("/orders") == ["authenticate"], routes
+          assert routes.get("/stats") == ["authenticate", "adminAuthenticate"], routes
+          print("router-level and per-route middleware both recorded")
+          EOF
+
       - name: Shell syntax
         run: bash -n entrypoint.sh
 

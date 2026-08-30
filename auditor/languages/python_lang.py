@@ -45,7 +45,8 @@ def detect(directory):
     markers = ("requirements.txt", "pyproject.toml", "setup.py", "Pipfile")
     if any((directory / m).exists() or (directory.parent / m).exists() for m in markers):
         return True
-    return any(directory.rglob("*.py"))
+    from . import has_source
+    return has_source(directory, ".py")
 
 
 def extract(directory, strip_prefix=DEFAULT_PREFIX):

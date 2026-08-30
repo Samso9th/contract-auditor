@@ -16,6 +16,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { execSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 const argOf = (flag, fallback = "") => {
@@ -43,8 +44,20 @@ function loadTypeScript() {
   // install layout, so the global root is tried explicitly rather than assumed -
   // a container that cannot parse TypeScript would otherwise fail at audit time
   // with a message that points nowhere useful.
+  // npm itself is the authority on where a global install landed. The paths
+  // below are only guesses, and they miss every layout that puts node
+  // somewhere else - nvm, volta, asdf, and actions/setup-node, which is how
+  // this is installed on a GitHub runner.
+  let npmRoot = "";
+  try {
+    npmRoot = execSync("npm root -g", {
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000,
+    }).trim();
+  } catch { /* npm may not be on PATH at all */ }
+
   const globalRoots = [
     process.env.NODE_PATH,
+    npmRoot,
     "/usr/local/lib/node_modules",
     "/usr/lib/node_modules",
     "/opt/homebrew/lib/node_modules",
@@ -148,6 +161,31 @@ function normalisePath(p) {
   return out || "/";
 }
 
+// A middleware is named by an identifier (authenticate), a member access
+// (auth.required) or a factory call (validate(schema)). The factory keeps its
+// parentheses so a reader can tell the two apart in the route table.
+function argName(a) {
+  if (ts.isIdentifier(a)) return a.text;
+  if (ts.isPropertyAccessExpression(a)) return a.name.text;
+  if (ts.isCallExpression(a)) {
+    const e = a.expression;
+    if (ts.isIdentifier(e)) return `${e.text}()`;
+    if (ts.isPropertyAccessExpression(e)) return `${e.name.text}()`;
+  }
+  return "";
+}
+
+function middlewareNames(args) {
+  const out = [];
+  // args[0] is the path and the last is the handler; everything between guards
+  // the route. An inline arrow function is a handler, never a named guard.
+  for (let i = 1; i < args.length - 1; i++) {
+    const name = argName(args[i]);
+    if (name) out.push(name);
+  }
+  return out;
+}
+
 function handlerName(args) {
   for (let i = args.length - 1; i >= 0; i--) {
     const a = args[i];
@@ -182,7 +220,8 @@ for (const file of files) {
   const facts = new Map();     // handler name -> body facts
   const imports = new Map();   // local name -> resolved file
   const mounts = [];           // { prefix, local }
-  const routes = [];           // { method, path, handler, line }
+  const routes = [];           // { method, path, handler, middleware, line }
+  const routerMiddleware = [];  // router.use(mw): guards every route in the file
   // Barrel files forward a router without ever mounting it:
   //   export { default } from './customers.routes.js';
   // Following imports and router.use() alone stops dead at these, which left
@@ -357,7 +396,14 @@ for (const file of files) {
       const method = node.expression.name.text;
       const first = node.arguments[0];
 
-      if (method === "use" && node.arguments.length >= 2) {
+      if (method === "use" && node.arguments.length === 1 && first) {
+        // router.use(authenticate): guards every route this router registers.
+        // Express applies it only to routes declared after it; this treats it
+        // as covering the file, which is how these files are actually written
+        // and errs towards reporting a route as guarded rather than open.
+        const name = argName(first);
+        if (name) routerMiddleware.push(name);
+      } else if (method === "use" && node.arguments.length >= 2) {
         const prefix = literal(first);
         if (prefix !== null && prefix.startsWith("/")) {
           for (let i = 1; i < node.arguments.length; i++) {
@@ -372,14 +418,20 @@ for (const file of files) {
         // query builder - out of the route table.
         if (routePath !== null && (routePath === "" || routePath.startsWith("/"))) {
           routes.push({ method: method.toUpperCase(), path: routePath,
-                        handler: handlerName(node.arguments), line: lineOf(node) });
+                        handler: handlerName(node.arguments),
+                        // Everything between the path and the handler. Which of
+                        // these is an auth guard is the caller's judgement, not
+                        // this parser's: it records what is there.
+                        middleware: middlewareNames(node.arguments),
+                        line: lineOf(node) });
         }
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(sf);
-  perFile.set(file, { rel, imports, mounts, routes, reexports, facts, sf, functions });
+  perFile.set(file, { rel, imports, mounts, routes, routerMiddleware, reexports,
+                      facts, sf, functions });
 }
 
 // Pass 2: walk the mount graph from the entry router outward, so each route
@@ -405,6 +457,7 @@ function walk(file, prefix, depth) {
       method: route.method,
       path: normalisePath(prefix + route.path),
       handler: route.handler,
+      middleware: [...entryData.routerMiddleware, ...(route.middleware || [])],
       file: entryData.rel,
       line: route.line,
       style: "express",
@@ -433,6 +486,7 @@ for (const [file, data] of perFile) {
   for (const route of data.routes) {
     collected.push({
       method: route.method, path: normalisePath(route.path), handler: route.handler,
+      middleware: [...data.routerMiddleware, ...(route.middleware || [])],
       file: data.rel, line: route.line, style: "express-unmounted", annotation: null,
     });
   }

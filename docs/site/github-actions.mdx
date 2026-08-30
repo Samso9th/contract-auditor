@@ -77,6 +77,92 @@ If a first run reports that **every** route is missing from the spec,
 `strip-prefix` is wrong. Your spec's `servers[].url` usually names it.
 </Warning>
 
+## Setting it up without reading the codebase
+
+The inputs above are the ones a newcomer to a repository cannot answer, and
+`contract-middleware` is worse: it needs knowing that `authenticate` guards the
+merchant API while `adminAuthenticate` guards the console. Let it read the
+repository instead.
+
+```bash
+docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
+  ghcr.io/samso9th/contract-auditor:v1 init
+```
+
+It writes `.github/workflows/contract-audit.yml`, and refuses to overwrite one
+that already exists — pass `--force` to replace it, or `--stdout` to print it and
+merge by hand.
+
+Nothing is guessed, and every value carries its derivation as a comment:
+
+| Input | Derived from |
+|---|---|
+| `language` | the marker file that decided it |
+| `spec` | the candidate document with the most documented operations |
+| `strip-prefix` | the path component of the spec's own `servers[].url` |
+| `source-dir` | the candidate directory that yielded the most routes |
+| `contract-middleware` | the spec names the credential integrators were promised, in `components.securitySchemes`. The middleware whose source reads that header is the guard that defines the contract |
+
+That last row is the one that saves the reading. On a real payments API the
+chain runs: the spec declares `ApiKeyAuth` in header `x-api-key`, exactly one
+middleware file reads that header, it exports `authenticate`, so
+`contract-middleware: authenticate` — and the console's 37 routes and the
+trading product's 9 leave the audit without anyone naming them.
+
+Where a language records no route middleware, the generated file says so in a
+comment and leaves `exclude-paths` stubbed out instead of pretending.
+
+### Running it without Docker
+
+Coming soon. Whoever has the codebase checked out already has one of these
+installed, which makes it the shortest path there is:
+
+| Runtime | Planned |
+|---|---|
+| Node | `npx contract-auditor init` |
+| Python | `pipx run contract-auditor init` |
+| PHP | `composer exec contract-auditor init` |
+| Go | `go run github.com/samso9th/contract-auditor@latest init` |
+| Rust | `cargo run contract-auditor init` |
+
+Until then the image above is the way, and it needs nothing but Docker.
+
+## Telling the contract apart from the dashboard
+
+Most codebases register two APIs in one place: the one integrators hold an API
+key for, and the one a dashboard or admin console talks to with a session token.
+Only the first was ever promised to anyone, and they are not told apart by their
+paths - which is why a list of path globs goes stale the week after it is
+written. They are told apart by which guard they sit behind.
+
+```yaml
+      - uses: samso9th/contract-auditor@v1
+        with:
+          spec: docs/openapi.json
+          source-dir: src
+          strip-prefix: /api/v1
+          contract-middleware: authenticate
+```
+
+Only routes registered with that middleware are audited, on both sides: an
+operation the spec documents and a non-contract guard protects does not then
+read as missing from the code. A route added next week lands on the right side
+without anyone editing a list.
+
+Both registration styles are read:
+
+```ts
+router.use(authenticate);                          // guards the whole router
+router.get("/orders", listOrders);                 // in the contract
+router.get("/stats", adminAuthenticate, getStats); // out of it
+```
+
+<Note>
+Route middleware is extracted for TypeScript today. Where a language supplies
+none, the run fails with that explanation rather than silently excluding every
+route - use `exclude-paths` there instead.
+</Note>
+
 ## Routes that are not part of the contract
 
 Most codebases register endpoints no integrator was ever promised: a dashboard's
@@ -199,6 +285,7 @@ integrated, so the brief asks the agent to decide explicitly and say why.
 | `source-dir` | `.` | Directory containing the API source. |
 | `language` | `auto` | `go`, `typescript`, or detect. |
 | `strip-prefix` | n/a | Prefix to strip so routes match spec paths. |
+| `contract-middleware` | n/a | Only audit routes guarded by these middleware, one name per line. TypeScript today. |
 | `exclude-paths` | n/a | Globs to leave out of the audit, one per line. Matched after `strip-prefix` is removed. |
 | `api-key` | n/a | Omit for deterministic-only: no cost, no secret. |
 | `base-url` | OpenRouter | Any OpenAI-compatible endpoint. |

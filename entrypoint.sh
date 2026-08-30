@@ -6,6 +6,22 @@ set -euo pipefail
 
 AUDITOR=/opt/auditor
 
+# `docker run ... contract-auditor init` writes a workflow by reading the
+# repository, instead of auditing it. First, and before any input is required:
+# the whole point is that the person running it does not yet know what the
+# inputs should be.
+if [ "${1:-}" = "init" ]; then
+  shift
+  set +e
+  python3 "$AUDITOR/auditor/init.py" "$@"
+  STATUS=$?
+  set -e
+  # The container runs as root, so a workflow it writes into a mounted checkout
+  # belongs to root and the person who ran it cannot edit their own file.
+  [ ! -d .github ] || chown -R --reference=. .github 2>/dev/null || true
+  exit $STATUS
+fi
+
 # The runner uppercases an input id and replaces spaces with underscores, but it
 # leaves hyphens alone: `source-dir` arrives as INPUT_SOURCE-DIR, which is not a
 # name any shell can expand. Read it out of the environment instead, falling back
@@ -23,6 +39,7 @@ SPEC="$(input SPEC)"
 LANGUAGE="$(input LANGUAGE)"; LANGUAGE="${LANGUAGE:-auto}"
 STRIP_PREFIX="$(input STRIP-PREFIX)"
 EXCLUDE_PATHS="$(input EXCLUDE-PATHS)"
+CONTRACT_MW="$(input CONTRACT-MIDDLEWARE)"
 MODEL="$(input MODEL)"; MODEL="${MODEL:-z-ai/glm-5.3-flash}"
 # Empty means send no reasoning field at all and let the model do what it
 # normally does, which is what the published numbers were measured under.
@@ -84,12 +101,14 @@ REASONING_ARG=()
 # splitting would turn one pattern per line into one pattern per word.
 EXCLUDE_ARG=()
 [ -n "$EXCLUDE_PATHS" ] && EXCLUDE_ARG=(--exclude-paths "$EXCLUDE_PATHS")
+[ -n "$CONTRACT_MW" ] && EXCLUDE_ARG+=(--contract-middleware "$CONTRACT_MW")
 
 log "::group::Contract audit"
 log "source     $SOURCE_DIR"
 log "spec       $SPEC"
 log "language   $LANGUAGE"
 [ -z "$EXCLUDE_PATHS" ] || log "excluding  $(printf '%s' "$EXCLUDE_PATHS" | tr '\n' ' ')"
+[ -z "$CONTRACT_MW" ] || log "contract   routes guarded by $(printf '%s' "$CONTRACT_MW" | tr '\n' ' ')"
 log "model      $MODEL"
 log "reasoning  ${REASONING:-provider default}"
 if [ -n "${AUDITOR_MEMORY_URL:-}" ]; then
@@ -156,15 +175,6 @@ if [ -n "${SLACK_WEBHOOK_URL:-}" ] || [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
       ${GITHUB_RUN_ID:+--report-url "$RUN_URL"} || \
     log "::warning::notification delivery failed; the audit itself succeeded"
 fi
-
-# A Docker action runs as root, so every file written above belongs to root and
-# the runner user cannot touch it: a workflow appending a download link to the
-# summary fails with "Permission denied". Hand the outputs back to whoever owns
-# the workspace, which is the user the rest of the job runs as.
-for path in "$SUMMARY" "$SARIF" "$BRIEF_DIR" "$BRIEF_ZIP"; do
-  [ -e "$path" ] || continue
-  chown -R --reference="${GITHUB_WORKSPACE:-.}" "$path" 2>/dev/null || true
-done
 
 # A Docker action runs as root, so every file written above belongs to root and
 # the runner user cannot touch it: a workflow appending a download link to the

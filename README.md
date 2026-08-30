@@ -155,6 +155,79 @@ on the language:
 | **Python** (FastAPI, Flask) | the package your app lives in, commonly `app` | `/api/v1` | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` |
 | **PHP** (Laravel) | the project root, so both `routes/api.php` and `app/Http/Controllers` are readable | `/api` | `artisan`, `composer.json`, `routes/api.php` |
 
+### Setting it up without reading the codebase
+
+The inputs above are the ones a newcomer to a repository cannot answer, and
+`contract-middleware` is worse: it needs knowing that `authenticate` guards the
+merchant API while `adminAuthenticate` guards the console. Let it read the
+repository instead.
+
+```bash
+docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
+  ghcr.io/samso9th/contract-auditor:v1 init
+```
+
+It writes `.github/workflows/contract-audit.yml`, and refuses to overwrite one
+that already exists — pass `--force` to replace it, or `--stdout` to print it and
+merge by hand.
+
+Nothing is guessed, and every value carries its derivation as a comment:
+
+| Input | Derived from |
+|---|---|
+| `language` | the marker file that decided it |
+| `spec` | the candidate document with the most documented operations |
+| `strip-prefix` | the path component of the spec's own `servers[].url` |
+| `source-dir` | the candidate directory that yielded the most routes |
+| `contract-middleware` | the spec names the credential integrators were promised, in `components.securitySchemes`. The middleware whose source reads that header is the guard that defines the contract |
+
+That last row is the one that saves the reading. On a real payments API the
+chain runs: the spec declares `ApiKeyAuth` in header `x-api-key`, exactly one
+middleware file reads that header, it exports `authenticate`, so
+`contract-middleware: authenticate` — and the console's 37 routes and the
+trading product's 9 leave the audit without anyone naming them.
+
+Where a language records no route middleware, the generated file says so in a
+comment and leaves `exclude-paths` stubbed out instead of pretending.
+
+#### Running it without Docker
+
+Coming soon. Whoever has the codebase checked out already has one of these
+installed, which makes it the shortest path there is:
+
+| Runtime | Planned |
+|---|---|
+| Node | `npx contract-auditor init` |
+| Python | `pipx run contract-auditor init` |
+| PHP | `composer exec contract-auditor init` |
+| Go | `go run github.com/samso9th/contract-auditor@latest init` |
+| Rust | `cargo run contract-auditor init` |
+
+Until then the image above is the way, and it needs nothing but Docker.
+
+### Telling the contract apart from the dashboard
+
+Most codebases register two APIs in one place: the one integrators hold an API
+key for, and the one a dashboard or admin console talks to with a session token.
+Only the first was ever promised to anyone. They are not told apart by their
+paths, which is why a list of path globs goes stale the week after you write it.
+They are told apart by which guard they sit behind:
+
+```yaml
+          contract-middleware: authenticate
+```
+
+Only routes registered with that middleware are audited. A new admin route added
+next week is out of scope without anyone editing anything, and a new merchant
+route is in scope for the same reason. Names are the identifiers as they appear
+in the registration, and both styles are read: the per-route guard
+(`router.get("/x", authenticate, handler)`) and the router-level one
+(`router.use(authenticate)` at the top of the file).
+
+Route middleware is extracted for TypeScript today. Where a language supplies
+none, the run fails with that explanation rather than quietly excluding every
+route; use `exclude-paths` there instead.
+
 ### Routes that are not part of the contract
 
 Most codebases register endpoints no integrator was ever promised: a dashboard's

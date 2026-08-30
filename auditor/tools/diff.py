@@ -175,6 +175,15 @@ def parse_excludes(raw):
     return tuple(out)
 
 
+def parse_names(raw):
+    """Split a newline or comma separated list of identifiers."""
+    if not raw:
+        return ()
+    parts = raw if isinstance(raw, (list, tuple)) else [
+        p for chunk in str(raw).splitlines() for p in chunk.split(",")]
+    return tuple(p.strip() for p in parts if p.strip() and not p.strip().startswith("#"))
+
+
 def path_excluded(path, patterns):
     """fnmatch, so `*` crosses slashes: /auth/* covers /auth/me/password.
 
@@ -190,7 +199,8 @@ def path_excluded(path, patterns):
     return False
 
 
-def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=()):
+def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
+          contract_middleware=()):
     """Run every deterministic rule. Returns a list of findings.
 
     A language whose adapter supplies no handler facts - TypeScript today - gets
@@ -230,6 +240,32 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=()):
                 f"Patterns are matched against the path with --strip-prefix "
                 f"already removed, so '/api/v1/*' excludes nothing while '/*' "
                 f"excludes everything.")
+
+    # The contract is what a named middleware guards. A dashboard's admin routes
+    # and an integrator's API are both registered in the same codebase and are
+    # told apart by which guard they sit behind, not by their path, so this is
+    # the filter that survives a route being added next week.
+    contract_middleware = parse_names(contract_middleware)
+    if contract_middleware:
+        if not any(r.get("middleware") for r in extracted):
+            raise RouteExtractionError(
+                "contract-middleware is set, but no route in this table records any "
+                "middleware, so every route would fall outside the contract. Route "
+                "middleware is extracted for TypeScript today; leave the input unset "
+                "for other languages and use exclude-paths instead.")
+        wanted = set(contract_middleware)
+        outside = {key for key, route in routes.items()
+                   if not wanted & set(route.get("middleware") or ())}
+        if not set(routes) - outside:
+            raise RouteExtractionError(
+                f"contract-middleware {sorted(wanted)} matched no route. The names "
+                f"are the identifiers as they appear in the registration, e.g. "
+                f"'authenticate' in router.get('/x', authenticate, handler).")
+        # Dropped from both sides by exact endpoint, so an operation the spec
+        # documents and a non-contract guard protects does not then read as
+        # missing from the code.
+        routes = {k: v for k, v in routes.items() if k not in outside}
+        spec_keys -= outside
 
     auth_headers = auth_header_names(spec)
 
@@ -436,6 +472,9 @@ def main():
     parser.add_argument("source", help="directory of Go source")
     parser.add_argument("spec", help="path to openapi.json")
     parser.add_argument("--strip-prefix", default="")
+    parser.add_argument("--contract-middleware", default="",
+                        help="only audit routes guarded by these middleware, newline "
+                             "or comma separated, e.g. 'authenticate'")
     parser.add_argument("--exclude-paths", default="",
                         help="glob(s) to leave out of the audit, newline or comma "
                              "separated, e.g. '/auth/*,/internal/*'")
@@ -445,7 +484,7 @@ def main():
 
     try:
         findings = audit(args.source, args.spec, args.strip_prefix, args.language,
-                         args.exclude_paths)
+                         args.exclude_paths, args.contract_middleware)
     except (RouteExtractionError, SpecError) as exc:
         sys.exit(f"error: {exc}")
 

@@ -160,8 +160,22 @@ def describe(f):
 
 # -- formatting ----------------------------------------------------------
 
+def kind_counts(findings):
+    counts = {}
+    for f in findings:
+        kind = f.get("kind", "unknown")
+        counts[kind] = counts.get(kind, 0) + 1
+    return sorted(counts.items(), key=lambda row: (-row[1], row[0]))
+
+
 def format_slack(findings, title, report_url=None, verified_only=True):
-    listed = findings[:MAX_LISTED]
+    """Counts, never paths.
+
+    A channel is a wider room than a repository: people are in it who cannot
+    read the code, and a list of registered-but-undocumented endpoints is an
+    inventory of the ones nobody wrote down on purpose. The numbers say whether
+    to go and look, which is all a notification is for.
+    """
     blocks = [
         {"type": "header",
          "text": {"type": "plain_text", "text": f"Contract drift: {title}"}},
@@ -170,25 +184,18 @@ def format_slack(findings, title, report_url=None, verified_only=True):
                   "text": f"*{len(findings)} finding(s)*: {summary_line(findings)}"}},
     ]
 
-    for f in listed:
-        line = f"{ICON.get(f.get('severity'), '')} *{f.get('severity', 'medium').upper()}*  " \
-               f"`{describe(f)}`\n_{f['case']}_"
-        if f.get("evidence"):
-            line += f" · {f['evidence']}"
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": line}})
+    detail = "\n".join(f"• {count} × `{kind}`"
+                       for kind, count in kind_counts(findings))
+    if detail:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": detail}})
 
-    if len(findings) > MAX_LISTED:
-        blocks.append({"type": "context", "elements": [
-            {"type": "mrkdwn", "text": f"_+{len(findings) - MAX_LISTED} more in the full report_"}]})
-
-    footer = ("Every finding above was proved by a test that fails against the current code."
+    footer = ("Every finding was proved by a test that fails against the current code."
               if verified_only else
               ":warning: Unverified run: these claims have not been through the verification gate.")
     if report_url:
-        # The artifact id is only minted after this action has finished, so the
-        # message cannot carry a direct download link. Naming the panel is the
-        # next best thing: the brief is at the foot of the run summary page.
         footer += f" <{report_url}|Open the run> · the fix brief is under Artifacts."
+    else:
+        footer += " Endpoints are in the fix brief, not here."
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": footer}]})
 
     return {"blocks": blocks,
@@ -200,17 +207,13 @@ def escape_html(text):
 
 
 def format_telegram(findings, title, chat_id, report_url=None, verified_only=True):
+    """Counts, never paths. Same reasoning as format_slack."""
     lines = [f"<b>Contract drift: {escape_html(title)}</b>",
              f"{len(findings)} finding(s): {escape_html(summary_line(findings))}", ""]
 
-    for f in findings[:MAX_LISTED]:
-        lines.append(f"<b>{escape_html(f.get('severity', 'medium').upper())}</b> "
-                     f"<code>{escape_html(describe(f))}</code>")
-        lines.append(f"<i>{escape_html(f['case'])}</i>")
-        lines.append("")
-
-    if len(findings) > MAX_LISTED:
-        lines.append(f"+{len(findings) - MAX_LISTED} more in the full report")
+    for kind, count in kind_counts(findings):
+        lines.append(f"{count} × <code>{escape_html(kind)}</code>")
+    lines.append("")
 
     lines.append("Every finding was proved by a failing test." if verified_only
                  else "Unverified run: no verification gate.")
@@ -218,13 +221,14 @@ def format_telegram(findings, title, chat_id, report_url=None, verified_only=Tru
         lines.append("Open the run, then take the fix brief from the Artifacts "
                      "panel at the foot of the summary page:")
         lines.append(escape_html(report_url))
+    else:
+        lines.append("Endpoints are in the fix brief, not here.")
 
     text = "\n".join(lines)
     if len(text) > TELEGRAM_LIMIT:
         # Trim on a line boundary so no HTML tag is cut in half; an unclosed tag
         # makes Telegram reject the whole message with a 400.
         text = text[:TELEGRAM_LIMIT - 40].rsplit("\n", 1)[0] + "\n…truncated"
-
     return {"chat_id": chat_id, "text": text,
             "parse_mode": "HTML", "disable_web_page_preview": True}
 
