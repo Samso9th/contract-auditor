@@ -83,6 +83,50 @@ jobs:
           print("router-level and per-route middleware both recorded")
           EOF
 
+      # The guard rules exist because R8 could only read handlers, and a handler
+      # that does not read a header proves nothing when auth is middleware. Both
+      # directions are checked, on the pattern that motivated them: a route
+      # registered above the router.use() line that guards everything below it.
+      - name: The guard rules catch auth drift in both directions
+        run: |
+          set -e
+          mkdir -p /tmp/guard/src
+          cat > /tmp/guard/src/auth.js <<'EOF'
+          export const authenticate = (req, res, next) => {
+            const key = req.headers["x-api-key"];
+            if (!key) return res.status(401).json({ error: "unauthorized" });
+            next();
+          };
+          EOF
+          cat > /tmp/guard/src/routes.js <<'EOF'
+          import { Router } from "express";
+          import { authenticate } from "./auth.js";
+          const router = Router();
+          router.post("/hooks/incoming", handleHook);
+          router.use(authenticate);
+          router.get("/health", health);
+          export default router;
+          EOF
+          cat > /tmp/guard/openapi.json <<'EOF'
+          {"openapi":"3.0.0","info":{"title":"t","version":"1"},
+           "components":{"securitySchemes":{"ApiKeyAuth":{"type":"apiKey","in":"header","name":"x-api-key"}}},
+           "paths":{
+            "/hooks/incoming":{"post":{"security":[{"ApiKeyAuth":[]}],"responses":{"200":{"description":"ok"}}}},
+            "/health":{"get":{"security":[],"responses":{"200":{"description":"ok"}}}}}}
+          EOF
+          python3 auditor/tools/diff.py /tmp/guard/src /tmp/guard/openapi.json \
+            --language typescript --json > /tmp/guard/out.json
+          python3 - <<'EOF'
+          import json
+          kinds = {f["kind"]: f for f in json.load(open("/tmp/guard/out.json"))["findings"]}
+          missing = kinds.get("auth_guard_missing")
+          extra = kinds.get("auth_guard_undocumented")
+          assert missing and missing["path"] == "/hooks/incoming", kinds
+          assert missing["severity"] == "critical", missing
+          assert extra and extra["path"] == "/health", kinds
+          print("both guard directions reported")
+          EOF
+
       - name: Shell syntax
         run: bash -n entrypoint.sh
 

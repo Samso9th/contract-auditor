@@ -1,6 +1,6 @@
 ---
 title: "Quickstart"
-description: "One command sets it up. Nothing to configure by hand."
+description: "One command sets it up. There is nothing to configure by hand."
 ---
 
 ## 1. Generate the workflow
@@ -23,8 +23,8 @@ else. Without it you keep running the version you first pulled.
 It reads the repository and writes `.github/workflows/contract-audit.yml`.
 Commit that file and you are done.
 
-Nothing is guessed. Each value is derived, and the derivation is written into
-the file beside it as a comment, so the result is reviewable rather than magic:
+Every value in that file was worked out by reading your repository, and each one
+has a comment next to it saying where it came from, so you can check the working:
 
 | Input | Derived from |
 |---|---|
@@ -35,10 +35,10 @@ the file beside it as a comment, so the result is reviewable rather than magic:
 | `contract-middleware` | the spec names the credential integrators were promised, in `components.securitySchemes`. The middleware whose source reads that header is the guard that defines the contract |
 | trigger branches | `git ls-remote`, falling back to the local refs |
 
-That last-but-one row is the one that saves you reading an unfamiliar codebase.
-Most projects register two APIs in one place — the one integrators hold a key
-for, and the one a dashboard talks to with a session token — and they are told
-apart by which guard they sit behind, not by their paths.
+The middleware row is the one that saves you reading an unfamiliar codebase.
+Most projects register two APIs in the same place: the one outside developers
+hold a key for, and the one a dashboard talks to with a session token. Their
+paths look alike, so what separates them is which guard they sit behind.
 
 <Note>
 `init` refuses to overwrite a workflow that already exists. Pass `--force` to
@@ -48,8 +48,8 @@ without writing anything.
 
 ### Without Docker
 
-Coming soon. Whoever has the codebase checked out already has one of these
-installed, which makes it the shortest path there is:
+Coming soon. Anyone with the codebase checked out already has one of these
+installed, so it will be the shortest way in:
 
 | Runtime | Planned |
 |---|---|
@@ -59,25 +59,26 @@ installed, which makes it the shortest path there is:
 | Go | `go run github.com/samso9th/contract-auditor@latest init` |
 | Rust | `cargo run contract-auditor init` |
 
-Until then the image above needs nothing but Docker.
+Until then the image above needs only Docker.
 
 ## 2. What runs on GitHub
 
 Once the workflow is committed, every pull request into one of your shared
-branches is audited, and so is the merged result on those branches — one pull
-request can add a route while another edits the spec, and each is audited
-against its own merge preview rather than against what they both land on.
+branches is audited, and so is the merged result on those branches. One pull
+request can add a route while another edits the spec, so each one is audited
+against its own merge preview, not against whatever they both eventually land
+on.
 
 Each run leaves:
 
-- **A comment on the pull request**, updated in place rather than repeated, with
-  counts by severity and by what disagrees. Endpoint paths are deliberately not
-  listed: a registered but undocumented route is usually undocumented on
-  purpose, and enumerating them publishes an inventory to everyone who can see
-  the pull request.
-- **A fix brief**, uploaded as an artifact and linked from that comment. It has
-  every finding, the evidence, and the test that proved it, written to be pasted
-  straight into Cursor, Codex or Claude Code.
+- A comment on the pull request, edited in place on each run so you get one
+  comment and not a thread. It gives counts by severity and by what disagrees.
+  It does not list the endpoint paths: a route that is registered but
+  undocumented is usually undocumented on purpose, and listing them would
+  publish an inventory to everyone who can see the pull request.
+- A fix brief, uploaded as an artifact and linked from that comment. It has
+  every finding, the evidence, and the test that proved it, written so you can
+  paste it straight into Cursor, Codex or Claude Code.
 
 Every input the action takes is already in the generated file, pointing at
 secrets that may not exist yet. Each is skipped silently when its secret is
@@ -93,7 +94,8 @@ editing any YAML:
 | `CONTRACT_AUDIT_WEBHOOK_URL`, `..._SECRET` | the full JSON report POSTed to a sink of your own |
 | `CONTRACT_AUDIT_MEMORY_*` | self-improvement, so later runs know which complaints have been refuted |
 
-The only edits that file should ever need are deletions.
+If that file ever needs editing, it should only be to delete lines you do not
+want.
 
 [Full input reference and troubleshooting →](/github-actions)
 
@@ -125,8 +127,8 @@ python3 auditor/run.py \
   --out reports/runs/my-api
 ```
 
-Real repositories have no ground truth, so this produces a ranked report rather
-than a score.
+A real repository has no known list of correct answers to score against, so what
+you get is a ranked report.
 
 ### Reproduce the evaluation
 

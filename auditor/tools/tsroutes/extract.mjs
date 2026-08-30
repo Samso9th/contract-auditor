@@ -221,7 +221,7 @@ for (const file of files) {
   const imports = new Map();   // local name -> resolved file
   const mounts = [];           // { prefix, local }
   const routes = [];           // { method, path, handler, middleware, line }
-  const routerMiddleware = [];  // router.use(mw): guards every route in the file
+  const routerMiddleware = [];  // { name, line }: guards the routes below it
   // Barrel files forward a router without ever mounting it:
   //   export { default } from './customers.routes.js';
   // Following imports and router.use() alone stops dead at these, which left
@@ -397,12 +397,13 @@ for (const file of files) {
       const first = node.arguments[0];
 
       if (method === "use" && node.arguments.length === 1 && first) {
-        // router.use(authenticate): guards every route this router registers.
-        // Express applies it only to routes declared after it; this treats it
-        // as covering the file, which is how these files are actually written
-        // and errs towards reporting a route as guarded rather than open.
+        // router.use(authenticate) guards the routes registered after it, and
+        // only those. Express is order-dependent here and the difference is not
+        // cosmetic: a webhook registered above the use() line is open, and
+        // calling it guarded would hide the one thing an auth rule exists to
+        // find. The line is kept so the routes below can select on it.
         const name = argName(first);
-        if (name) routerMiddleware.push(name);
+        if (name) routerMiddleware.push({ name, line: lineOf(node) });
       } else if (method === "use" && node.arguments.length >= 2) {
         const prefix = literal(first);
         if (prefix !== null && prefix.startsWith("/")) {
@@ -457,7 +458,10 @@ function walk(file, prefix, depth) {
       method: route.method,
       path: normalisePath(prefix + route.path),
       handler: route.handler,
-      middleware: [...entryData.routerMiddleware, ...(route.middleware || [])],
+      middleware: [
+        ...entryData.routerMiddleware.filter((m) => m.line < route.line).map((m) => m.name),
+        ...(route.middleware || []),
+      ],
       file: entryData.rel,
       line: route.line,
       style: "express",
@@ -486,7 +490,10 @@ for (const [file, data] of perFile) {
   for (const route of data.routes) {
     collected.push({
       method: route.method, path: normalisePath(route.path), handler: route.handler,
-      middleware: [...data.routerMiddleware, ...(route.middleware || [])],
+      middleware: [
+        ...data.routerMiddleware.filter((m) => m.line < route.line).map((m) => m.name),
+        ...(route.middleware || []),
+      ],
       file: data.rel, line: route.line, style: "express-unmounted", annotation: null,
     });
   }
