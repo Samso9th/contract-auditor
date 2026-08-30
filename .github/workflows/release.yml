@@ -166,7 +166,6 @@ jobs:
       # would pull a tag that is not there yet.
       - name: Move the major version tag
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
@@ -187,20 +186,17 @@ jobs:
 
           MAJOR="${RELEASE_TAG%%.*}"   # v1.2.3 -> v1
 
-          # Resolved through the API rather than github.sha: on workflow_dispatch
-          # the checked-out ref is the branch the run was started from, which is
-          # not necessarily the commit being released. This dereferences both
-          # lightweight and annotated tags to their commit.
-          SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
+          # HEAD is the released commit: the checkout step above detached onto
+          # the tag, which is also why this no longer asks the API for the sha.
+          SHA=$(git rev-parse HEAD)
 
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$MAJOR" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$MAJOR" \
-              -f sha="$SHA" -F force=true >/dev/null
-            echo "moved $MAJOR to $RELEASE_TAG ($SHA)"
-          else
-            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" \
-              -f ref="refs/tags/$MAJOR" -f sha="$SHA" >/dev/null
-            echo "created $MAJOR at $RELEASE_TAG ($SHA)"
-          fi
+          # Pushed with git rather than the REST API, and not by choice.
+          # `POST /git/refs` creates a ref happily with GITHUB_TOKEN, but
+          # `PATCH /git/refs/tags/v1` answers 403 Resource not accessible by
+          # integration, so the alias was created once and then refused every
+          # move after it. actions/checkout leaves the token in the remote's
+          # http.extraheader, and a force push over that works.
+          git tag -f "$MAJOR" "$SHA"
+          git push --force origin "refs/tags/$MAJOR"
 
-          echo "::notice::consumers can now use ${GITHUB_REPOSITORY}@${MAJOR}"
+          echo "::notice::$MAJOR now points at $RELEASE_TAG ($SHA); consumers can use ${GITHUB_REPOSITORY}@${MAJOR}"

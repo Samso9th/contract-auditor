@@ -17,3 +17,4 @@ eval/cases-php/
 .contract-auditor/
 auditor/memory/ledger.jsonl
 auditor/memory/rules.json
+node_modules/
