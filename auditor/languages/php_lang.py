@@ -46,7 +46,8 @@ def detect(directory):
         return True
     if (directory / "routes" / "api.php").exists() or (directory / "routes" / "web.php").exists():
         return True
-    return any(directory.rglob("*.php"))
+    from . import has_source
+    return has_source(directory, ".php")
 
 
 def available():

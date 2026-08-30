@@ -28,6 +28,17 @@ description: "Every entry point, and what it costs."
 
 ## Direct commands
 
+Generate the workflow by reading a repository, instead of writing it by hand:
+
+```bash
+python3 auditor/init.py --repo /path/to/api
+```
+
+It writes `.github/workflows/contract-audit.yml` with every derived value
+commented, refuses to overwrite an existing one without `--force`, and takes
+`--stdout` to print instead. `--json` reports what it detected without writing
+anything, which is the quickest way to see whether it found your spec.
+
 Audit a real repository:
 
 ```bash
@@ -153,6 +164,7 @@ python3 eval/harvest.py --run reports/runs/agent       # new cases from real fin
 | `--epsilon 0.05` | Fraction of endpoints audited with memory off, so a wrong prior keeps being tested. `0` disables it |
 | `--verify` | With `--repo`: put every claim through the gate. Implied when memory is configured, because a claim with no verdict teaches nothing |
 | `--exclude-paths GLOBS` | Paths to leave out of the audit, newline or comma separated. Also on `auditor/tools/diff.py` |
+| `--contract-middleware NAMES` | Only audit routes guarded by these middleware. Also on `auditor/tools/diff.py` |
 
 ## Configuration
 

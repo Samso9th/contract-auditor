@@ -142,27 +142,35 @@ def to_sarif(findings, tool_version="0.1.0", repo_subdir=""):
 
 
 def to_markdown(findings, meta, title="Contract audit", brief_text="", artifact_name=""):
+    """The pull request comment.
+
+    Deliberately counts, not paths. A route that is registered and undocumented
+    is usually undocumented on purpose - an admin surface, a dashboard's own
+    session endpoints - and enumerating them into a comment publishes an
+    inventory of them to everyone who can see the pull request. The brief has
+    every path, every piece of evidence and every test, and it is downloaded by
+    the person doing the fixing rather than rendered for everyone watching.
+    """
     if not findings:
         return (f"## {title}\n\n"
                 "No contract drift found. Code and specification agree on every "
                 "endpoint checked.\n")
 
     counts = {}
+    kinds = {}
     for finding in findings:
-        counts[finding.get("severity", "medium")] = counts.get(finding.get("severity", "medium"), 0) + 1
+        severity = finding.get("severity", "medium")
+        counts[severity] = counts.get(severity, 0) + 1
+        kind = finding.get("kind", "unknown")
+        kinds[kind] = kinds.get(kind, 0) + 1
     summary = " · ".join(f"**{counts[s]}** {s}" for s in
                          sorted(counts, key=lambda x: SEVERITY_ORDER.get(x, 9)))
 
     lines = [f"## {title}", "",
              f"{len(findings)} finding(s): {summary}", "",
-             "| Severity | Endpoint | Kind | Evidence |", "|---|---|---|---|"]
-    for finding in findings[:50]:
-        evidence = (finding.get("evidence", "") or "").replace("|", "\\|")[:160]
-        lines.append(f"| {finding.get('severity', '')} "
-                     f"| `{finding.get('method', '').upper()} {finding.get('path', '')}` "
-                     f"| {finding.get('kind', '')} | {evidence} |")
-    if len(findings) > 50:
-        lines.append(f"\n_{len(findings) - 50} further finding(s) omitted._")
+             "| What disagrees | Count |", "|---|---|"]
+    for kind in sorted(kinds, key=lambda k: (-kinds[k], k)):
+        lines.append(f"| `{kind}` | {kinds[kind]} |")
 
     verified = sum(1 for f in findings if f.get("verdict") == "confirmed")
     if verified:
@@ -170,24 +178,19 @@ def to_markdown(findings, meta, title="Contract audit", brief_text="", artifact_
                       "executing a generated test against the handler; claims whose "
                       "test passed were discarded."]
 
-    # Three ways to take this to a coding agent, because people work differently:
-    # copy it straight from here, download the brief alone, or download the brief
-    # with the generated tests so the agent can run them.
     if brief_text:
         lines += ["", "---", "",
                   "### Hand this to a coding agent", "",
-                  "Copy the brief below straight into Cursor, Codex or Claude Code. "
-                  "It contains every finding, what was observed, and the test that "
-                  "proved it."]
-        # The brief comes first: it is the thing being offered, and a paragraph
-        # about downloading it does not belong between the offer and the text.
-        lines += ["", "<details>", "<summary>Fix brief (click to expand, then copy)</summary>",
-                  "", "```markdown", brief_text.strip(), "```", "", "</details>", ""]
+                  "Endpoint paths are not listed here. The fix brief has every "
+                  "finding, what was observed, and the test that proved it - "
+                  "download it and paste it into Cursor, Codex or Claude Code."]
         if artifact_name:
-            # The workflow appends a download button below this, so the only
-            # thing left worth saying is what the download contains.
+            run_url = meta.get("run_url") if isinstance(meta, dict) else ""
+            where = (f"the Artifacts panel at the foot of [this run's summary page]"
+                     f"({run_url})" if run_url else f"`{artifact_name}/`")
             has_tests = any(f.get("test_source") for f in findings)
-            lines += ["", "The download is a zip: the `.md` is this brief"
+            lines += ["", f"It is **{artifact_name}**, from {where}. The download is "
+                          "a zip: the `.md` is the brief"
                           + (", and `tests/` holds the same tests as runnable files."
                              if has_tests else
                              ". It carries no tests, because this run had no API key "

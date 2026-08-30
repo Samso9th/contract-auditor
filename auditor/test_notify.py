@@ -72,7 +72,7 @@ def main():
     check("slack: every block is well formed",
           all("type" in b for b in payload["blocks"]))
     check("slack: header names the run", "agent" in payload["blocks"][0]["text"]["text"])
-    check("slack: finding detail reaches the message",
+    check("slack: what disagrees reaches the message",
           any("response_field_mismatch" in json.dumps(b) for b in payload["blocks"]))
     check("slack: verified runs claim proof",
           "proved by a test" in json.dumps(payload["blocks"]))
@@ -87,32 +87,46 @@ def main():
     big = format_slack(many, "agent")
     check("slack: long runs are capped well under the 50-block limit",
           len(big["blocks"]) <= MAX_LISTED + 4)
-    check("slack: the truncated tail is stated, not dropped silently",
-          "+30 more" in json.dumps(big["blocks"]))
+    # Counts do not grow with the finding list, so there is no tail to truncate.
+    # What must survive is the true total: a message that quietly understates the
+    # number is worse than one that is long.
+    check("slack: the full total is reported however many findings there are",
+          f"{len(select(findings, 'low'))} finding(s)" in json.dumps(big["blocks"])
+          if False else "40 finding(s)" in json.dumps(big["blocks"]))
 
     # -- telegram payload -------------------------------------------------
     tg = format_telegram(select(findings, "low"), "agent", "-100123")
     check("telegram: chat id is carried", tg["chat_id"] == "-100123")
     check("telegram: html mode is declared", tg["parse_mode"] == "HTML")
-    check("telegram: finding detail reaches the message",
+    check("telegram: what disagrees reaches the message",
           "response_field_mismatch" in tg["text"])
 
+    # Endpoints never leave the repository. A channel holds people who cannot
+    # read the code, and a list of undocumented routes is an inventory of the
+    # ones nobody wrote down on purpose.
     hostile = format_telegram([f(path="/a?b=<script>&c")], "run <b>", "1")
-    check("telegram: angle brackets in a path are escaped",
-          "&lt;script&gt;" in hostile["text"] and "<script>" not in hostile["text"])
-    check("telegram: ampersands are escaped", "&amp;c" in hostile["text"])
+    check("telegram: no endpoint path reaches the message",
+          "/a?b=" not in hostile["text"] and "script" not in hostile["text"])
+    check("slack: no endpoint path reaches the message",
+          "/a?b=" not in json.dumps(format_slack([f(path="/a?b=<script>&c")], "run")))
     check("telegram: the title is escaped too", "run &lt;b&gt;" in hostile["text"])
     check("escape: ordering does not double-encode",
           escape_html("&<") == "&amp;&lt;")
 
-    # Paths long enough that even the capped ten findings overrun 4096 - the
-    # cap alone does not guarantee the limit, which is why both exist.
+    # Counts do not grow with the findings, so 60 of them with 900-character
+    # paths must still produce a short message. The limit is asserted anyway:
+    # the truncation below it is the guard for a run that finds a kind of drift
+    # nobody has thought of yet.
     huge = format_telegram([f(path="/" + "x" * 900, case=f"D{i}") for i in range(60)],
                            "agent", "1")
     check("telegram: message stays under the 4096 character limit",
           len(huge["text"]) <= TELEGRAM_LIMIT)
-    check("telegram: over-long messages are actually truncated",
-          huge["text"].endswith("truncated"))
+    check("telegram: counts do not grow with the finding list",
+          len(huge["text"]) < 400, f"{len(huge['text'])} characters")
+    check("telegram: an over-long message truncates on a line boundary",
+          format_telegram([f(kind="k" * 200 + str(i), case=f"D{i}")
+                           for i in range(60)],
+                          "agent", "1")["text"].endswith("truncated"))
     check("telegram: truncation lands on a line boundary, leaving no split tag",
           huge["text"].count("<b>") == huge["text"].count("</b>")
           and huge["text"].count("<code>") == huge["text"].count("</code>"))

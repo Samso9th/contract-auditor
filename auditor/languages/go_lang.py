@@ -30,7 +30,8 @@ TEST_FILENAME = "contract_verify_test.go"
 
 def detect(directory):
     directory = pathlib.Path(directory)
-    return (directory / "go.mod").exists() or any(directory.rglob("*.go"))
+    from . import has_source
+    return (directory / "go.mod").exists() or has_source(directory, ".go")
 
 
 def extract(directory, strip_prefix=DEFAULT_PREFIX):

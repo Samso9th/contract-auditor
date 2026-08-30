@@ -51,7 +51,8 @@ def detect(directory):
     directory = pathlib.Path(directory)
     if (directory / "package.json").exists() or (directory.parent / "package.json").exists():
         return True
-    return any(directory.rglob("*.ts")) and not (directory / "go.mod").exists()
+    from . import has_source
+    return has_source(directory, ".ts") and not (directory / "go.mod").exists()
 
 
 def extract(directory, strip_prefix=DEFAULT_PREFIX):

@@ -25,6 +25,18 @@ inputs:
     description: 'Path prefix to strip from routes so they match the spec, e.g. "/api/v1".'
     required: false
     default: ""
+  contract-middleware:
+    description: >-
+      Only audit routes guarded by these middleware, one name per line or comma
+      separated, e.g. "authenticate". Names are the identifiers as they appear in
+      the registration. This is how an integrator-facing API is told apart from a
+      dashboard or admin surface registered in the same codebase: they differ by
+      which guard they sit behind, not by their path, so a route added next week
+      lands on the right side without anyone editing this list. Extracted for
+      TypeScript today; the run fails rather than silently excluding everything
+      where the language supplies no middleware.
+    required: false
+    default: ""
   exclude-paths:
     description: >-
       Paths to leave out of the audit, one glob per line or comma separated,

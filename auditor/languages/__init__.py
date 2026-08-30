@@ -40,6 +40,27 @@ ADAPTERS = {
 DETECTION_ORDER = (go_lang, php_lang, typescript, python_lang)
 
 
+# Directories that hold other people's code. A single .go file shipped inside an
+# npm package - node_modules/flatted/golang/pkg/flatted/flatted.go is a real one,
+# and flatted is a dependency of eslint - is enough to make a TypeScript project
+# detect as Go when the scan does not skip these.
+VENDORED = {".git", "node_modules", "vendor", "dist", "build", "__pycache__",
+            ".venv", "venv", ".next", "target", "coverage", ".mypy_cache",
+            "site-packages", ".tox", "bower_components"}
+
+
+def has_source(directory, suffix):
+    """Whether the project itself contains a file of that kind.
+
+    rglob alone answers a different question: whether anything anywhere under
+    here does, including every dependency that was ever installed.
+    """
+    for path in pathlib.Path(directory).rglob(f"*{suffix}"):
+        if not any(part in VENDORED for part in path.parts):
+            return True
+    return False
+
+
 def detect(directory):
     """Identify the project's language, or None when nothing matches."""
     directory = pathlib.Path(directory)
