@@ -401,34 +401,45 @@ def pick_source(root, adapter, prefix, spec_keys=frozenset()):
 
 
 def contract_guards(root, table, headers, spec_keys=frozenset()):
-    """Middleware whose source reads a credential the spec promises integrators,
-    and which guards the endpoints that spec documents.
+    """The middleware that separates the published API from everything else.
 
     The spec is the authority on what the contract's credential is: an apiKey
-    security scheme names the header, and http auth means Authorization. A file
-    that reads that header and exports a middleware the routes use is the guard
-    that separates the promised API from everything else in the same codebase.
+    scheme names the header, http or basic auth means Authorization. A guard
+    that reads that header is authenticating, whatever it is called.
 
-    Reading the header is necessary and not sufficient. Where the only declared
-    scheme is http bearer - which is most specs - the credential is Authorization,
-    and a session guard reads Authorization too. Both then qualify, and naming
-    both as the contract puts the whole dashboard back inside it.
+    Reading the header is neither necessary nor sufficient, which is why the
+    spec arbitrates twice.
 
-    So the spec arbitrates twice. It says what the credential is, and then it
-    says which guard is protecting the endpoints it documents: the contract
-    guard is the one whose routes account for most of the specification. A
-    session guard scores near zero against a spec it does not serve, however
-    many Authorization headers it reads.
+    Not sufficient: where the only declared scheme is bearer - most specs - the
+    credential is Authorization and a session guard reads it too. Both qualify,
+    and naming both puts the whole dashboard back inside the contract.
+
+    Not necessary: a framework can do the reading. Laravel routes name a guard
+    by alias and Sanctum reads the header inside the framework, so the app's own
+    middleware never touches it; coolify's API guard asks
+    `$request->user()->currentAccessToken()` and would be invisible to a test
+    that insisted on the header. So a guard whose body does not read the
+    credential is not discarded, only ranked below one that does.
+
+    What settles it either way is coverage: the contract guard is the one
+    protecting the endpoints the spec documents. A session guard scores near
+    zero against a spec it does not serve, however many headers it reads.
     """
     used = sorted({m for route in table["routes"] for m in (route.get("middleware") or [])})
-    if not used or not headers:
+    if not used:
         return [], used, {}
 
     # Authorization is worth almost nothing on its own: a session guard reads it
     # too. It only discriminates when the spec offers no better credential.
     strong = {h for h in headers if h.lower() != "authorization"}
-    reading = sorted(guards_reading(root, used, strong or headers))
-    if not reading or not spec_keys:
+    reading = sorted(guards_reading(root, used, strong or headers)) if headers else []
+
+    # Confirmed readers first; if none could be confirmed, every guard in use is
+    # a candidate and coverage alone decides. An empty candidate list would mean
+    # no filter at all, which on a repository whose route file holds both the
+    # API and the console is the noisiest possible answer.
+    candidates = reading or [strip_factory(name) for name in used]
+    if not spec_keys or not candidates:
         return reading, used, {}
 
     # strip_factory on both sides: the route table keeps a factory guard's
@@ -440,19 +451,20 @@ def contract_guards(root, table, headers, spec_keys=frozenset()):
                    for r in table["routes"]
                    if name in {strip_factory(m) for m in (r.get("middleware") or [])}}
                   & spec_keys)
-        for name in reading
+        for name in sorted(set(candidates))
     }
-    # Half is the line because a guard covering less than half of what the spec
-    # documents cannot be the thing defining it, while one covering more is not
-    # excluded by a second guard layered on top of it.
-    # Half is the line in both directions. A guard covering more than half of
-    # what the spec documents is defining it, even with a second guard layered
-    # on top. A guard covering less is not, however many Authorization headers
-    # it reads - and naming it would filter the audit down to the wrong API,
-    # which is worse than not filtering at all. So an empty answer is a real
-    # answer here, and the caller says why.
-    covering = sorted(n for n, count in documented.items()
-                      if count * 2 >= len(spec_keys))
+
+    best = max(documented.values(), default=0)
+    # Nothing protects any documented endpoint, so no guard defines this
+    # contract. An empty answer is a real answer; the caller explains it.
+    if best * 2 < len(spec_keys):
+        return [], used, documented
+
+    # The best, and anything within a tenth of it. A contract split across two
+    # layered guards is real; a guard trailing far behind the leader is a
+    # different API that happens to share some routes.
+    covering = sorted(name for name, count in documented.items()
+                      if count >= best * 0.9)
     return covering, used, documented
 
 

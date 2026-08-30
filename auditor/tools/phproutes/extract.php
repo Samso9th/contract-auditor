@@ -374,14 +374,63 @@ function groupArrayPrefix(array $tokens, int $i): ?string
     return null;
 }
 
-function collectRoutes(array $tokens, string $rel, string $strip, string $absolute = ''): array
+/**
+ * The file a require/include pulls in, resolved to a real path.
+ *
+ * A large Laravel project splits routes/api.php with
+ * `require __DIR__.'/api/v1/routes.php'` inside a group, and every prefix and
+ * guard that group opened applies to what comes back. Read as a separate file
+ * it inherits none of them: speedtest-tracker's v1 routes lost both the /api
+ * prefix and the auth:sanctum the group applied.
+ */
+function requireTarget(array $tokens, int $i, string $absolute, string $root): ?string
+{
+    for ($j = $i + 1, $count = count($tokens); $j < $count; $j++) {
+        if ($tokens[$j]['text'] === ';') {
+            break;
+        }
+        $literal = stringValue($tokens[$j]);
+        if ($literal === null || !str_ends_with($literal, '.php')) {
+            continue;
+        }
+        foreach ([dirname($absolute) . '/' . ltrim($literal, '/'),
+                  $root . '/' . ltrim($literal, '/')] as $candidate) {
+            $real = realpath($candidate);
+            if ($real !== false) {
+                return $real;
+            }
+        }
+    }
+    return null;
+}
+
+/** Every file this one requires, for the pre-pass that decides which files are
+ *  roots and which are pulled in by another. */
+function requireTargets(array $tokens, string $absolute, string $root): array
+{
+    $out = [];
+    foreach ($tokens as $i => $token) {
+        if (in_array($token['type'], [T_REQUIRE, T_REQUIRE_ONCE, T_INCLUDE, T_INCLUDE_ONCE], true)) {
+            $target = requireTarget($tokens, $i, $absolute, $root);
+            if ($target !== null) {
+                $out[] = $target;
+            }
+        }
+    }
+    return $out;
+}
+
+function collectRoutes(array $tokens, string $rel, string $strip, string $absolute = '', string $root = '', array $prefixStack = [], int $depth = 0): array
 {
     $routes = [];
     // The absolute path, because the implicit prefix is decided by the file's
     // place in the project and --dir may already point inside routes/.
     $implicit = implicitPrefix($absolute !== '' ? $absolute : $rel);
-    $prefixStack = [];        // ['prefix' => string, 'middleware' => string[], 'depth' => int]
-    $depth = 0;
+    // The stack the requiring file was holding when it pulled this one in, so a
+    // group's prefix and guards carry across the file boundary. Empty for a
+    // file nothing requires.
+    $inheritedStack = $prefixStack;   // ['prefix', 'middleware', 'depth']
+    $braceDepth = 0;
     $pendingPrefix = '';
     $pendingMiddleware = [];
     $count = count($tokens);
@@ -390,11 +439,11 @@ function collectRoutes(array $tokens, string $rel, string $strip, string $absolu
         $token = $tokens[$i];
 
         if ($token['text'] === '{') {
-            $depth++;
+            $braceDepth++;
             continue;
         }
         if ($token['text'] === '}') {
-            $depth--;
+            $braceDepth--;
             // >= rather than >: a group is recorded at the depth of the
             // `group(` token, which is outside the closure brace it opens, so
             // its entry sits at the depth the closing brace returns to. With >
@@ -402,8 +451,25 @@ function collectRoutes(array $tokens, string $rel, string $strip, string $absolu
             // inherited it, which compounded: two top-level groups both
             // prefixed v1 produced /v1/v1. Harmless while array-form prefixes
             // were being missed entirely, and wrong the moment they were read.
-            while ($prefixStack && end($prefixStack)['depth'] >= $depth) {
+            while (count($prefixStack) > count($inheritedStack)
+                   && end($prefixStack)['depth'] >= $braceDepth) {
                 array_pop($prefixStack);
+            }
+            continue;
+        }
+
+        // A required file is parsed here and now, carrying the prefix and the
+        // guards of the group the require sits inside.
+        if (in_array($token['type'], [T_REQUIRE, T_REQUIRE_ONCE, T_INCLUDE, T_INCLUDE_ONCE], true)) {
+            $target = $depth < 4 ? requireTarget($tokens, $i, $absolute, $root) : null;
+            $source = $target === null ? false : @file_get_contents($target);
+            if ($source !== false) {
+                $targetRel = $root !== '' && str_starts_with($target, $root . '/')
+                    ? substr($target, strlen($root) + 1) : basename($target);
+                foreach (collectRoutes(significantTokens($source), $targetRel, $strip,
+                                       $target, $root, $prefixStack, $depth + 1) as $inner) {
+                    $routes[] = $inner;
+                }
             }
             continue;
         }
@@ -459,7 +525,7 @@ function collectRoutes(array $tokens, string $rel, string $strip, string $absolu
             $prefixStack[] = [
                 'prefix' => $inherited . $pendingPrefix,
                 'middleware' => array_values(array_unique(array_merge($inheritedMw, $pendingMiddleware))),
-                'depth' => $depth,
+                'depth' => $braceDepth,
             ];
             $pendingPrefix = '';
             $pendingMiddleware = [];
@@ -498,7 +564,9 @@ function collectRoutes(array $tokens, string $rel, string $strip, string $absolu
             }
             $prefix = $prefixStack ? end($prefixStack)['prefix'] : '';
             $groupMiddleware = $prefixStack ? end($prefixStack)['middleware'] : [];
-            $routeMiddleware = trailingMiddleware($tokens, $pathAt);
+            // From the method token, not the path: the scan counts brackets from
+            // the opening paren, and starting inside it makes every depth wrong.
+            $routeMiddleware = trailingMiddleware($tokens, $i);
             // A route's own guards belong to it and to nothing after it. Left
             // pending, they would be inherited by the next group that opened.
             $pendingMiddleware = [];
@@ -666,6 +734,20 @@ function returnedStatuses(array $tokens, array $bodies, string $name): array
 
 $routes = [];
 $seen = [];
+// Which route files another file pulls in. Those are not roots: parsing one on
+// its own would collect its routes a second time, at the bare path it has
+// before the requiring group's prefix is applied.
+$pulledIn = [];
+foreach (sourceFiles($root) as $path) {
+    $source = @file_get_contents($path);
+    if ($source === false) {
+        continue;
+    }
+    foreach (requireTargets(significantTokens($source), $path, $root) as $target) {
+        $pulledIn[$target] = true;
+    }
+}
+
 $handlers = [];
 $handlersByLocation = [];
 foreach (sourceFiles($root) as $path) {
@@ -702,7 +784,11 @@ foreach (sourceFiles($root) as $path) {
     if (!str_contains($source, 'Route::')) {
         continue;
     }
-    foreach (collectRoutes($tokens, $rel, $strip, $path) as $route) {
+    $real = realpath($path);
+    if ($real !== false && isset($pulledIn[$real])) {
+        continue;   // collected through the file that requires it
+    }
+    foreach (collectRoutes($tokens, $rel, $strip, $path, $root) as $route) {
         $key = $route['method'] . ' ' . $route['path'];
         if (isset($seen[$key])) {
             continue;

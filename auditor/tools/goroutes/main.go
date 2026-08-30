@@ -121,7 +121,7 @@ func main() {
 	}
 
 	docs := collectHandlerDocs(fset, files, *dir)
-	routes := collectRoutes(fset, files, *dir)
+	routes, unresolved := collectRoutes(fset, files, *dir)
 	structs := collectStructs(fset, files, *dir)
 	facts := collectHandlerFacts(fset, files, *dir)
 
@@ -166,6 +166,7 @@ func main() {
 		"handlers":                  facts,
 		"route_count":               len(routes),
 		"routes_without_annotation": countMissing(routes),
+		"unresolved":                unresolved,
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -298,11 +299,30 @@ func withChain(expr ast.Expr) []string {
 	}
 }
 
-func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string) []Route {
+// Unresolved is a route registration whose path this parser could not read,
+// because the program computes it at runtime:
+//
+//	g.GET("/"+ms.Name()+"/status", fw.Status)
+//
+// vikunja registers eighteen migration endpoints that way, one per migrator,
+// with the name coming from an interface method. Nothing static can resolve it.
+//
+// What matters is that they are counted rather than ignored. A documented
+// endpoint that no extracted route matches is normally drift; where the parser
+// knows it failed to read some registrations, it is at least as likely to be
+// one of those, and reporting it as certainly missing would be a false claim
+// about the code.
+type Unresolved struct {
+	File string `json:"file"`
+	Line int    `json:"line"`
+}
+
+func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string) ([]Route, []Unresolved) {
 	// Initialised, not nil: a nil slice marshals to JSON `null`, and a consumer
 	// that expects a list then fails with a type error instead of reporting that
 	// no routes were found. Same trap as the orphaned-annotations slice.
 	routes := []Route{}
+	unresolved := []Unresolved{}
 
 	paths := make([]string, 0, len(files))
 	for p := range files {
@@ -310,7 +330,17 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 	}
 	sort.Strings(paths)
 
-	for _, path := range paths {
+	// Routers handed to a function, by callee name, across the whole project.
+	// Not per file: the function a router is passed to usually lives in another
+	// package - vikunja registers its migration endpoints through a
+	// RegisterRoutes method three directories away - so a per-file map never
+	// connects the call to the declaration.
+	bindings := map[string]string{}
+	bindingGuards := map[string][]string{}
+
+	// walkFile runs the collector over one file, or over one function inside it
+	// when `only` is set and its first parameter is seeded with `seed`.
+	walkFile := func(path string, only *ast.FuncDecl, seedName, seedPrefix string, seedGuards []string) {
 		// Group prefixes are per file; ast.Inspect walks in source order, so an
 		// assignment is always seen before the calls that use it.
 		prefixes := map[string]string{}
@@ -329,10 +359,6 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 			}
 			return out
 		}
-
-		// Routers handed to a function, by callee name. See followMounts below.
-		bindings := map[string]string{}
-		bindingGuards := map[string][]string{}
 
 		var visit func(n ast.Node) bool
 		visit = func(n ast.Node) bool {
@@ -408,6 +434,13 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 				if ok && lit != "" && !strings.HasPrefix(lit, "/") {
 					ok = known && !strings.Contains(lit, "://") && !strings.Contains(lit, " ")
 				}
+				// A router we are tracking, registering something at a path we
+				// cannot read. Recorded so the rules know the surface is
+				// understated here rather than complete.
+				if !ok && known {
+					unresolved = append(unresolved, Unresolved{
+						File: rel(root, path), Line: pos.Line})
+				}
 				if ok {
 					// Everything between the path and the handler is a guard.
 					// Which end the handler sits at is the framework's choice,
@@ -473,12 +506,25 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 			}
 			return true
 		}
-		ast.Inspect(files[path], visit)
+		if only == nil {
+			ast.Inspect(files[path], visit)
+			return
+		}
+		prefixes[seedName] = seedPrefix
+		inherited[seedName] = seedGuards
+		ast.Inspect(only.Body, visit)
+	}
 
-		// Second pass over the functions a router was handed to. Seeding the
-		// parameter with the caller's prefix and walking the body again is what
-		// puts those routes at the path they actually serve; the bare-path
-		// copies collected by the first pass are dropped below.
+	// Pass 1: every file on its own, which is also what records the bindings.
+	for _, path := range paths {
+		walkFile(path, nil, "", "", nil)
+	}
+
+	// Pass 2: the functions a router was handed to, wherever they are declared.
+	// Seeding the parameter with the caller's prefix and walking the body again
+	// puts those routes at the path they actually serve; the bare-path copies
+	// from pass 1 are dropped below.
+	for _, path := range paths {
 		for _, decl := range files[path].Decls {
 			fn, isFunc := decl.(*ast.FuncDecl)
 			if !isFunc || fn.Body == nil {
@@ -492,12 +538,10 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 			if len(names) != 1 {
 				continue
 			}
-			prefixes[names[0].Name] = prefix
-			inherited[names[0].Name] = bindingGuards[fn.Name.Name]
-			ast.Inspect(fn.Body, visit)
+			walkFile(path, fn, names[0].Name, prefix, bindingGuards[fn.Name.Name])
 		}
 	}
-	return dropShadowed(routes)
+	return dropShadowed(routes), unresolved
 }
 
 // joinPath puts one path segment after another, tolerating a missing slash.

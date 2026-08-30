@@ -223,6 +223,15 @@ GUARD_BODY = (
     r"|^func\s+(?:\([^)]*\)\s*)?{name}\b"
 )
 
+# A called name inside a guard's body, and the words that are never a helper -
+# control flow, and the error-construction calls every guard makes.
+CALLED_NAME = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+NOT_A_HELPER = {
+    "if", "for", "while", "switch", "return", "func", "print", "println",
+    "len", "make", "new", "append", "range", "defer", "go", "panic", "recover",
+    "string", "int", "bool", "error", "errors", "fmt", "require", "assert",
+}
+
 # The start of the next top-level definition, which is where the previous one's
 # body ends closely enough for a text scan.
 NEXT_DEFINITION = re.compile(
@@ -265,6 +274,15 @@ def guards_reading(root, names, headers):
     if not names or not headers:
         return set()
 
+    # The header name as a complete quoted string, which is how a header is
+    # actually asked for: r.Header.Get("Authorization"), request.header(
+    # "Authorization"), $request->header('Authorization'). A bare substring
+    # match counted the words inside prose - convoy's guard qualified on the
+    # error message "authorization failed" rather than on reading anything, and
+    # got the right answer for a reason that would not survive a reword.
+    header_patterns = [re.compile(r"[\"'`]\s*" + re.escape(h) + r"\s*[\"'`]", re.I)
+                       for h in headers]
+
     sources = []
     for path in pathlib.Path(root).rglob("*"):
         if path.is_dir() or path.suffix.lower() not in GUARD_SUFFIXES:
@@ -275,12 +293,33 @@ def guards_reading(root, names, headers):
             text = path.read_text(errors="ignore")
         except OSError:
             continue
-        if any(h.lower() in text.lower() for h in headers):
+        if any(pattern.search(text) for pattern in header_patterns):
             sources.append(text)
 
-    def reads(text, start):
+    def reads_directly(body):
+        return any(pattern.search(body) for pattern in header_patterns)
+
+    def reads(text, start, depth=0):
+        """Whether this definition reads the credential, itself or through one
+        helper.
+
+        One level, because a guard that delegates is ordinary: convoy's
+        RequireAuth calls GetAuthFromRequest(r), and insisting the guard touch
+        the header itself found nothing in it. Only one level, because past that
+        the call graph reaches everything and every middleware would qualify.
+        """
         body = _definition_body(text, start)
-        return any(h.lower() in body.lower() for h in headers)
+        if reads_directly(body):
+            return True
+        if depth:
+            return False
+        for callee in set(CALLED_NAME.findall(body)) - NOT_A_HELPER:
+            pattern = re.compile(GUARD_BODY.format(name=re.escape(callee)), re.M)
+            for other in sources:
+                match = pattern.search(other)
+                if match and reads(other, match.end(), depth + 1):
+                    return True
+        return False
 
     found, exported = set(), set()
     for name in names:
@@ -665,13 +704,27 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
             "R1", severity=undocumented_severity(route, contract_middleware)))
 
     # R2 - documented in the spec, not registered in code.
+    #
+    # Where the extractor knows it could not read some registrations - a path
+    # the program computes at runtime, like vikunja's per-migrator
+    # g.GET("/"+ms.Name()+"/status") - a documented endpoint matching none of
+    # the routes it did read is at least as likely to be one of those as it is
+    # to be missing. The finding stays, because the alternative is silence about
+    # a real possibility, but it stops claiming certainty it does not have.
+    unreadable = table.get("unresolved") or []
     for key in sorted(unmatched_spec):
         path, method = key
+        note = ""
+        if unreadable:
+            where = ", ".join(f"{u['file']}:{u['line']}" for u in unreadable[:3])
+            note = (f". Note that {len(unreadable)} registration(s) in this "
+                    f"project build their path at runtime and could not be read "
+                    f"({where}); this endpoint may be one of them")
         findings.append(finding(
             path, method, "route_missing_from_code", "",
             f"spec documents {method.upper()} {path} but no route registers it"
-            f" ({spec.source})",
-            "R2"))
+            f" ({spec.source}){note}",
+            "R2", severity="medium" if unreadable else None))
 
     # Per-operation rules. Only where code and spec both describe the endpoint.
     for route_key, spec_key in sorted(paired):
@@ -908,11 +961,18 @@ def _operation_rules(path, method, route, operation, spec, facts, structs,
             continue  # only contract-bearing custom headers, not Content-Type
         if header.lower() in declared or header.lower() in described:
             continue
+        # An extra header is not the same fault as a missing one, and the
+        # severity table cannot tell them apart because both are this kind.
+        # A header the spec promises and the code never sets breaks an
+        # integrator reading it; a header the code sets and the spec never
+        # mentions is only undocumented. Ranking the second as critical put 49
+        # copies of one shared pagination handler at the top of a real report,
+        # above everything that actually breaks.
         out.append(finding(
             path, method, "response_header_mismatch", header,
             f"{facts['file']}:{facts['line']} {facts['name']} sets {header},"
             f" which appears nowhere in the documentation for this operation",
-            "R9"))
+            "R9", severity="medium"))
 
     return out
 
