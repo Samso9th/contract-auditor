@@ -31,6 +31,8 @@ test-tools: cases ## Verify the auditor's deterministic tools
 	@echo
 	@python3 auditor/tools/test_diff.py
 	@echo
+	@python3 auditor/test_init.py
+	@echo
 	@python3 auditor/test_verify.py
 	@echo
 	@python3 auditor/test_llm.py --offline

@@ -41,6 +41,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import textwrap
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
@@ -466,6 +467,13 @@ def contract_guards(root, table, headers, spec_keys=frozenset()):
     covering = sorted(name for name, count in documented.items()
                       if count >= best * 0.9)
     return covering, used, documented
+
+
+def comment(text, indent="          "):
+    """A reason, wrapped. A derivation worth writing down is worth reading, and
+    a 200 character line in a workflow file is not read by anybody."""
+    return [f"{indent}# {line}" for line in
+            textwrap.wrap(text, width=72 - len(indent)) or [""]]
 
 
 def render(findings):
