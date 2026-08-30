@@ -116,9 +116,122 @@ function normalisePath(string $path, string $strip): string
  * so the prefix in force depends on how many group closures are open. Brace
  * depth is tracked and the prefix stack popped as each closes.
  */
-function collectRoutes(array $tokens, string $rel, string $strip): array
+/**
+ * The prefix Laravel itself puts in front of a route file's paths.
+ *
+ * Nothing in routes/api.php says /api. The framework adds it when it loads the
+ * file, and where that is declared depends on the generation: Laravel 11 and
+ * later in bootstrap/app.php via withRouting(api: ...), everything before it in
+ * app/Providers/RouteServiceProvider.php via ->prefix('api'). Both were
+ * measured on real projects; one of each is in the test set.
+ *
+ * The declaration is what proves it, not the file name. A routes/api.php with
+ * no Laravel bootstrap above it is not a Laravel application and gets nothing,
+ * which is also what keeps this from rewriting a fixture that only borrows the
+ * layout. And because the prefix is configurable, it is read rather than
+ * assumed wherever the declaration names one.
+ */
+function laravelApiPrefix(string $absolute): string
+{
+    static $cache = [];
+
+    $dir = dirname($absolute);
+    for ($up = 0; $up < 8; $up++) {
+        if (is_file($dir . '/artisan') || is_file($dir . '/composer.json')) {
+            break;
+        }
+        $parent = dirname($dir);
+        if ($parent === $dir) {
+            return '';
+        }
+        $dir = $parent;
+    }
+    if (!is_file($dir . '/artisan') && !is_file($dir . '/composer.json')) {
+        return '';
+    }
+    if (array_key_exists($dir, $cache)) {
+        return $cache[$dir];
+    }
+
+    $prefix = '';
+    $bootstrap = @file_get_contents($dir . '/bootstrap/app.php');
+    if ($bootstrap !== false) {
+        if (preg_match('/apiPrefix\s*:\s*[\'"]([^\'"]+)/', $bootstrap, $m)) {
+            $prefix = '/' . trim($m[1], '/');
+        } elseif (preg_match('/\bapi\s*:\s*(__DIR__|base_path|\[)/', $bootstrap)) {
+            $prefix = '/api';
+        }
+    }
+    if ($prefix === '') {
+        $provider = @file_get_contents($dir . '/app/Providers/RouteServiceProvider.php');
+        if ($provider !== false && preg_match('/->prefix\(\s*[\'"]([^\'"]+)/', $provider, $m)) {
+            $prefix = '/' . trim($m[1], '/');
+        }
+    }
+
+    $cache[$dir] = $prefix;
+    return $prefix;
+}
+
+/**
+ * Whether this file is one Laravel loads as its API routes: routes/api.php, or
+ * the files a large project splits it into under routes/api/ and require()s
+ * from there.
+ */
+function implicitPrefix(string $absolute): string
+{
+    $normalised = str_replace('\\', '/', $absolute);
+    if (!preg_match('#(^|/)routes/api(\.php$|/)#', $normalised)) {
+        return '';
+    }
+    return laravelApiPrefix($absolute);
+}
+
+/**
+ * The prefix inside `Route::group(['prefix' => 'v1', ...], ...)`.
+ *
+ * Reads only the array literal that opens the group's argument list, and stops
+ * at its matching bracket, so a 'prefix' key belonging to something nested
+ * cannot be mistaken for this group's own.
+ */
+function groupArrayPrefix(array $tokens, int $i): ?string
+{
+    if (($tokens[$i + 1]['text'] ?? '') !== '(' || ($tokens[$i + 2]['text'] ?? '') !== '[') {
+        return null;
+    }
+    $depth = 0;
+    for ($j = $i + 2, $count = count($tokens); $j < $count; $j++) {
+        $text = $tokens[$j]['text'];
+        if ($text === '[') {
+            $depth++;
+            continue;
+        }
+        if ($text === ']') {
+            $depth--;
+            if ($depth === 0) {
+                return null;
+            }
+            continue;
+        }
+        if ($depth !== 1) {
+            continue;
+        }
+        if (stringValue($tokens[$j]) === 'prefix' && ($tokens[$j + 1]['text'] ?? '') === '=>') {
+            $literal = stringValue($tokens[$j + 2] ?? ['type' => 0, 'text' => '']);
+            if ($literal !== null) {
+                return '/' . trim($literal, '/');
+            }
+        }
+    }
+    return null;
+}
+
+function collectRoutes(array $tokens, string $rel, string $strip, string $absolute = ''): array
 {
     $routes = [];
+    // The absolute path, because the implicit prefix is decided by the file's
+    // place in the project and --dir may already point inside routes/.
+    $implicit = implicitPrefix($absolute !== '' ? $absolute : $rel);
     $prefixStack = [];        // ['prefix' => string, 'depth' => int]
     $depth = 0;
     $pendingPrefix = '';
@@ -133,7 +246,14 @@ function collectRoutes(array $tokens, string $rel, string $strip): array
         }
         if ($token['text'] === '}') {
             $depth--;
-            while ($prefixStack && end($prefixStack)['depth'] > $depth) {
+            // >= rather than >: a group is recorded at the depth of the
+            // `group(` token, which is outside the closure brace it opens, so
+            // its entry sits at the depth the closing brace returns to. With >
+            // the entry survived its own closure and every later sibling group
+            // inherited it, which compounded: two top-level groups both
+            // prefixed v1 produced /v1/v1. Harmless while array-form prefixes
+            // were being missed entirely, and wrong the moment they were read.
+            while ($prefixStack && end($prefixStack)['depth'] >= $depth) {
                 array_pop($prefixStack);
             }
             continue;
@@ -155,7 +275,19 @@ function collectRoutes(array $tokens, string $rel, string $strip): array
         }
 
         // group(...) opens a scope that owns whatever prefix was pending.
+        //
+        // Laravel spells a group's prefix two ways and both are current:
+        // Route::prefix('v1')->group(...), handled above, and the array form
+        // Route::group(['prefix' => 'v1'], ...). Reading only the chained one
+        // dropped the version segment from every route in a project using the
+        // other, which is most large Laravel codebases.
         if ($name === 'group') {
+            if ($pendingPrefix === '') {
+                $fromArray = groupArrayPrefix($tokens, $i);
+                if ($fromArray !== null) {
+                    $pendingPrefix = $fromArray;
+                }
+            }
             $inherited = $prefixStack ? end($prefixStack)['prefix'] : '';
             $prefixStack[] = ['prefix' => $inherited . $pendingPrefix, 'depth' => $depth];
             $pendingPrefix = '';
@@ -181,7 +313,7 @@ function collectRoutes(array $tokens, string $rel, string $strip): array
             }
             $routes[] = [
                 'method' => strtoupper($name === 'any' ? 'GET' : $name),
-                'path' => normalisePath($prefix . '/' . ltrim($literal, '/'), $strip),
+                'path' => normalisePath($implicit . $prefix . '/' . ltrim($literal, '/'), $strip),
                 'handler' => $handler,
                 'file' => $rel,
                 'line' => $token['line'],
@@ -363,7 +495,7 @@ foreach (sourceFiles($root) as $path) {
     if (!str_contains($source, 'Route::')) {
         continue;
     }
-    foreach (collectRoutes($tokens, $rel, $strip) as $route) {
+    foreach (collectRoutes($tokens, $rel, $strip, $path) as $route) {
         $key = $route['method'] . ' ' . $route['path'];
         if (isset($seen[$key])) {
             continue;

@@ -74,6 +74,51 @@ def fence_for(filename):
             ".py": "python", ".php": "php"}.get(pathlib.Path(filename).suffix, "")
 
 
+def what_was_compared(coverage):
+    """How much of the specification was checkable at all.
+
+    Without this, no findings in a category reads as agreement. It is often
+    absence: a document that says an operation returns "some object" cannot be
+    contradicted by any code, so the response rules pass in silence and the
+    silence flatters. Saying which promises were checkable is the difference
+    between a report that has looked and one that has only not complained.
+    """
+    if not coverage.get("operations"):
+        return []
+
+    operations = coverage["operations"]
+    matched = coverage.get("operations_matched", 0)
+    success = coverage.get("success_responses", 0)
+    typed = coverage.get("success_responses_with_schema", 0)
+
+    lines = ["## What was compared", "",
+             f"- {matched} of {operations} documented operation(s) were matched to a "
+             f"route in the code; {coverage.get('routes', 0)} route(s) were read."]
+
+    if success:
+        if not typed:
+            lines.append(
+                f"- **None of the {success} documented success response(s) declares a "
+                f"schema.** The response-shape and status rules had nothing to compare "
+                f"against, so their silence below is absence of a promise, not "
+                f"agreement with one.")
+        elif typed < success:
+            lines.append(
+                f"- {typed} of {success} documented success response(s) declare a "
+                f"schema. The response rules could only check those; for the other "
+                f"{success - typed} the document makes no checkable promise.")
+        else:
+            lines.append(
+                f"- All {success} documented success response(s) declare a schema, so "
+                f"the response rules had a promise to check on every one.")
+
+    if not coverage.get("parameters"):
+        lines.append("- No parameters are documented anywhere in the specification, so "
+                     "the request-parameter rules had nothing to compare.")
+
+    return lines + [""]
+
+
 def render(findings, name, meta, repo="", sha="", run_url=""):
     verified = [f for f in findings if f.get("verdict") == "confirmed"]
     counts = {}
@@ -98,7 +143,9 @@ def render(findings, name, meta, repo="", sha="", run_url=""):
              "come from comparing the code against the specification by parsing. Each "
              "is still a real disagreement, but check it yourself before changing "
              "anything."),
-            "", HOW_TO_DECIDE, "---", "", "## Findings", ""]
+            ""]
+    out += what_was_compared(meta.get("coverage") or {})
+    out += [HOW_TO_DECIDE, "---", "", "## Findings", ""]
 
     for index, f in enumerate(findings, 1):
         location = f"{f.get('file')}:{f.get('line')}" if f.get("file") else "location not resolved"

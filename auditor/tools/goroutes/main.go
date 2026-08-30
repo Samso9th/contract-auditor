@@ -274,6 +274,33 @@ func collectRoutes(fset *token.FileSet, files map[string]*ast.File, root string)
 					})
 				}
 
+			// chi's closure form, which is how chi's own documentation writes
+			// nesting:
+			//
+			//	r.Route("/v1", func(r chi.Router) { r.Get("/x", h) })
+			//
+			// The prefix binds to the closure's parameter rather than to a
+			// variable on the left of an assignment, so the assignment tracker
+			// above never saw it and every route in a project written this way
+			// came out at its bare path. One real repository's 171 routes
+			// shared four distinct paths between them and matched none of its
+			// 68 documented operations.
+			case (name == "Route" || name == "Group") && len(call.Args) >= 1:
+				inner, ok := prefix, true
+				if name == "Route" {
+					var lit string
+					lit, ok = stringArg(call.Args[0])
+					inner = prefix + lit
+				}
+				if ok {
+					if fn, isFunc := call.Args[len(call.Args)-1].(*ast.FuncLit); isFunc {
+						params := fn.Type.Params
+						if params != nil && len(params.List) == 1 && len(params.List[0].Names) == 1 {
+							prefixes[params.List[0].Names[0].Name] = inner
+						}
+					}
+				}
+
 			case (name == "HandleFunc" || name == "Handle") && len(call.Args) >= 1:
 				if lit, ok := stringArg(call.Args[0]); ok {
 					method, routePath := splitPattern(lit)
@@ -332,11 +359,30 @@ func splitPattern(pattern string) (string, string) {
 	return "ANY", pattern
 }
 
+// receiverName is the name an expression ultimately refers to, looking through
+// chi's per-route middleware chain:
+//
+//	projectRouter.With(RequireEnabledProject()).Put("/", handler.UpdateProject)
+//
+// .With() returns a router, so the receiver of .Put is a call rather than a
+// name and the prefix bound to projectRouter was lost. What that dropped was
+// precisely the guarded routes - 48 of one repository's 68 documented
+// operations - which are the ones an audit most needs to see.
 func receiverName(expr ast.Expr) string {
-	if ident, ok := expr.(*ast.Ident); ok {
-		return ident.Name
+	for {
+		switch node := expr.(type) {
+		case *ast.Ident:
+			return node.Name
+		case *ast.CallExpr:
+			sel, ok := node.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "With" {
+				return ""
+			}
+			expr = sel.X
+		default:
+			return ""
+		}
 	}
-	return ""
 }
 
 func stringArg(expr ast.Expr) (string, bool) {

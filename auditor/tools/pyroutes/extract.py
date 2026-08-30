@@ -191,7 +191,7 @@ def collect(root):
             continue
 
         rel = str(path.relative_to(root))
-        routes, mounts, imports = [], [], {}
+        routes, mounts, imports, own_prefixes = [], [], {}, {}
 
         for node in ast.walk(tree):
             # `from .customers import router as customers_router`
@@ -199,6 +199,25 @@ def collect(root):
                 module = getattr(node, "module", None) or ""
                 for alias in node.names:
                     imports[alias.asname or alias.name] = module
+
+            # `router = APIRouter(prefix="/workspaces")`, and the Flask
+            # Blueprint equivalent. A router carries its own prefix as well as
+            # the one it is mounted under, and both frameworks concatenate the
+            # two. Reading only the mount lost the inner half of every path in
+            # a project that declares it this way - 52 of one repository's 53
+            # endpoints - and that is the documented FastAPI idiom for a
+            # versioned API, not an unusual style.
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+                called = node.value.func
+                constructor = (called.attr if isinstance(called, ast.Attribute)
+                               else getattr(called, "id", ""))
+                if constructor in ("APIRouter", "Blueprint"):
+                    own = (keyword_value(node.value, "prefix")
+                           or keyword_value(node.value, "url_prefix") or "")
+                    if isinstance(own, str) and own:
+                        for target in node.targets:
+                            if isinstance(target, ast.Name):
+                                own_prefixes[target.id] = own
 
             # include_router / register_blueprint carry the prefix.
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
@@ -247,7 +266,7 @@ def collect(root):
                         })
 
         per_file[rel] = {"routes": routes, "mounts": mounts, "imports": imports,
-                         "tree": tree, "path": path}
+                         "own_prefixes": own_prefixes, "tree": tree, "path": path}
     return per_file
 
 
@@ -358,7 +377,8 @@ def main():
     for rel, data in sorted(per_file.items()):
         for route in data["routes"]:
             prefix = prefixes.get(route["owner"], "")
-            full = normalise(prefix + route["path"], args.strip_prefix)
+            own = data["own_prefixes"].get(route["owner"], "")
+            full = normalise(prefix + own + route["path"], args.strip_prefix)
             key = (route["method"], full)
             if key in seen:
                 continue

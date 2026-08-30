@@ -186,6 +186,11 @@ GUARD_DEFINITION = (
     r"^export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class)\s+{name}\b"
     r"|^export\s*\{{[^}}]*\b{name}\b[^}}]*\}}"
     r"|^(?:module\.)?exports\.{name}\s*="
+    # `module.exports = { validApiKey }`, which is how CommonJS actually
+    # exports a middleware. Without this line the dominant export style in
+    # JavaScript matched nothing, so every guard in such a project was invisible
+    # and its whole dashboard read as part of the published API.
+    r"|^(?:module\.)?exports\s*=\s*\{{[^}}]*\b{name}\b"
     r"|^def\s+{name}\b"
     r"|^func\s+(?:\([^)]*\)\s*)?{name}\b"
 )
@@ -252,8 +257,219 @@ def path_excluded(path, patterns):
     return False
 
 
+def _canonical(path):
+    """The path with a trailing slash removed.
+
+    Express, Flask, chi and Laravel all answer /tags and /tags/ with the same
+    handler. OpenAPI treats them as two paths. So a router written without them
+    and a document written with them describe one API and share not a single
+    key, which reads as every endpoint being both undocumented and
+    unimplemented.
+    """
+    return path.rstrip("/") or "/"
+
+
+def _shape(path):
+    """The path with parameter names erased: /vault/{filename} -> /vault/{}.
+
+    Nothing requires the name in the code to be the name in the document, and
+    an unnamed splat has no name to agree on: /vault/* is registered by Express
+    and documented as /vault/{filename}. The segments and their order are what
+    identify an endpoint; what the parameter is called is not.
+    """
+    return re.sub(r"\{[^}]*\}", "{}", _canonical(path))
+
+
+def _unique_index(keys, normalise):
+    """Normalised key -> the single key that has it.
+
+    A normalised key claimed by two keys is dropped rather than resolved. That
+    is the whole safety property of looser matching: it may pair two spellings
+    of one endpoint, and must never merge two endpoints that are genuinely
+    different. A spec really can document /vault/{filename} and
+    /vault/{pathToDirectory}/ as separate operations, and this is what stops
+    them collapsing into one.
+    """
+    index, clashed = {}, set()
+    for path, method in keys:
+        norm = (normalise(path), method)
+        if norm in index:
+            clashed.add(norm)
+        index[norm] = (path, method)
+    return {k: v for k, v in index.items() if k not in clashed}
+
+
+WILDCARD = "{wildcard}"
+
+# A registration that answers every verb: chi and gorilla spell it ANY, Express
+# spells it ALL. Only one of the two was skipped, so a TypeScript project using
+# app.all() had it reported as an undocumented endpoint that no specification
+# could ever document, since there is no such method to write down.
+METHODLESS = {"ANY", "ALL"}
+
+
+def _splat_prefix(path):
+    """The literal prefix of a route registered with a trailing splat.
+
+    Express answers /vault/, /vault/note.md and /vault/dir/note.md from one
+    /vault/* registration, and a specification documents those as three
+    operations. One route implementing several documented operations is not
+    drift. Counting it as one undocumented route plus three unimplemented ones
+    is, and it was four of one repository's findings.
+
+    A splat at the root is a fallback handler rather than an endpoint, so it
+    covers nothing: letting /* absorb the whole specification would report a
+    catch-all as a complete implementation of it.
+    """
+    canonical = _canonical(path)
+    if not canonical.endswith("/" + WILDCARD):
+        return None
+    prefix = _canonical(canonical[: -len("/" + WILDCARD)])
+    return None if prefix == "/" else prefix
+
+
+def reconcile(route_keys, spec_keys):
+    """Pair each route with the operation or operations it implements.
+
+    Returns the pairs, the routes that matched nothing, and the operations that
+    matched nothing.
+
+    The two sides agree about an endpoint far more often than they agree on how
+    to write it down, and comparing them as strings counts every difference of
+    spelling twice: once as a route the spec forgot, once as an operation the
+    code never implemented. On the first real repository this was tried against
+    that was 21 of 23 endpoints, every one of them both implemented and
+    documented.
+
+    Four passes, each seeing only what the last left over, so a looser rule
+    never overrules a stricter one:
+
+        exact              /tags        == /tags
+        trailing slash     /tags        == /tags/
+        parameter names    /v/{file}    == /v/{name}
+        splat coverage     /v/*         covers /v/ and /v/{name}
+
+    The first three are one-to-one and refuse anything ambiguous. Only the
+    fourth is one-to-many, because only a splat genuinely serves many paths.
+    """
+    pairs = []
+    routes_left, spec_left = set(route_keys), set(spec_keys)
+
+    def take(route_key, spec_key):
+        pairs.append((route_key, spec_key))
+        routes_left.discard(route_key)
+        spec_left.discard(spec_key)
+
+    for key in sorted(routes_left & spec_left):
+        take(key, key)
+
+    for normalise in (_canonical, _shape):
+        by_route = _unique_index(routes_left, normalise)
+        by_spec = _unique_index(spec_left, normalise)
+        for norm, route_key in sorted(by_route.items()):
+            spec_key = by_spec.get(norm)
+            if spec_key is not None:
+                take(route_key, spec_key)
+
+    # Method-less registrations go last. app.all('/vault/*') and app.get(
+    # '/vault/*') can both claim GET /vault/{file}, and the one that named the
+    # verb is the better claim; letting the catch-all go first leaves the
+    # specific route with nothing to pair with and reports it as undocumented.
+    for route_key in sorted(routes_left,
+                            key=lambda k: (k[1].upper() in METHODLESS, k)):
+        path, method = route_key
+        prefix = _splat_prefix(path)
+        methodless = method.upper() in METHODLESS
+        if prefix is None and not methodless:
+            continue
+
+        def serves(spec_key):
+            spec_path, spec_method = spec_key
+            # app.all('/mcp') answers GET and POST there, so it implements both
+            # of the operations the spec documents at that path.
+            if not methodless and spec_method != method:
+                return False
+            if prefix is not None:
+                canonical = _canonical(spec_path)
+                return canonical == prefix or canonical.startswith(prefix + "/")
+            return _shape(spec_path) == _shape(path)
+
+        for spec_key in sorted(key for key in spec_left if serves(key)):
+            take(route_key, spec_key)
+
+    return pairs, routes_left, spec_left
+
+
+# Paths that are undocumented on purpose in nearly every project: the docs UI
+# itself, the health check a load balancer calls, the files a browser asks for
+# without being told to.
+INCIDENTAL_PATHS = (
+    "/robots.txt", "/favicon.ico", "/manifest.json", "/sitemap.xml",
+    "/health", "/healthz", "/readyz", "/livez", "/ping", "/status", "/metrics",
+    "/docs", "/redoc", "/swagger", "/swagger-ui", "/openapi.json",
+    "/openapi.yaml", "/openapi.yml", "/swagger.json", "/swagger.yaml",
+    "/.well-known",
+)
+
+
+def undocumented_severity(route, contract_middleware):
+    """How much an undocumented route matters, which is not the same for all of
+    them.
+
+    With contract-middleware set, every route still in the table is inside the
+    published contract by construction, so one the spec omits is a real hole in
+    that contract: high.
+
+    Without it the table is the whole codebase, most of which was never meant to
+    be published, and there is no signal here saying which is which. Calling all
+    of it high is what turned a first run on a real repository into 277 findings
+    of identical weight, the route serving the documentation among them. The
+    finding is still true and still reported; what changes is that the reader is
+    no longer told a favicon and an unpublished payments endpoint are the same
+    size of problem.
+    """
+    if contract_middleware:
+        return "high"
+    path = _canonical((route.get("path") or "").lower())
+    if path == "/" or any(path == p or path.startswith(p + "/")
+                          for p in INCIDENTAL_PATHS):
+        return "low"
+    return "medium"
+
+
+def assertion_coverage(spec, spec_keys, paired):
+    """What the specification actually asserts, and how much of it was checked.
+
+    No findings in a category means one of two opposite things: the code agreed
+    with the specification, or the specification said nothing to disagree with.
+    A report that renders them identically is quietly telling the reader the
+    more flattering one.
+
+    This is not a rare edge. On the first real repository audited, not one of 63
+    documented success responses carried a schema. Every response rule was
+    silent and the report read as a clean bill of health, when the truthful
+    summary was that the document makes almost no checkable promise about what
+    comes back.
+    """
+    matched = {spec_key for _, spec_key in paired}
+    counts = {"operations": len(spec_keys), "operations_matched": len(matched),
+              "success_responses": 0, "success_responses_with_schema": 0,
+              "error_responses": 0, "error_responses_with_schema": 0,
+              "parameters": 0}
+    for key in spec_keys:
+        operation = spec[key]
+        counts["parameters"] += len(operation.get("params") or [])
+        for code, response in (operation.get("responses") or {}).items():
+            described = bool(response.get("properties")
+                             or response.get("schema_name"))
+            bucket = "success" if str(code).startswith("2") else "error"
+            counts[f"{bucket}_responses"] += 1
+            counts[f"{bucket}_responses_with_schema"] += int(described)
+    return counts
+
+
 def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
-          contract_middleware=()):
+          contract_middleware=(), coverage=None):
     """Run every deterministic rule. Returns a list of findings.
 
     A language whose adapter supplies no handler facts - TypeScript today - gets
@@ -307,57 +523,67 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
                 "middleware is extracted for TypeScript today; leave the input unset "
                 "for other languages and use exclude-paths instead.")
         wanted = set(contract_middleware)
+        # An endpoint the spec documents is inside the contract whatever guards
+        # it, because the spec is the contract. Dropping it for carrying the
+        # wrong guard would silently delete the two findings this input exists
+        # to make possible: a documented endpoint registered with no guard at
+        # all, and one guarded by something that answers a different credential.
+        documented = {route_key for route_key, _ in
+                      reconcile(set(routes), spec_keys)[0]}
         outside = {key for key, route in routes.items()
-                   if not wanted & set(route.get("middleware") or ())}
+                   if not wanted & set(route.get("middleware") or ())
+                   and key not in documented}
         if not set(routes) - outside:
             raise RouteExtractionError(
                 f"contract-middleware {sorted(wanted)} matched no route. The names "
                 f"are the identifiers as they appear in the registration, e.g. "
                 f"'authenticate' in router.get('/x', authenticate, handler).")
-        # Dropped from both sides by exact endpoint, so an operation the spec
-        # documents and a non-contract guard protects does not then read as
-        # missing from the code.
+        # Only the routes leave. Everything the spec documents stays on both
+        # sides, so nothing it promises can go unaudited.
         routes = {k: v for k, v in routes.items() if k not in outside}
-        spec_keys -= outside
 
     auth_headers = auth_header_names(spec)
 
     findings = []
 
+    # Which route implements which operation, before any rule runs. The two
+    # sides spell the same endpoint differently far more often than they
+    # disagree about it, so this is settled once rather than by each rule.
+    paired, unmatched_routes, unmatched_spec = reconcile(set(routes), spec_keys)
+
     # R1 - registered in code, absent from the spec.
-    for key, route in sorted(routes.items()):
-        if key in spec:
-            continue
-        if route["method"] == "ANY":
+    for key in sorted(unmatched_routes):
+        route = routes[key]
+        if route["method"] in METHODLESS:
             continue  # a method-less pattern cannot be matched to one operation
         findings.append(finding(
             route["path"], route["method"], "route_missing_from_spec", "",
             f"{route['file']}:{route['line']} registers {route['method']} {route['path']}"
             f" (handler {route['handler']}), which the spec does not document",
-            "R1"))
+            "R1", severity=undocumented_severity(route, contract_middleware)))
 
     # R2 - documented in the spec, not registered in code.
-    for key in sorted(spec_keys):
-        if key not in routes:
-            path, method = key
-            findings.append(finding(
-                path, method, "route_missing_from_code", "",
-                f"spec documents {method.upper()} {path} but no route registers it"
-                f" ({spec.source})",
-                "R2"))
+    for key in sorted(unmatched_spec):
+        path, method = key
+        findings.append(finding(
+            path, method, "route_missing_from_code", "",
+            f"spec documents {method.upper()} {path} but no route registers it"
+            f" ({spec.source})",
+            "R2"))
 
     # Per-operation rules. Only where code and spec both describe the endpoint.
-    for key in sorted(set(routes) & spec_keys):
-        path, method = key
-        route = routes[key]
-        operation = spec[key]
+    for route_key, spec_key in sorted(paired):
+        path, method = route_key
+        route = routes[route_key]
+        operation = spec[spec_key]
         # Prefer the definition in the file that registered the route. Keying
         # only by name collides wherever a route function and the service it
         # calls share one, and the ambiguity guard then declines both.
         facts = (table.get("handlers_by_location") or {}).get(
             f"{route['file']}::{route['handler']}") or handlers.get(route["handler"])
         findings.extend(_operation_rules(path, method, route, operation, spec,
-                                         facts, structs, auth_headers))
+                                         facts, structs, auth_headers,
+                                         spec_key=spec_key))
 
     # R9/R10 - the route's guard against the security the spec declares.
     #
@@ -375,9 +601,9 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
         guarded_files = {r["file"] for r in extracted
                          if guard_names & set(r.get("middleware") or ())}
 
-        for key in sorted(set(routes) & spec_keys):
-            path, method = key
-            route, operation = routes[key], spec[key]
+        for route_key, spec_key in sorted(paired):
+            path, method = route_key
+            route, operation = routes[route_key], spec[spec_key]
             on_route = guard_names & set(route.get("middleware") or ())
 
             if operation["security"] and not on_route and route["file"] in guarded_files:
@@ -399,14 +625,24 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
                     f"is answered 401",
                     "R10", file=route["file"], line=route["line"]))
 
+    if coverage is not None:
+        coverage.update(assertion_coverage(spec, spec_keys, paired))
+        coverage["routes"] = len(routes)
+
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     findings.sort(key=lambda f: (order.get(f["severity"], 9), f["path"], f["method"]))
     return findings
 
 
-def _operation_rules(path, method, route, operation, spec, facts, structs, auth_headers):
+def _operation_rules(path, method, route, operation, spec, facts, structs,
+                     auth_headers, spec_key=None):
+    """path and method are the code's spelling, which is what a finding reports
+    and what a reader will search for. spec_key is the spec's spelling of the
+    same endpoint, which the two index lookups below need; the two differ
+    whenever a path parameter is named differently on each side."""
+    spec_key = spec_key or (path, method)
     out = []
-    success_codes = spec.success_codes((path, method))
+    success_codes = spec.success_codes(spec_key)
     if facts and facts.get("ambiguous"):
         facts = None
 
@@ -477,7 +713,7 @@ def _operation_rules(path, method, route, operation, spec, facts, structs, auth_
         return out
 
     # R5/R6 - status codes the handler can actually emit.
-    documented_codes = set(spec.status_codes((path, method)))
+    documented_codes = set(spec.status_codes(spec_key))
     # A framework that declares the success status on the route decorator rather
     # than in the body (FastAPI's status_code=) reports it there, not in the
     # handler facts. Either source is the code's own statement of intent.
@@ -575,14 +811,17 @@ def main():
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
+    coverage = {}
     try:
         findings = audit(args.source, args.spec, args.strip_prefix, args.language,
-                         args.exclude_paths, args.contract_middleware)
+                         args.exclude_paths, args.contract_middleware,
+                         coverage=coverage)
     except (RouteExtractionError, SpecError) as exc:
         sys.exit(f"error: {exc}")
 
     if args.json:
-        print(json.dumps({"findings": findings}, indent=2))
+        print(json.dumps({"findings": findings,
+                          "meta": {"coverage": coverage}}, indent=2))
         return
 
     if not findings:
