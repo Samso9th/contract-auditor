@@ -65,6 +65,16 @@ SPEC_NAMES = ("openapi.json", "openapi.yaml", "openapi.yml",
 SPEC_DIRS = (".", "docs", "api", "spec", "mintlify", "public", "static",
              "openapi", "doc")
 
+# Directories whose OpenAPI documents describe something other than this
+# project's API: a sample another team is meant to copy, a fixture a test feeds
+# to a parser. Richest-wins is the right rule among a project's own documents
+# and the wrong one across these - openai/chatgpt-retrieval-plugin publishes a
+# one-operation spec at .well-known/ and carries a two-operation example beside
+# it, and counting operations alone chose the example.
+SPEC_SKIP_DIRS = {"examples", "example", "samples", "sample", "fixtures",
+                  "fixture", "testdata", "test", "tests", "__tests__", "e2e",
+                  "demo", "templates", "template"}
+
 # Ordered by how likely each is to be the directory that registers routes. The
 # first that yields routes wins ties, so a project with both src and app gets
 # the conventional answer for its language rather than the alphabetical one.
@@ -208,6 +218,14 @@ def find_specs(root):
                 consider(path)
     # Anything not in a conventional directory, so a spec at mintlify/v2/ or
     # docs/reference/ is still found rather than silently skipped.
+    if not out:
+        for path in walk(root):
+            if path.name in SPEC_NAMES and not (
+                    set(path.relative_to(root).parts[:-1]) & SPEC_SKIP_DIRS):
+                consider(path)
+    # Only if nothing else turned up at all. A sample spec is a poor guess, and
+    # still a better one than failing with "no OpenAPI document found" beside a
+    # file that plainly is one.
     if not out:
         for path in walk(root):
             if path.name in SPEC_NAMES:
