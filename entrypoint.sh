@@ -45,6 +45,7 @@ MODEL="$(input MODEL)"; MODEL="${MODEL:-z-ai/glm-5.3-flash}"
 # normally does, which is what the published numbers were measured under.
 REASONING="$(input REASONING)"
 WORKERS="$(input WORKERS)"; WORKERS="${WORKERS:-8}"
+VERIFY="$(input VERIFY)"
 FAIL_ON="$(input FAIL-ON)"; FAIL_ON="${FAIL_ON:-high}"
 SARIF="$(input SARIF-PATH)"; SARIF="${SARIF:-contract-audit.sarif}"
 SUMMARY="$(input SUMMARY-PATH)"; SUMMARY="${SUMMARY:-contract-audit.md}"
@@ -97,6 +98,14 @@ LANG_ARG=()
 REASONING_ARG=()
 [ -n "$REASONING" ] && REASONING_ARG=(--reasoning "$REASONING")
 
+# The gate generates a test per claim and runs it against the real handler, so a
+# claim that survives is a fact rather than a lead. Off by default because it
+# needs a package that builds in the runner, which not every checkout does.
+VERIFY_ARG=()
+case "$(printf '%s' "$VERIFY" | tr '[:upper:]' '[:lower:]')" in
+  true|yes|1|on) VERIFY_ARG=(--verify) ;;
+esac
+
 # An array rather than ${VAR:+...}: the value is multi-line by design, and word
 # splitting would turn one pattern per line into one pattern per word.
 EXCLUDE_ARG=()
@@ -118,12 +127,27 @@ if [ -n "${AUDITOR_MEMORY_URL:-}" ]; then
 else
   log "memory     off (no memory-url; set one to turn on self-improvement)"
 fi
+if [ ${#VERIFY_ARG[@]} -gt 0 ] || [ -n "${AUDITOR_MEMORY_URL:-}" ]; then
+  log "verify     on (every claim is executed against the real handler)"
+else
+  log "verify     off (findings are reported unverified; set verify: true)"
+fi
 
 # No key means the deterministic layer only. That is a genuinely useful mode:
 # it catches most drift, costs nothing, and needs no secret, so it runs rather
 # than failing the job.
 if [ -z "${OPENROUTER_API_KEY:-}" ]; then
   log "no api-key supplied, running the deterministic layer only (no model calls)"
+  # A secret that exists but cannot be reached interpolates to an empty string,
+  # which arrives here indistinguishable from no secret at all. This is the one
+  # line anybody reads when that happens, so it names where the secret has to
+  # live: an environment secret is invisible to a job that does not opt into
+  # that environment, and Settings -> Environments is a plausible place to have
+  # put it.
+  log "           if you did set one: it belongs in Settings -> Secrets and"
+  log "           variables -> Actions. A secret stored on a GitHub Environment"
+  log "           reaches a job only if the job declares 'environment: <name>',"
+  log "           and interpolates to an empty string otherwise."
   python3 "$AUDITOR/auditor/tools/diff.py" "$SOURCE_DIR" "$SPEC" \
       ${STRIP_PREFIX:+--strip-prefix "$STRIP_PREFIX"} "${LANG_ARG[@]}" \
       "${EXCLUDE_ARG[@]}" --json > "$OUT_DIR/report.json"
@@ -131,7 +155,7 @@ else
   python3 "$AUDITOR/auditor/run.py" --repo "$SOURCE_DIR" --spec "$SPEC" \
       --model "$MODEL" --workers "$WORKERS" "${REASONING_ARG[@]}" \
       ${STRIP_PREFIX:+--strip-prefix "$STRIP_PREFIX"} "${LANG_ARG[@]}" \
-      "${EXCLUDE_ARG[@]}" --out "$OUT_DIR"
+      "${EXCLUDE_ARG[@]}" "${VERIFY_ARG[@]}" --out "$OUT_DIR"
 fi
 log "::endgroup::"
 

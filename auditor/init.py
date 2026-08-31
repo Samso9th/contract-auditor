@@ -47,7 +47,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 
 import languages  # noqa: E402
-from diff import auth_header_names, guards_reading, strip_factory  # noqa: E402
+from diff import (auth_header_names, guards_reading, select_app,  # noqa: E402
+                  strip_factory)
 from spec import load as load_spec  # noqa: E402
 
 # Directories that never hold a project's own route registrations, and are large
@@ -62,8 +63,8 @@ WORKFLOW_PATH = ".github/workflows/contract-audit.yml"
 
 SPEC_NAMES = ("openapi.json", "openapi.yaml", "openapi.yml",
               "swagger.json", "swagger.yaml", "swagger.yml")
-SPEC_DIRS = (".", "docs", "api", "spec", "mintlify", "public", "static",
-             "openapi", "doc")
+SPEC_DIRS = (".", ".well-known", "docs", "api", "spec", "mintlify", "public",
+             "static", "openapi", "doc")
 
 # Directories whose OpenAPI documents describe something other than this
 # project's API: a sample another team is meant to copy, a fixture a test feeds
@@ -191,7 +192,7 @@ def find_specs(root):
     A document that cannot be parsed is a different problem from one that does
     not exist, and only one of them is the reader's to fix.
     """
-    seen, out, rejected = set(), [], []
+    seen, out, rejected, passed_over = set(), [], [], []
 
     def consider(path):
         if path in seen:
@@ -220,8 +221,15 @@ def find_specs(root):
     # docs/reference/ is still found rather than silently skipped.
     if not out:
         for path in walk(root):
-            if path.name in SPEC_NAMES and not (
-                    set(path.relative_to(root).parts[:-1]) & SPEC_SKIP_DIRS):
+            if path.name in SPEC_NAMES:
+                where = set(path.relative_to(root).parts[:-1])
+                if where & SPEC_SKIP_DIRS:
+                    # Recorded, not forgotten. This is the document that used to
+                    # win on operation count, and a reader who knows it exists
+                    # needs to see that it was weighed and why it lost.
+                    passed_over.append(
+                        (path, sorted(where & SPEC_SKIP_DIRS)[0]))
+                    continue
                 consider(path)
     # Only if nothing else turned up at all. A sample spec is a poor guess, and
     # still a better one than failing with "no OpenAPI document found" beside a
@@ -230,7 +238,19 @@ def find_specs(root):
         for path in walk(root):
             if path.name in SPEC_NAMES:
                 consider(path)
-    return sorted(out, key=lambda row: -row[0]), rejected
+
+    # Reported even when a conventional directory already answered, because the
+    # document a reader wonders about is the one they know exists. Saying "the
+    # only OpenAPI document found here" beside a repository that plainly holds
+    # another one reads as a tool that did not look.
+    if out and not passed_over:
+        for path in walk(root):
+            if path.name in SPEC_NAMES and path not in seen:
+                where = set(path.relative_to(root).parts[:-1]) & SPEC_SKIP_DIRS
+                if where:
+                    passed_over.append((path, sorted(where)[0]))
+
+    return sorted(out, key=lambda row: -row[0]), rejected, passed_over
 
 
 def server_prefix(spec):
@@ -347,7 +367,7 @@ def routes_under(table, candidate):
     return [r for r in table["routes"] if (r.get("file") or "").startswith(prefix)]
 
 
-def pick_source(root, adapter, prefix, spec_keys=frozenset()):
+def pick_source(root, adapter, prefix, spec_keys=frozenset(), spec=None):
     """The directory whose routes best account for the specification.
 
     Not the directory with the most routes, which is what this used to choose.
@@ -369,12 +389,57 @@ def pick_source(root, adapter, prefix, spec_keys=frozenset()):
     answer this tool must never give.
     """
     conventional = SOURCE_CANDIDATES.get(adapter.NAME, (".",))
+    whole = route_table(adapter, root, prefix)
+
+    # The application the document was generated from, where the extractor can
+    # see application objects at all. This is the only non-circular answer
+    # available: a generated document copies the application's title, version,
+    # description and servers, so the program whose constructor matches them is
+    # the program the document describes. Every other rule here scores by route
+    # counts, and route counts cannot tell a production service from the example
+    # beside it - they favour the example, which has fewer routes to be wrong
+    # about.
+    if spec is not None and whole:
+        app_id, app_why = select_app(whole, spec)
+        if app_id:
+            app_file = (whole.get("apps") or {}).get(app_id, {}).get("file", "")
+            candidate = pathlib.PurePosixPath(app_file).parent.as_posix()
+            candidate = "." if candidate in ("", ".") else candidate
+            table = (whole if candidate == "."
+                     else route_table(adapter, (root / candidate).resolve(), prefix))
+            if table and table.get("routes"):
+                return (len(table["routes"]), candidate, table,
+                        f"{app_why}, so this is where the application the "
+                        f"specification describes is assembled.")
+
+    # Where the routes actually are. A manifest finds server/ only when server/
+    # carries one, and a repository whose single pyproject.toml sits at the root
+    # declares no unit below it - so every candidate collapsed to "." and the
+    # audit compared one application's specification against the union of every
+    # program in the tree. The registrations themselves are better evidence than
+    # any manifest: a directory that registers routes is a place an application
+    # is assembled, whatever it is called and whatever it does or does not ship.
+    registering = set()
+    for route in (whole or {}).get("routes") or []:
+        parts = pathlib.PurePosixPath(route.get("file") or "").parts[:-1]
+        for depth in (1, 2):
+            if len(parts) >= depth:
+                registering.add("/".join(parts[:depth]))
+
     candidates = list(dict.fromkeys(
         [c for c in conventional if (root / c).is_dir()]
         + sorted(service_roots(root, adapter), key=lambda c: (c.count("/"), c))
+        + sorted(registering, key=lambda c: (c.count("/"), c))
         + ["."]))
 
-    whole = route_table(adapter, root, prefix)
+    # Code under examples/, fixtures/ or demo/ is not this project's API, for
+    # the same reason a document under them is not its specification. Left in,
+    # it wins: the scoring rewards a directory with few routes the spec does not
+    # mention, and an example app is exactly that. Kept as a fallback only for
+    # the repository that has nothing else.
+    own = [c for c in candidates
+           if not (set(pathlib.PurePosixPath(c).parts) & SPEC_SKIP_DIRS)]
+    candidates = own or candidates
 
     scored = []
     for candidate in candidates:
@@ -398,10 +463,40 @@ def pick_source(root, adapter, prefix, spec_keys=frozenset()):
         return None
 
     if spec_keys and max(row[0] for row in scored):
-        covered, _, candidate, count = max(scored)
-        why = (f"{covered} of the spec's {len(spec_keys)} documented operation(s) "
-               f"are registered here, with fewer undocumented routes alongside "
-               f"them than any other candidate directory.")
+        best = max(scored)
+        covered, negative_extra, candidate, count = best
+        # Directories that scored identically. A tie is a real outcome here -
+        # several programs in one repository serve the same documented paths -
+        # and breaking it silently is how the audit ends up pointed at an
+        # example rather than the production application.
+        tied = [row for row in scored if (row[0], row[1]) == (covered, negative_extra)]
+        if len(tied) > 1:
+            # An example, a fixture or a demo is never the answer when anything
+            # else scored the same.
+            preferred = [row for row in tied
+                         if not (set(pathlib.PurePosixPath(row[2]).parts)
+                                 & SPEC_SKIP_DIRS)] or tied
+            covered, negative_extra, candidate, count = min(
+                preferred, key=lambda row: (row[2].count("/"), row[2]))
+        others = len(scored) - 1
+        if not others:
+            why = (f"{covered} of the spec's {len(spec_keys)} documented "
+                   f"operation(s) are registered here. It was the only candidate "
+                   f"directory, so nothing was ruled out - check it.")
+        elif len(tied) > 1:
+            names = ", ".join(sorted(row[2] for row in tied if row[2] != candidate))
+            why = (f"{covered} of the spec's {len(spec_keys)} documented "
+                   f"operation(s) are registered here, with {count - covered} "
+                   f"undocumented route(s) alongside them. {names} scored "
+                   f"identically - this repository holds more than one program "
+                   f"serving these paths - and this one was chosen for being "
+                   f"neither an example nor nested deeper. If the audit is about "
+                   f"the wrong program, that is the input to change.")
+        else:
+            why = (f"{covered} of the spec's {len(spec_keys)} documented "
+                   f"operation(s) are registered here, with {count - covered} "
+                   f"undocumented route(s) alongside them: fewer than any of the "
+                   f"{others} other candidate directories.")
     else:
         # Nothing matched anything, so the spec cannot arbitrate. Either the
         # prefix is wrong or this really is a wholly undocumented API, and both
@@ -548,7 +643,7 @@ def render(findings):
         "    runs-on: ubuntu-latest",
         "",
         "    steps:",
-        "      - uses: actions/checkout@v4",
+        "      - uses: actions/checkout@v5",
         "",
         "      - name: Audit code against the OpenAPI spec",
         "        id: audit",
@@ -586,7 +681,11 @@ def render(findings):
     lines += comment(
         "Paths to drop from the audit entirely, on both sides, for routes "
         "contract-middleware does not already separate. Matched after "
-        "strip-prefix is removed; a trailing /* covers the collection itself.")
+        "strip-prefix is removed; a trailing /* covers the collection itself. "
+        "For a single route left out of the spec on purpose, prefer a "
+        "`contract: internal` comment beside the registration itself: the "
+        "reason then travels with the code, is visible to whoever next reads "
+        "the route, and survives this file being regenerated.")
     lines += [
         "          # exclude-paths: |",
         "          #   /internal/*",
@@ -606,6 +705,17 @@ def render(findings):
         "          workers: '8'",
         "          # model: z-ai/glm-5.3-flash",
         "          # reasoning: medium",
+        "",
+    ]
+    lines += comment(
+        "The verification gate. Every claim gets a test generated for it, run "
+        "against the real handler, and is dropped if the test passes - so what "
+        "survives is a fact rather than a lead. It is off here because it needs "
+        "a checkout this runner can build; turn it on once that is true, and the "
+        "findings become worth acting on without reading each one first. "
+        "memory-url below turns it on regardless.")
+    lines += [
+        "          verify: false",
         "",
     ]
     lines += comment(
@@ -639,7 +749,7 @@ def render(findings):
         "",
         "      - name: Upload the fix brief",
         "        id: brief",
-        "        uses: actions/upload-artifact@v4",
+        "        uses: actions/upload-artifact@v5",
         "        if: always() && steps.audit.outputs.brief-dir != ''",
         "        with:",
         "          name: contract-audit-brief",
@@ -682,6 +792,9 @@ def render(findings):
         '          echo "path=contract-audit-comment.md" >> "$GITHUB_OUTPUT"',
         "",
         "      - name: Comment the summary on the pull request",
+        "        # The only step here still on a Node 20 runtime, which GitHub is",
+        "        # migrating away from. v2 is this action's current major; when it",
+        "        # ships one built on Node 24, bump it.",
         "        uses: marocchino/sticky-pull-request-comment@v2",
         "        if: always() && github.event_name == 'pull_request' "
         "&& steps.body.outputs.path != ''",
@@ -718,7 +831,7 @@ def inspect(root, branches=()):
             f"holding go.mod, package.json, pyproject.toml or artisan.")
     adapter = tied[0]
 
-    specs, rejected = find_specs(root)
+    specs, rejected, passed_over = find_specs(root)
     if not specs:
         if rejected:
             listed = "\n  ".join(
@@ -733,6 +846,27 @@ def inspect(root, branches=()):
             f"to audit code against until one exists.")
     operations, spec_path, spec = specs[0]
 
+    # Why this document and not another one. "The richest spec found" was true
+    # and useless: it did not say what it was richer than, and on a repository
+    # holding an example alongside the published contract it was the reason the
+    # audit was pointed at the example. Name the runner-up and name what was
+    # left out, so the choice can be overruled by reading one comment.
+    relative = spec_path.relative_to(root).as_posix()
+    if len(specs) > 1:
+        second_ops, second_path, _ = specs[1]
+        spec_why = (f"{operations} documented operation(s), against "
+                    f"{second_ops} in {second_path.relative_to(root).as_posix()} "
+                    f"and {len(specs) - 1} candidate(s) in all.")
+    else:
+        spec_why = (f"{operations} documented operation(s); the only OpenAPI "
+                    f"document found here.")
+    if passed_over:
+        listed = ", ".join(f"{path.relative_to(root).as_posix()} (under {where}/)"
+                           for path, where in passed_over[:3])
+        spec_why += (f" Not used: {listed} - a document under an example or "
+                     f"fixture directory describes something other than this "
+                     f"project's API, however many operations it has.")
+
     prefix = server_prefix(spec)
     spec_keys = set(spec.keys())
 
@@ -742,7 +876,7 @@ def inspect(root, branches=()):
     # document is the language the document is about.
     adapter, language_why = arbitrate(root, tied, prefix, spec_keys)
 
-    picked = pick_source(root, adapter, prefix, spec_keys)
+    picked = pick_source(root, adapter, prefix, spec_keys, spec)
     if picked is None:
         raise SystemExit(
             f"no routes extracted from any of "
@@ -787,8 +921,8 @@ def inspect(root, branches=()):
     return {
         "language": adapter.NAME,
         "language_why": language_why,
-        "spec": spec_path.relative_to(root).as_posix(),
-        "spec_why": f"{operations} documented operation(s), the richest spec found.",
+        "spec": relative,
+        "spec_why": spec_why,
         "source_dir": source_dir,
         "source_why": source_why,
         "strip_prefix": prefix,

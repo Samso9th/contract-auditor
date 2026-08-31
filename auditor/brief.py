@@ -30,6 +30,8 @@ import zipfile
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
+GENERATOR_NAMES = {"fastapi": "FastAPI"}
+
 HOW_TO_DECIDE = """## Before you change anything
 
 Each finding below is a place where the code and the published specification
@@ -91,9 +93,10 @@ def what_was_compared(coverage):
     success = coverage.get("success_responses", 0)
     typed = coverage.get("success_responses_with_schema", 0)
 
+    read = coverage.get("registrations") or coverage.get("routes", 0)
     lines = ["## What was compared", "",
              f"- {matched} of {operations} documented operation(s) were matched to a "
-             f"route in the code; {coverage.get('routes', 0)} route(s) were read."]
+             f"route in the code; {read} route(s) were read."]
 
     if success:
         if not typed:
@@ -113,14 +116,98 @@ def what_was_compared(coverage):
                 f"the response rules had a promise to check on every one.")
 
     if not coverage.get("parameters"):
-        lines.append("- No parameters are documented anywhere in the specification, so "
-                     "the request-parameter rules had nothing to compare.")
+        # "No parameters are documented anywhere" is true and reads as "this
+        # document promises nothing", which is a different claim and usually a
+        # false one: a spec with no path or query parameters routinely carries
+        # fully specified request bodies. Say which shapes were compared.
+        bodies = coverage.get("request_bodies") or 0
+        lines.append(
+            "- No path or query parameters are declared anywhere in the "
+            "specification, so the request-parameter rules had nothing to compare"
+            + (f"; the {bodies} documented request body schema(s) were compared "
+               f"instead." if bodies else "."))
+
+    if coverage.get("narrowed_to_app"):
+        lines.append(f"- {coverage['narrowed_to_app']}.")
+
+    if coverage.get("suppressed_generated_status"):
+        lines.append(
+            f"- {coverage['suppressed_generated_status']} undocumented 5xx "
+            f"status(es) were found and not reported. This specification is "
+            f"{GENERATOR_NAMES.get(coverage.get('generated_by'), 'generator')} "
+            f"output, and that "
+            f"generator never writes a 5xx the route did not declare, so the two "
+            f"sides never agreed and no change to the code would make them.")
+
+    if coverage.get("marked_internal"):
+        lines.append(
+            f"- {coverage['marked_internal']} route(s) carry a `contract: "
+            f"internal` marker beside the registration and were not reported as "
+            f"missing from the specification.")
 
     return lines + [""]
 
 
-def render(findings, name, meta, repo="", sha="", run_url=""):
+def how_it_was_established(findings, meta):
+    """Two independent facts, written as two sentences.
+
+    Whether a finding was proved by executing a test, and whether this run had
+    an API key, are not the same question. They were answered by one line -
+    "none confirmed" was rendered as "this run had no API key" - so a run that
+    had a key, called the model and came back with nothing to add reported
+    itself as having had no key at all. That is the worst thing a report can do:
+    it tells the reader a feature they have just configured and paid for is
+    still switched off.
+    """
     verified = [f for f in findings if f.get("verdict") == "confirmed"]
+    layers = meta.get("layers") or {}
+    # Older reports carry no layers block. Infer as narrowly as the data allows,
+    # and never from the verdicts.
+    agent_ran = layers.get("agent")
+    if agent_ran is None:
+        agent_ran = bool(meta.get("calls") or meta.get("model_calls"))
+    gate_ran = layers.get("gate")
+    if gate_ran is None:
+        gate_ran = bool(meta.get("verification"))
+
+    lines = []
+    if verified:
+        lines.append(f"{len(verified)} of them were proved by executing a test "
+                     f"against the real handler.")
+    elif gate_ran:
+        lines.append("Every claim went through the verification gate and none "
+                     "could be proved by executing a test; each finding below "
+                     "carries the verdict it was given.")
+    else:
+        lines.append("None were executed to prove them: the verification gate "
+                     "did not run, so findings come from comparing the code "
+                     "against the specification by parsing. Each is still a real "
+                     "disagreement, but check it yourself before changing "
+                     "anything. Set `verify: true` to put every claim through "
+                     "the gate.")
+
+    # The judgment pass, stated on its own terms. A key that was supplied and
+    # produced nothing is a result worth reading, not a missing feature.
+    if agent_ran:
+        claims = meta.get("agent_claims")
+        judged = meta.get("endpoints_judged")
+        where = f" over {judged} endpoint(s)" if judged else ""
+        if claims == 0:
+            lines.append(f"The judgment pass ran{where} and added nothing to what "
+                         f"the deterministic rules found.")
+        elif claims:
+            lines.append(f"The judgment pass ran{where} and contributed "
+                         f"{claims} of these.")
+        else:
+            lines.append(f"The judgment pass ran{where}.")
+    else:
+        lines.append("This run had no API key, so only the deterministic layer "
+                     "ran: no endpoint was read by a model.")
+    return " ".join(lines)
+
+
+def render(findings, name, meta, repo="", sha="", run_url=""):
+    shipped = [f for f in findings if f.get("test_source")]
     counts = {}
     for f in findings:
         counts[f.get("severity", "medium")] = counts.get(f.get("severity", "medium"), 0) + 1
@@ -137,12 +224,7 @@ def render(findings, name, meta, repo="", sha="", run_url=""):
     out += ["",
             f"{len(findings)} finding(s) where the code and the published specification "
             f"disagree: {summary}.",
-            (f"{len(verified)} of them were proved by executing a test against the real "
-             f"handler." if verified else
-             "None were executed to prove them: this run had no API key, so findings "
-             "come from comparing the code against the specification by parsing. Each "
-             "is still a real disagreement, but check it yourself before changing "
-             "anything."),
+            how_it_was_established(findings, meta),
             ""]
     out += what_was_compared(meta.get("coverage") or {})
     out += [HOW_TO_DECIDE, "---", "", "## Findings", ""]
@@ -171,11 +253,26 @@ def render(findings, name, meta, repo="", sha="", run_url=""):
         out.append("---")
         out.append("")
 
-    out += ["## When you are done", "",
-            "Run the tests in `tests/` against your changes. Each one asserts what the "
-            "specification promises, so a passing test means that finding is resolved. "
-            "If you changed the specification instead of the code, regenerate the "
-            "specification and re-run the audit rather than editing the test.", ""]
+    # Only where tests were actually written. This used to close every brief,
+    # including the ones that shipped no tests at all, and a repository with its
+    # own tests/ directory sends the reader to real files that have nothing to
+    # do with the audit and pass whatever they change.
+    out += ["## When you are done", ""]
+    if shipped:
+        listed = ", ".join(f"`tests/{f.get('test_filename', 'contract_test')}`"
+                           for f in shipped)
+        out += [f"Run the {len(shipped)} test(s) this brief ships - {listed} - "
+                f"against your changes. Each asserts what the specification "
+                f"promises, so a passing test means that finding is resolved. If "
+                f"you changed the specification instead of the code, regenerate "
+                f"the specification and re-run the audit rather than editing the "
+                f"test.", ""]
+    else:
+        out += ["This brief ships no tests: nothing here was proved by execution, "
+                "so there is no generated test to run and this repository's own "
+                "test suite says nothing about these findings. Re-run the audit "
+                "once you have made a change, and check that the finding is gone.",
+                ""]
     return "\n".join(line for line in out if line is not None)
 
 

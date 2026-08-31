@@ -51,6 +51,117 @@ def extract(source_dir, strip_prefix="", language=None):
             f"Pass one explicitly: {', '.join(languages.names())}")
     return adapter.extract(source_dir, strip_prefix=strip_prefix)
 
+def _normalise_text(value):
+    return " ".join(str(value or "").split()).strip().lower()
+
+
+def select_app(table, spec):
+    """Which of several applications this specification describes.
+
+    A module routinely constructs more than one application object: a main one
+    carrying every route, and a second, narrower one that exists solely to
+    publish the schema integrators are given. They register handlers with
+    identical bodies under identical paths, so matching on the path alone picks
+    whichever came first and annotates a route the published document does not
+    describe.
+
+    The constructor settles it. A generated document copies the application's
+    title, version, description and servers into its info and servers blocks, so
+    the application whose constructor matches those is the one the document was
+    generated from. Where nothing matches, this declines: narrowing to the wrong
+    application is worse than not narrowing at all.
+    """
+    apps = table.get("apps") or {}
+    if len(apps) < 2:
+        return "", ""
+
+    info = spec.info()
+    scored = []
+    for app_id, meta in sorted(apps.items()):
+        matched = []
+        for field in ("title", "version", "description"):
+            value = _normalise_text(meta.get(field))
+            if value and value == _normalise_text(info.get(field)):
+                matched.append(field)
+        if set(meta.get("servers") or []) & set(info.get("servers") or []):
+            matched.append("servers")
+        if matched:
+            scored.append((len(matched), app_id, matched))
+
+    if not scored:
+        return "", ""
+    scored.sort(reverse=True)
+    best, runner_up = scored[0], (scored[1] if len(scored) > 1 else None)
+    if runner_up and runner_up[0] == best[0]:
+        return "", ""
+    _, app_id, matched = best
+    name = apps[app_id].get("name") or app_id
+    # The reason, without a clause about what the caller then does with it: the
+    # audit narrows a route table, init picks a source directory, and each says
+    # so in its own words.
+    return app_id, (f"{len(apps)} applications are constructed here and the "
+                    f"spec's {', '.join(matched)} match {name} at "
+                    f"{apps[app_id].get('file', '')}:"
+                    f"{apps[app_id].get('line', 0)}")
+
+
+def narrow_to_app(table, spec):
+    """Drop the routes of every application this specification does not describe.
+
+    Returns the table and the reason, which is empty when nothing was narrowed.
+    """
+    app_id, why = select_app(table, spec)
+    if not app_id:
+        return table, ""
+    kept = [r for r in (table.get("routes") or []) if r.get("app") == app_id]
+    if not kept:
+        return table, ""
+    narrowed = dict(table)
+    narrowed["routes"] = kept
+    narrowed["route_count"] = len(kept)
+    narrowed["audited_app"] = app_id
+    return narrowed, f"{why}, so only its routes were audited"
+
+
+# A route the project has declared internal on purpose. The alternative is
+# exclude-paths, which lives in the workflow file: far from the decision it
+# encodes, invisible to anyone reading the route, and lost the next time init
+# regenerates the workflow. This travels with the code.
+INTERNAL_MARKER = re.compile(r"(?:#|//|/\*|\*)\s*contract:\s*internal\b", re.I)
+COMMENT_OR_DECORATOR = re.compile(r"^\s*(?:#|//|/\*|\*|@)")
+
+
+def marked_internal(source_dir, route, cache=None):
+    """Whether the registration carries a `contract: internal` marker comment.
+
+    Read from the registration line itself and the block immediately above it -
+    comments, annotation lines and a Python decorator stack - stopping at the
+    first line that is none of those. A fixed lookback of a few lines reaches
+    past a short handler into the route before it, and a marker that silently
+    covers the neighbouring endpoint is worse than no marker at all.
+    """
+    file, line = route.get("file"), route.get("line") or 0
+    if not file or line <= 0:
+        return False
+    cache = {} if cache is None else cache
+    if file not in cache:
+        try:
+            cache[file] = (pathlib.Path(source_dir) / file).read_text().splitlines()
+        except (OSError, UnicodeDecodeError):
+            cache[file] = []
+    lines = cache[file]
+    if line > len(lines):
+        return False
+    if INTERNAL_MARKER.search(lines[line - 1]):
+        return True
+    index = line - 2
+    while index >= 0 and COMMENT_OR_DECORATOR.match(lines[index]):
+        if INTERNAL_MARKER.search(lines[index]):
+            return True
+        index -= 1
+    return False
+
+
 SEVERITY = {
     "route_missing_from_spec": "high",
     "route_missing_from_code": "high",
@@ -596,10 +707,16 @@ def assertion_coverage(spec, spec_keys, paired):
     counts = {"operations": len(spec_keys), "operations_matched": len(matched),
               "success_responses": 0, "success_responses_with_schema": 0,
               "error_responses": 0, "error_responses_with_schema": 0,
-              "parameters": 0}
+              "parameters": 0, "request_bodies": 0}
     for key in spec_keys:
         operation = spec[key]
         counts["parameters"] += len(operation.get("params") or [])
+        # Counted separately from parameters. An operation can declare no path
+        # or query parameter and still specify its request exactly, and a report
+        # that mentions only the empty half tells the reader the document
+        # promises nothing about the request.
+        counts["request_bodies"] += int(bool(operation.get("request_properties")
+                                             or operation.get("request_schema_name")))
         for code, response in (operation.get("responses") or {}).items():
             described = bool(response.get("properties")
                              or response.get("schema_name"))
@@ -620,6 +737,10 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
     table = extract(source_dir, strip_prefix=strip_prefix, language=language)
     spec = load_spec(spec_path)
 
+    # A repository holding several applications is several APIs. Audit the one
+    # this document describes, not the union of all of them.
+    table, narrowed_why = narrow_to_app(table, spec)
+
     structs = table.get("structs") or {}
     handlers = table.get("handlers") or {}
     extracted = table.get("routes") or []
@@ -633,7 +754,18 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
             f"the directory containing your route registrations, and that the "
             f"language was detected correctly.")
 
-    routes = {(r["path"], r["method"].lower()): r for r in extracted}
+    # One entry per endpoint, but never at the cost of the locations. Where
+    # several applications register the same path, the others are recorded on
+    # the survivor so a finding can name all of them rather than whichever file
+    # happened to sort first.
+    routes = {}
+    for r in extracted:
+        key = (r["path"], r["method"].lower())
+        if key in routes:
+            routes[key].setdefault("also_at", []).append(
+                f"{r.get('file', '')}:{r.get('line', 0)}")
+            continue
+        routes[key] = dict(r)
 
     # Excluded paths leave the audit entirely, on both sides. A route the
     # operator has declared internal is not "missing from the spec", and the
@@ -698,14 +830,24 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
     paired, unmatched_routes, unmatched_spec = reconcile(set(routes), spec_keys)
 
     # R1 - registered in code, absent from the spec.
+    marker_cache, marked = {}, 0
     for key in sorted(unmatched_routes):
         route = routes[key]
         if route["method"] in METHODLESS:
             continue  # a method-less pattern cannot be matched to one operation
+        # A route the project has declared internal beside the registration
+        # itself. Only R1 is suppressed: the marker says "absent from the spec
+        # on purpose", which is a statement about documentation and not a
+        # licence to stop checking anything else about the endpoint.
+        if marked_internal(source_dir, route, marker_cache):
+            marked += 1
+            continue
+        elsewhere = route.get("also_at") or []
+        note = (f", and at {', '.join(elsewhere)}" if elsewhere else "")
         findings.append(finding(
             route["path"], route["method"], "route_missing_from_spec", "",
             f"{route['file']}:{route['line']} registers {route['method']} {route['path']}"
-            f" (handler {route['handler']}), which the spec does not document",
+            f" (handler {route['handler']}){note}, which the spec does not document",
             "R1", severity=undocumented_severity(route, contract_middleware)))
 
     # R2 - documented in the spec, not registered in code.
@@ -792,9 +934,24 @@ def audit(source_dir, spec_path, strip_prefix="", language=None, exclude=(),
                     f"is answered 401",
                     "R10", file=route["file"], line=route["line"]))
 
+    # A status a schema generator has no way to express is not drift: the two
+    # sides never agreed, and no run will ever make them. Dropped rather than
+    # downgraded, and counted, so the brief can say it was dropped and why.
+    suppressed = sum(1 for f in findings if f.get("generator_cannot_express"))
+    findings = [f for f in findings if not f.pop("generator_cannot_express", False)]
+
     if coverage is not None:
         coverage.update(assertion_coverage(spec, spec_keys, paired))
         coverage["routes"] = len(routes)
+        # Registrations, not endpoints. Where several applications register the
+        # same path these differ, and reporting only the collapsed count states
+        # that a repository has fewer routes than it has.
+        coverage["registrations"] = len(extracted)
+        coverage["generated_by"] = spec.generated_by()
+        coverage["suppressed_generated_status"] = suppressed
+        coverage["marked_internal"] = marked
+        if narrowed_why:
+            coverage["narrowed_to_app"] = narrowed_why
 
     order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     findings.sort(key=lambda f: (order.get(f["severity"], 9), f["path"], f["method"]))
@@ -907,16 +1064,25 @@ def _operation_rules(path, method, route, operation, spec, facts, structs,
             f" on success; spec documents {', '.join(success_codes)}",
             "R6"))
 
+    generated = spec.generated_by()
     for code in facts["statuses"]:
         if 200 <= code < 300:
             continue  # handled by R6, which is the more precise statement
         if str(code) in documented_codes:
             continue
-        out.append(finding(
+        entry = finding(
             path, method, "undocumented_status", str(code),
             f"{facts['file']}:{facts['line']} {facts['name']} can return {code},"
             f" which the spec does not document",
-            "R5"))
+            "R5")
+        # FastAPI's generator never writes a 5xx into the document unless the
+        # route declared one, so every project of this shape disagrees here on
+        # every run, forever. That is not drift; nothing changed and nothing
+        # can. Reporting it teaches a reader to skim the one category that
+        # would matter if a real finding ever appeared in it.
+        if generated == "fastapi" and code >= 500:
+            entry["generator_cannot_express"] = True
+        out.append(entry)
 
     # R7 - query parameters, both directions.
     documented_query = {p["name"] for p in operation["params"] if p["in"] == "query"}
@@ -1025,8 +1191,14 @@ def main():
         sys.exit(f"error: {exc}")
 
     if args.json:
+        # This entry point is the deterministic layer on its own: no model is
+        # called and no claim is executed. Said here so nothing downstream has
+        # to guess it from an absence of confirmed verdicts.
         print(json.dumps({"findings": findings,
-                          "meta": {"coverage": coverage}}, indent=2))
+                          "meta": {"coverage": coverage,
+                                   "layers": {"deterministic": True,
+                                              "agent": False, "gate": False}}},
+                         indent=2))
         return
 
     if not findings:
