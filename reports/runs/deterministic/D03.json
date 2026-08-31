@@ -6,7 +6,7 @@
       "method": "post",
       "kind": "route_missing_from_spec",
       "detail": "",
-      "severity": "high",
+      "severity": "medium",
       "evidence": "handlers/routes.go:11 registers POST /payouts/{id}/cancel (handler CancelPayout), which the spec does not document",
       "file": "handlers/routes.go",
       "line": 11,
