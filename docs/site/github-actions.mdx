@@ -276,12 +276,13 @@ integrated, so the brief asks the agent to decide explicitly and say why.
 | `language` | `auto` | `go`, `typescript`, or detect. |
 | `strip-prefix` | n/a | Prefix to strip so routes match spec paths. |
 | `contract-middleware` | n/a | Only audit routes guarded by these middleware, one name per line. Also enables the two guard rules. |
-| `exclude-paths` | n/a | Globs to leave out of the audit, one per line. Matched after `strip-prefix` is removed. |
+| `exclude-paths` | n/a | Globs to leave out of the audit, one per line. Matched after `strip-prefix` is removed. For a single route, a `# contract: internal` comment beside the registration does the same thing and keeps the reason with the code. |
 | `api-key` | n/a | Omit for deterministic-only: no cost, no secret. |
 | `base-url` | OpenRouter | Any OpenAI-compatible endpoint. |
 | `model` | `z-ai/glm-5.3-flash` | Any model id your endpoint serves. |
 | `reasoning` | n/a | `off`, `low`, `medium`, `high`. Slower and dearer; omit for the model's own default. |
 | `workers` | `8` | Concurrent model calls. Raise to shorten wall clock. |
+| `verify` | `false` | Put every claim through the verification gate: a test is generated for it, run against the real handler, and the claim dropped if it passes. Needs a checkout the runner can build. `memory-url` turns it on regardless. |
 | `fail-on` | `high` | `critical`, `high`, `medium`, `low`, `none`. |
 | `memory-url` | n/a | Turns on self-improvement. Storage you own; nothing is kept in your repo. |
 | `memory-key-id` | n/a | Access key id, or Cloudinary API key. Pass a secret. |

@@ -77,6 +77,15 @@ inputs:
     description: Concurrent model calls.
     required: false
     default: "8"
+  verify:
+    description: >-
+      Put every claim through the verification gate: generate a test for it, run
+      it against the real handler, and drop the claim if it passes. Needs a
+      package that builds in the runner. Off by default, which means findings
+      are reported unverified; memory-url turns it on regardless, since a claim
+      with no verdict teaches nothing.
+    required: false
+    default: "false"
   fail-on:
     description: >-
       Lowest severity that fails the job: critical, high, medium, low, or none.

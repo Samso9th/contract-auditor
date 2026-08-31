@@ -30,7 +30,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "tools"))
 from audit_endpoint import audit_endpoint  # noqa: E402
 from diff import audit as deterministic_audit  # noqa: E402
 from llm import DEFAULT_MODEL, DEFAULT_REASONING, REASONING_LEVELS  # noqa: E402
-from diff import extract, parse_excludes, parse_names, path_excluded  # noqa: E402
+from diff import (extract, narrow_to_app, parse_excludes, parse_names,  # noqa: E402
+                  path_excluded)
 import languages  # noqa: E402
 from spec import load as load_spec  # noqa: E402
 from verify import verify_claim  # noqa: E402
@@ -200,7 +201,8 @@ def audit_one(case_dir, model, pool, strip_prefix, language=None, memory=None,
     api, spec_path = case_paths(case_dir)
     spec = load_spec(spec_path)
     adapter = languages.get(language) if language else languages.detect(api)
-    table = extract(api, strip_prefix=strip_prefix, language=language)
+    table, _ = narrow_to_app(extract(api, strip_prefix=strip_prefix,
+                                     language=language), spec)
     started = time.time()
     repo = pathlib.Path(case_dir).name
 
@@ -238,6 +240,10 @@ def audit_one(case_dir, model, pool, strip_prefix, language=None, memory=None,
             "output_tokens": usage["output_tokens"],
             "deterministic_claims": len(mechanical),
             "agent_claims": len(judged),
+            # Stated, not inferred. See the note in main(): a consumer that
+            # works this out from the verdicts reads a clean judgment pass as a
+            # missing API key.
+            "layers": {"deterministic": True, "agent": True, "gate": True},
             "suppressed_by_allowlist": suppressed,
             "verification": stats,
             "dropped_by_gate": [
@@ -318,7 +324,12 @@ def main():
             sys.exit("--repo requires --spec")
         api = pathlib.Path(args.repo).resolve()
         spec = load_spec(args.spec)
-        table = extract(api, strip_prefix=args.strip_prefix, language=args.language)
+        # A repository holding several applications is several APIs. The agent
+        # is shown the one this document describes, exactly as the rules are.
+        table, narrowed_why = narrow_to_app(
+            extract(api, strip_prefix=args.strip_prefix, language=args.language), spec)
+        if narrowed_why:
+            log(f"app: {narrowed_why}")
         # Filtered here as well as inside the deterministic pass, so the model
         # is never shown a route the operator has already declared out of scope
         # and cannot spend a call raising a claim that would only be dropped.
@@ -347,6 +358,11 @@ def main():
         judged, usage = agent_pass(api, spec, table, mechanical, args.model, pool,
                                    adapter, memory, api.name, args.reasoning)
         log(f"agent: {len(judged)} claim(s), {usage['calls']} calls, ${usage['cost_usd']:.4f}")
+        usage["deterministic_claims"] = len(mechanical)
+        usage["agent_claims"] = len(judged)
+        usage["endpoints_judged"] = len(set(spec.keys()) &
+                                        {(r["path"], r["method"].lower())
+                                         for r in (table.get("routes") or [])})
 
         accepted = load_allowlist()
         claims = [c for c in mechanical + judged if not allowed(c, accepted)]
@@ -376,6 +392,15 @@ def main():
         else:
             log("note: findings are unverified; run with --verify, or configure memory, "
                 "to put each claim through the gate")
+
+        # Which layers ran, recorded rather than inferred. Every consumer used
+        # to work this out from the findings, and got it wrong the same way: no
+        # confirmed verdict was read as no API key, so a run that had a key,
+        # called the model and produced a clean judgment pass reported itself as
+        # having had no key at all. Whether a claim was executed and whether a
+        # key was present are independent facts and are now written as two.
+        usage["layers"] = {"deterministic": True, "agent": True,
+                           "gate": bool(args.verify or learning)}
 
         usage["memory"] = {"enabled": learning, "store": store.describe(),
                            "ledger_claims": len(memory.rows) if memory is not None else 0}

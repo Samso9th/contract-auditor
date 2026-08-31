@@ -56,6 +56,9 @@ class Spec:
         self.source = source
         self.components = document.get("components", {}).get("schemas", {})
         self.operations = {}
+        # Computed once. The status rules ask for it per operation, and the
+        # answer is a property of the whole document.
+        self._generator = None
         self._index()
 
     # -- $ref resolution -------------------------------------------------
@@ -233,6 +236,55 @@ class Spec:
 
     def success_codes(self, key):
         return [c for c in self.status_codes(key) if c.startswith("2")]
+
+    def info(self):
+        """title, version, description and server urls, as strings.
+
+        What a framework's schema generator copies out of the application object
+        it was pointed at, and therefore what identifies which application a
+        generated document describes.
+        """
+        info = self.document.get("info") or {}
+        servers = [str(s.get("url", "")) for s in (self.document.get("servers") or [])
+                   if isinstance(s, dict)]
+        return {"title": str(info.get("title", "")),
+                "version": str(info.get("version", "")),
+                "description": str(info.get("description", "")),
+                "servers": [u for u in servers if u]}
+
+    def generated_by(self):
+        """The framework whose schema generator wrote this document, if one did.
+
+        This changes what an absent response means. A hand-written document
+        omits a status because nobody wrote it down, and that is drift worth
+        reporting. A generated one omits every status the framework was not
+        explicitly told to declare - FastAPI never emits a 5xx unless the route
+        declares `responses={500: ...}` - so the two sides never agreed and
+        never could. Reporting that as drift is a false positive on every run
+        of every project of that shape, which teaches a reader to skim past the
+        category rather than read it.
+
+        FastAPI's operationId is `{function}_{path}_{method}`, which is why the
+        method suffix is the fingerprint: no hand-written document names its
+        operations that way twice by accident.
+        """
+        if self._generator is not None:
+            return self._generator
+        self._generator = self._detect_generator()
+        return self._generator
+
+    def _detect_generator(self):
+        generator = str((self.document.get("info") or {}).get("x-generator", ""))
+        if "fastapi" in generator.lower():
+            return "fastapi"
+        ids = [op["operation_id"] for op in self.operations.values() if op["operation_id"]]
+        if len(ids) < 1 or len(ids) < len(self.operations):
+            return ""
+        suffixes = tuple(f"_{m}" for m in
+                         ("get", "post", "put", "patch", "delete", "head", "options"))
+        if all(i.endswith(suffixes) for i in ids):
+            return "fastapi"
+        return ""
 
 
 def _load_json(text, path):

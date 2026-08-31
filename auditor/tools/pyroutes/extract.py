@@ -215,8 +215,49 @@ def returned_shape(fn, functions, depth=0):
     return None
 
 
+# The ASGI/WSGI application objects a project constructs. A repository that
+# holds four independent FastAPI programs is four APIs, not one, and a route
+# table that cannot tell them apart collapses them into a single surface: paths
+# that exist in each app are deduplicated down to one, and the location reported
+# for a finding is whichever file sorted first. One repository audited this way
+# reported 7 routes where 19 were registered, and never once named the
+# production application.
+APP_CONSTRUCTORS = ("FastAPI", "Flask", "Starlette", "Quart", "Sanic")
+
+
+def server_urls(call):
+    """The urls in a `servers=[{"url": "..."}]` constructor argument."""
+    out = []
+    for kw in call.keywords:
+        if kw.arg != "servers" or not isinstance(kw.value, (ast.List, ast.Tuple)):
+            continue
+        for element in kw.value.elts:
+            if not isinstance(element, ast.Dict):
+                continue
+            for key, value in zip(element.keys, element.values):
+                if literal(key) == "url" and literal(value) is not None:
+                    out.append(literal(value))
+    return out
+
+
+def app_metadata(call):
+    """The constructor kwargs that a generated specification echoes back.
+
+    FastAPI writes title, version and description straight into the document's
+    info block and servers into its servers block, so these are what identify
+    which of several applications a given specification was generated from.
+    """
+    return {
+        "title": keyword_value(call, "title") or "",
+        "version": str(keyword_value(call, "version") or ""),
+        "description": keyword_value(call, "description") or "",
+        "servers": server_urls(call),
+    }
+
+
 def collect(root):
-    """Per file: routes declared, and routers mounted under a prefix."""
+    """Per file: routes declared, the applications constructed, and routers
+    mounted under a prefix."""
     files = source_files(root)
     per_file = {}
 
@@ -228,7 +269,7 @@ def collect(root):
 
         rel = str(path.relative_to(root))
         routes, mounts, imports, own_prefixes = [], [], {}, {}
-        own_guards, mount_guards = {}, {}
+        own_guards, mount_guards, apps = {}, {}, {}
 
         for node in ast.walk(tree):
             # `from .customers import router as customers_router`
@@ -248,6 +289,11 @@ def collect(root):
                 called = node.value.func
                 constructor = (called.attr if isinstance(called, ast.Attribute)
                                else getattr(called, "id", ""))
+                if constructor in APP_CONSTRUCTORS:
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            apps[target.id] = dict(app_metadata(node.value),
+                                                   line=node.lineno)
                 if constructor in ("APIRouter", "Blueprint"):
                     own = (keyword_value(node.value, "prefix")
                            or keyword_value(node.value, "url_prefix") or "")
@@ -266,7 +312,8 @@ def collect(root):
                 if name in ("include_router", "register_blueprint") and node.args:
                     prefix = keyword_value(node, "prefix") or keyword_value(node, "url_prefix") or ""
                     target = receiver(node.args[0])
-                    mounts.append({"prefix": prefix or "", "target": target})
+                    mounts.append({"prefix": prefix or "", "target": target,
+                                   "owner": receiver(node.func.value)})
                     guards = depends_names(node)
                     if guards and target:
                         mount_guards.setdefault(target, []).extend(guards)
@@ -323,7 +370,8 @@ def collect(root):
 
         per_file[rel] = {"routes": routes, "mounts": mounts, "imports": imports,
                          "own_prefixes": own_prefixes, "own_guards": own_guards,
-                         "mount_guards": mount_guards, "tree": tree, "path": path}
+                         "mount_guards": mount_guards, "apps": apps,
+                         "tree": tree, "path": path}
     return per_file
 
 
@@ -426,12 +474,43 @@ def main():
     # cross-module aliasing the AST cannot settle.
     prefixes = {}
     mounted_guards = {}
-    for data in per_file.values():
+    # Which application object a router was mounted on, so a route declared on a
+    # router can be traced back to the program that serves it.
+    mounted_on = {}
+    for rel, data in sorted(per_file.items()):
         for mount in data["mounts"]:
             if mount["target"]:
                 prefixes.setdefault(mount["target"], mount["prefix"])
+                if mount.get("owner"):
+                    mounted_on.setdefault(mount["target"], f"{rel}::{mount['owner']}")
         for target, guards in data["mount_guards"].items():
             mounted_guards.setdefault(target, guards)
+
+    apps = {}
+    for rel, data in sorted(per_file.items()):
+        for name, meta in data["apps"].items():
+            apps[f"{rel}::{name}"] = dict(meta, name=name, file=rel)
+
+    def app_of(rel, owner, depth=0):
+        """The application a route is registered on.
+
+        A decorator hangs off either the application itself or a router, and a
+        router reaches an application through the include_router that mounted
+        it. Two hops is enough for the routers-of-routers idiom without letting
+        a cycle in the mount graph run forever.
+        """
+        if not owner or depth > 3:
+            return ""
+        direct = f"{rel}::{owner}"
+        if direct in apps:
+            return direct
+        parent = mounted_on.get(owner)
+        if not parent:
+            return ""
+        if parent in apps:
+            return parent
+        parent_file, _, parent_name = parent.partition("::")
+        return app_of(parent_file, parent_name, depth + 1)
 
     routes, seen = [], set()
     for rel, data in sorted(per_file.items()):
@@ -445,7 +524,12 @@ def main():
                 mounted_guards.get(route["owner"], [])
                 + data["own_guards"].get(route["owner"], [])
                 + route.get("guards", [])))
-            key = (route["method"], full)
+            # Keyed by the application as well as the endpoint. Keyed by the
+            # endpoint alone, a repository holding several programs that each
+            # serve /query reports one /query, at whichever file sorted first,
+            # and every finding about it is attributed to the wrong program.
+            app = app_of(rel, route["owner"])
+            key = (app, route["method"], full)
             if key in seen:
                 continue
             seen.add(key)
@@ -453,15 +537,19 @@ def main():
                 "method": route["method"], "path": full,
                 "middleware": guards,
                 "handler": route["handler"], "file": rel, "line": route["line"],
-                "style": "python", "annotation": None,
+                "style": "python", "annotation": None, "app": app,
                 "status_code": route["status_code"], "is_async": route["is_async"],
                 "args": route.get("args", []),
             })
 
-    routes.sort(key=lambda r: (r["path"], r["method"]))
+    routes.sort(key=lambda r: (r["path"], r["method"], r.get("app", "")))
     print(json.dumps({
         "dir": str(root), "strip_prefix": args.strip_prefix, "language": "python",
         "routes": routes, "annotations_unrouted": [], "structs": {},
+        # What each application declared about itself. A generated document
+        # echoes these back in its info and servers blocks, which is what lets
+        # a specification be matched to the one program it describes.
+        "apps": apps,
         "handlers": handlers, "handlers_by_location": by_location,
         "route_count": len(routes), "routes_without_annotation": len(routes),
     }, indent=2))
