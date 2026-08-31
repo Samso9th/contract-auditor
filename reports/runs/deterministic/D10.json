@@ -7,7 +7,7 @@
       "kind": "response_header_mismatch",
       "detail": "X-Fixture-Signature",
       "severity": "critical",
-      "evidence": "handlers/misc.go:59 TestWebhook sets X-Fixture-Signature, which appears nowhere in the documentation for this operation",
+      "evidence": "handlers/misc.go:59 TestWebhook sets X-Fixture-Signature, which appears nowhere in the documentation for this operation; the spec names x-signature here and the handler sets none of them",
       "file": "handlers/misc.go",
       "line": 59,
       "rule": "R9",
