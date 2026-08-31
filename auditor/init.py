@@ -309,7 +309,14 @@ def arbitrate(root, tied, prefix, spec_keys):
         covered = len({(r["path"], r["method"].lower()) for r in routes} & spec_keys)
         scored.append((covered, len(routes), adapter))
 
-    covered, _, adapter = max(scored)
+    # Ordered on the numbers alone. A tuple ending in a module is only orderable
+    # while the numbers differ, and two candidates covering the same operations
+    # with the same route count is an ordinary tie - php and typescript on a
+    # Laravel repository with a package.json. Python then compared the modules
+    # themselves and init died with a TypeError on a repository it had already
+    # read correctly. Ties keep the order `tied` arrived in, which is by how
+    # decisive each language's marker was.
+    covered, _, adapter = max(scored, key=lambda row: (row[0], row[1]))
     others = ", ".join(f"{a.NAME} {c}" for c, _, a in scored if a is not adapter)
     if covered:
         return adapter, (f"{covered} of the spec's {len(spec_keys)} documented "
